@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{EguiContexts, egui};
+use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 
 use crate::input::tool::ToolKind;
 use crate::plugins::simulation::{SimEventLog, Simulation};
@@ -41,7 +41,7 @@ pub struct OverlayUiPlugin;
 impl Plugin for OverlayUiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ActiveTool::default())
-            .add_systems(Update, draw_ui);
+            .add_systems(EguiPrimaryContextPass, draw_ui);
     }
 }
 
@@ -52,10 +52,8 @@ fn draw_ui(
     mut speed: ResMut<SimSpeed>,
     sim: Res<Simulation>,
     log: Res<SimEventLog>,
-) {
-    let Ok(ctx) = contexts.ctx_mut() else {
-        return;
-    };
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
 
     // Left panel: tools
     egui::SidePanel::left("tools_panel")
@@ -133,4 +131,6 @@ fn draw_ui(
                     }
                 });
         });
+
+    Ok(())
 }
