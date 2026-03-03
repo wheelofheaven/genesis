@@ -11,6 +11,14 @@ use render::grid_render::GridRenderPlugin;
 use ui::overlay::OverlayUiPlugin;
 
 fn main() {
+    // Single-pass mode: multipass crashes on Metal/macOS.
+    // See https://github.com/bevyengine/bevy/issues/18149
+    #[allow(deprecated)]
+    let egui_plugin = EguiPlugin {
+        enable_multipass_for_primary_context: false,
+        ..default()
+    };
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -20,7 +28,7 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(EguiPlugin::default())
+        .add_plugins(egui_plugin)
         .add_plugins(SimulationPlugin)
         .add_plugins(GridRenderPlugin)
         .add_plugins(OverlayUiPlugin)
