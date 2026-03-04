@@ -2,8 +2,8 @@
 rust = "1.93.1"
 
 [tasks.run]
-description = "Run the game"
-run = "cargo run --package genesis-app"
+description = "Run the game (release, debug crashes on macOS 26)"
+run = "cargo run --package genesis-app --release"
 
 [tasks.build]
 description = "Build all crates"
