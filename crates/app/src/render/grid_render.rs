@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::plugins::simulation::Simulation;
 use crate::ui::overlay::OverlayMode;
@@ -15,12 +16,13 @@ impl Default for GridDisplay {
     }
 }
 
-/// Marker component for grid tile sprites.
+/// Handle to the grid texture.
+#[derive(Resource)]
+struct GridTexture(Handle<Image>);
+
+/// Marker for the grid sprite entity.
 #[derive(Component)]
-pub struct GridTile {
-    pub gx: u32,
-    pub gy: u32,
-}
+struct GridSprite;
 
 pub struct GridRenderPlugin;
 
@@ -28,117 +30,149 @@ impl Plugin for GridRenderPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(GridDisplay::default())
             .insert_resource(OverlayMode::default())
-            .add_systems(Startup, spawn_grid_tiles)
+            .add_systems(Startup, spawn_grid_texture)
             .add_systems(
                 Update,
-                (update_tile_colors, crate::input::tool::handle_mouse_input),
+                (update_grid_texture, crate::input::tool::handle_mouse_input),
             );
     }
 }
 
-fn spawn_grid_tiles(mut commands: Commands, sim: Res<Simulation>, display: Res<GridDisplay>) {
+fn spawn_grid_texture(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    sim: Res<Simulation>,
+    display: Res<GridDisplay>,
+) {
     let w = sim.0.grid.width;
     let h = sim.0.grid.height;
-    let half_w = w as f32 / 2.0;
-    let half_h = h as f32 / 2.0;
+
+    // Create an RGBA image for the grid.
+    let image = Image::new_fill(
+        Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[25, 50, 100, 255], // Dark ocean blue default
+        TextureFormat::Rgba8UnormSrgb,
+        default(),
+    );
+    // Explicitly set COPY_DST so we can update pixels each frame.
+    let mut image = image;
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
+    let image_handle = images.add(image);
+    commands.insert_resource(GridTexture(image_handle.clone()));
+
+    // Spawn a single sprite for the entire grid.
+    let sprite_width = w as f32 * display.cell_size;
+    let sprite_height = h as f32 * display.cell_size;
+
+    commands.spawn((
+        Sprite {
+            image: image_handle,
+            custom_size: Some(Vec2::new(sprite_width, sprite_height)),
+            image_mode: SpriteImageMode::default(),
+            ..default()
+        },
+        Transform::default(),
+        GridSprite,
+    ));
+}
+
+fn update_grid_texture(
+    sim: Res<Simulation>,
+    overlay: Res<OverlayMode>,
+    grid_tex: Res<GridTexture>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(image) = images.get_mut(&grid_tex.0) else {
+        return;
+    };
+
+    let w = sim.0.grid.width;
+    let h = sim.0.grid.height;
+
+    let Some(data) = image.data.as_mut() else {
+        return;
+    };
 
     for y in 0..h {
         for x in 0..w {
-            let px = (x as f32 - half_w) * display.cell_size;
-            let py = -(y as f32 - half_h) * display.cell_size; // Flip Y for screen coords.
+            let cell = sim.0.grid.get(x as i32, y as i32);
+            let [r, g, b] = match *overlay {
+                OverlayMode::Elevation => elevation_color(cell.elevation, cell.water_depth),
+                OverlayMode::Temperature => {
+                    gradient_color(cell.temp, [77, 128, 230], [230, 77, 51])
+                }
+                OverlayMode::Moisture => {
+                    gradient_color(cell.moisture, [217, 191, 128], [51, 102, 204])
+                }
+                OverlayMode::Fertility => {
+                    gradient_color(cell.fertility, [128, 115, 102], [51, 179, 77])
+                }
+                OverlayMode::Biome => biome_color(cell.biome),
+                OverlayMode::Life => life_color(cell.fungus, cell.plants, cell.water_depth),
+            };
 
-            commands.spawn((
-                Sprite {
-                    color: Color::srgb(0.1, 0.2, 0.4),
-                    custom_size: Some(Vec2::splat(display.cell_size)),
-                    ..default()
-                },
-                Transform::from_xyz(px, py, 0.0),
-                GridTile { gx: x, gy: y },
-            ));
+            let idx = ((y * w + x) * 4) as usize;
+            data[idx] = r;
+            data[idx + 1] = g;
+            data[idx + 2] = b;
+            data[idx + 3] = 255;
         }
     }
 }
 
-fn update_tile_colors(
-    sim: Res<Simulation>,
-    overlay: Res<OverlayMode>,
-    mut tiles: Query<(&GridTile, &mut Sprite)>,
-) {
-    for (tile, mut sprite) in &mut tiles {
-        let cell = sim.0.grid.get(tile.gx as i32, tile.gy as i32);
-        sprite.color = match *overlay {
-            OverlayMode::Elevation => elevation_color(cell.elevation, cell.water_depth),
-            OverlayMode::Temperature => gradient_color(cell.temp, COLD_COLOR, HOT_COLOR),
-            OverlayMode::Moisture => gradient_color(cell.moisture, DRY_COLOR, WET_COLOR),
-            OverlayMode::Fertility => gradient_color(cell.fertility, BARREN_COLOR, FERTILE_COLOR),
-            OverlayMode::Biome => biome_color(cell.biome),
-            OverlayMode::Life => life_color(cell.fungus, cell.plants, cell.water_depth),
-        };
-    }
-}
+// --- Color helpers (return [r, g, b] as u8) ---
 
-// --- Color helpers ---
-
-const COLD_COLOR: Color = Color::srgb(0.3, 0.5, 0.9);
-const HOT_COLOR: Color = Color::srgb(0.9, 0.3, 0.2);
-const DRY_COLOR: Color = Color::srgb(0.85, 0.75, 0.5);
-const WET_COLOR: Color = Color::srgb(0.2, 0.4, 0.8);
-const BARREN_COLOR: Color = Color::srgb(0.5, 0.45, 0.4);
-const FERTILE_COLOR: Color = Color::srgb(0.2, 0.7, 0.3);
-
-fn elevation_color(elevation: f32, water_depth: f32) -> Color {
+fn elevation_color(elevation: f32, water_depth: f32) -> [u8; 3] {
     if water_depth > 0.0 {
-        let depth_factor = (water_depth / 3.0).min(1.0);
-        Color::srgb(
-            0.1 - depth_factor * 0.05,
-            0.25 - depth_factor * 0.1,
-            0.5 + depth_factor * 0.3,
-        )
+        let d = (water_depth / 3.0).min(1.0);
+        [
+            ((0.1 - d * 0.05) * 255.0) as u8,
+            ((0.25 - d * 0.1) * 255.0) as u8,
+            ((0.5 + d * 0.3) * 255.0) as u8,
+        ]
     } else {
-        let height_factor = (elevation / 5.0).clamp(0.0, 1.0);
-        Color::srgb(
-            0.4 + height_factor * 0.4,
-            0.55 - height_factor * 0.2,
-            0.3 - height_factor * 0.15,
-        )
+        let h = (elevation / 5.0).clamp(0.0, 1.0);
+        [
+            ((0.4 + h * 0.4) * 255.0) as u8,
+            ((0.55 - h * 0.2) * 255.0) as u8,
+            ((0.3 - h * 0.15) * 255.0) as u8,
+        ]
     }
 }
 
-fn gradient_color(t: f32, low: Color, high: Color) -> Color {
+fn gradient_color(t: f32, low: [u8; 3], high: [u8; 3]) -> [u8; 3] {
     let t = t.clamp(0.0, 1.0);
-    let low = low.to_srgba();
-    let high = high.to_srgba();
-    Color::srgb(
-        low.red + (high.red - low.red) * t,
-        low.green + (high.green - low.green) * t,
-        low.blue + (high.blue - low.blue) * t,
-    )
+    [
+        (low[0] as f32 + (high[0] as f32 - low[0] as f32) * t) as u8,
+        (low[1] as f32 + (high[1] as f32 - low[1] as f32) * t) as u8,
+        (low[2] as f32 + (high[2] as f32 - low[2] as f32) * t) as u8,
+    ]
 }
 
-fn biome_color(biome: genesis_sim_core::grid::Biome) -> Color {
+fn biome_color(biome: genesis_sim_core::grid::Biome) -> [u8; 3] {
     use genesis_sim_core::grid::Biome;
     match biome {
-        Biome::Ocean => Color::srgb(0.1, 0.2, 0.5),
-        Biome::Beach => Color::srgb(0.9, 0.85, 0.6),
-        Biome::Grassland => Color::srgb(0.45, 0.7, 0.35),
-        Biome::Forest => Color::srgb(0.15, 0.45, 0.2),
-        Biome::Tundra => Color::srgb(0.75, 0.8, 0.85),
-        Biome::Desert => Color::srgb(0.85, 0.75, 0.45),
-        Biome::Mountain => Color::srgb(0.55, 0.5, 0.5),
+        Biome::Ocean => [25, 51, 128],
+        Biome::Beach => [230, 217, 153],
+        Biome::Grassland => [115, 179, 89],
+        Biome::Forest => [38, 115, 51],
+        Biome::Tundra => [191, 204, 217],
+        Biome::Desert => [217, 191, 115],
+        Biome::Mountain => [140, 128, 128],
     }
 }
 
-fn life_color(fungus: f32, plants: f32, water_depth: f32) -> Color {
+fn life_color(fungus: f32, plants: f32, water_depth: f32) -> [u8; 3] {
     if water_depth > 0.0 {
-        return Color::srgb(0.1, 0.2, 0.4);
+        return [25, 51, 102];
     }
-    // Blend fungus (brownish) and plants (green) over a neutral base.
-    let base = Color::srgb(0.5, 0.45, 0.4);
-    let base = base.to_srgba();
-    Color::srgb(
-        (base.red - plants * 0.3 + fungus * 0.1).clamp(0.0, 1.0),
-        (base.green + plants * 0.4 + fungus * 0.15).clamp(0.0, 1.0),
-        (base.blue - plants * 0.2 - fungus * 0.1).clamp(0.0, 1.0),
-    )
+    let r = (128.0 - plants * 77.0 + fungus * 25.0).clamp(0.0, 255.0) as u8;
+    let g = (115.0 + plants * 102.0 + fungus * 38.0).clamp(0.0, 255.0) as u8;
+    let b = (102.0 - plants * 51.0 - fungus * 25.0).clamp(0.0, 255.0) as u8;
+    [r, g, b]
 }
