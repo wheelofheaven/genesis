@@ -1,3 +1,6 @@
+// Module temporarily unused: GridRenderPlugin disabled while planet crate handles rendering.
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
@@ -20,7 +23,7 @@ impl Default for GridDisplay {
 #[derive(Resource)]
 struct GridTexture(Handle<Image>);
 
-/// Marker for the grid sprite entity.
+/// Marker for the grid mesh entity.
 #[derive(Component)]
 struct GridSprite;
 
@@ -31,16 +34,15 @@ impl Plugin for GridRenderPlugin {
         app.insert_resource(GridDisplay::default())
             .insert_resource(OverlayMode::default())
             .add_systems(Startup, spawn_grid_texture)
-            .add_systems(
-                Update,
-                (update_grid_texture, crate::input::tool::handle_mouse_input),
-            );
+            .add_systems(Update, update_grid_texture);
     }
 }
 
 fn spawn_grid_texture(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     sim: Res<Simulation>,
     display: Res<GridDisplay>,
 ) {
@@ -59,24 +61,28 @@ fn spawn_grid_texture(
         TextureFormat::Rgba8UnormSrgb,
         default(),
     );
-    // Explicitly set COPY_DST so we can update pixels each frame.
     let mut image = image;
     image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST;
     let image_handle = images.add(image);
     commands.insert_resource(GridTexture(image_handle.clone()));
 
-    // Spawn a single sprite for the entire grid.
-    let sprite_width = w as f32 * display.cell_size;
-    let sprite_height = h as f32 * display.cell_size;
+    // Grid dimensions in world units.
+    let grid_width = w as f32 * display.cell_size;
+    let grid_height = h as f32 * display.cell_size;
+
+    // Create a plane mesh lying on the XZ plane.
+    let mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::new(grid_width / 2.0, grid_height / 2.0)));
+
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(image_handle),
+        unlit: true,
+        ..default()
+    });
 
     commands.spawn((
-        Sprite {
-            image: image_handle,
-            custom_size: Some(Vec2::new(sprite_width, sprite_height)),
-            image_mode: SpriteImageMode::default(),
-            ..default()
-        },
-        Transform::default(),
+        Mesh3d(mesh),
+        MeshMaterial3d(material),
+        Transform::IDENTITY,
         GridSprite,
     ));
 }

@@ -1,3 +1,6 @@
+// Module temporarily unused: egui disabled due to bevy_egui Metal crash on macOS 26.
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
@@ -40,7 +43,8 @@ pub struct OverlayUiPlugin;
 
 impl Plugin for OverlayUiPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ActiveTool::default())
+        app.init_resource::<OverlayMode>()
+            .insert_resource(ActiveTool::default())
             .add_systems(Update, draw_ui);
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/sim_core", "crates/app"]
+members = ["crates/sim_core", "crates/renderer", "crates/planet", "crates/app"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,22 +10,19 @@ repository = "https://github.com/wheelofheaven/genesis"
 
 [workspace.dependencies]
 bevy = "0.18.1"
-bevy_egui = "0.39"
+bevy_egui = "0.39.1"
 noise = "0.9"
 serde = { version = "1", features = ["derive"] }
 rand = "0.8"
+genesis-renderer = { path = "crates/renderer" }
+genesis-planet = { path = "crates/planet" }
 
-# Enable optimizations for dependencies in dev builds (faster iteration)
+# Enable optimizations for dependencies in dev builds (faster iteration).
+# Also disable debug-assertions for all deps — workaround for macOS 26 Tahoe
+# where objc2/wgpu/Metal debug assertions trigger SIGABRT.
+# See https://github.com/iced-rs/iced/issues/3057
 [profile.dev.package."*"]
 opt-level = 2
-
-# Workaround: objc2 debug assertions crash on macOS 26 Tahoe.
-# See https://github.com/iced-rs/iced/issues/3057
-[profile.dev.package.objc2]
-debug-assertions = false
-[profile.dev.package.objc2-foundation]
-debug-assertions = false
-[profile.dev.package.objc2-app-kit]
 debug-assertions = false
 
 # Enable LTO for release builds

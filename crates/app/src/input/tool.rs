@@ -1,3 +1,6 @@
+// Module temporarily unused: egui/UI disabled due to bevy_egui Metal crash on macOS 26.
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use genesis_sim_core::actions::Action;
 
@@ -16,10 +19,16 @@ pub fn handle_mouse_input(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     sim: Res<Simulation>,
     tool: Res<ActiveTool>,
-    display: Res<GridDisplay>,
+    display: Option<Res<GridDisplay>>,
     mut pending: ResMut<PendingActions>,
 ) {
-    if !mouse.pressed(MouseButton::Left) {
+    // GridDisplay is only available when GridRenderPlugin is active.
+    let Some(display) = display else {
+        return;
+    };
+
+    // Don't process left-click when right mouse is held (orbit camera).
+    if !mouse.pressed(MouseButton::Left) || mouse.pressed(MouseButton::Right) {
         return;
     }
 
@@ -32,13 +41,26 @@ pub fn handle_mouse_input(
     let Ok((camera, cam_transform)) = camera_q.single() else {
         return;
     };
-    let Ok(world_pos) = camera.viewport_to_world_2d(cam_transform, cursor_pos) else {
+
+    // Cast a ray from the camera through the cursor position.
+    let Ok(ray) = camera.viewport_to_world(cam_transform, cursor_pos) else {
         return;
     };
 
-    // Convert world position to grid coordinates.
-    let grid_x = ((world_pos.x / display.cell_size) + sim.0.grid.width as f32 / 2.0) as i32;
-    let grid_y = ((-world_pos.y / display.cell_size) + sim.0.grid.height as f32 / 2.0) as i32;
+    // Intersect with the Y=0 ground plane.
+    if ray.direction.y.abs() < 1e-6 {
+        return; // Ray parallel to ground plane.
+    }
+    let t = -ray.origin.y / ray.direction.y;
+    if t < 0.0 {
+        return; // Intersection behind the camera.
+    }
+    let hit = ray.origin + ray.direction * t;
+
+    // Convert world XZ position to grid coordinates.
+    // Grid center is at world origin. Grid Y maps to world -Z.
+    let grid_x = ((hit.x / display.cell_size) + sim.0.grid.width as f32 / 2.0) as i32;
+    let grid_y = ((-hit.z / display.cell_size) + sim.0.grid.height as f32 / 2.0) as i32;
 
     let action = match tool.0 {
         ToolKind::TerraformRaise => Action::Terraform {
