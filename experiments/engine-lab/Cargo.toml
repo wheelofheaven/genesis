@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["scene", "custom", "bevy-view"]
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+debug-assertions = false

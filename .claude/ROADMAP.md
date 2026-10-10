@@ -1,5 +1,18 @@
 # Genesis — Roadmap
 
+> **Engine decision:** [Custom Rust engine](../docs/engine-decision.md) is accepted.
+> Use winit/wgpu as the starting foundation. Bevy-specific requirements below
+> describe the legacy prototype; follow the current decision for new development.
+
+> **Historical roadmap — superseded product direction (October 10, 2026).**
+> Read [the current vision](../docs/vision.md) and [AGENTS.md](../AGENTS.md) first.
+> Genesis now prioritizes individual life and society simulation, an initial Elohim
+> settlement mode, multiple future scenarios and modes, and Sable-inspired 3D.
+> The ocean-only MVP, exclusion of humans, Tiny Glade aesthetic, and rendering-first
+> phase order below are historical, not current requirements. Engineering rules
+> about deterministic simulation, separation from Bevy, and code quality still apply.
+> Proposed crates and features below are not an inventory of implemented code.
+
 ## Vision
 
 Genesis evolves from a 2D grid-based terraforming prototype into a fully 3D, custom-rendered experience inspired by Tiny Glade's painterly art style. The player begins aboard an orbital space station analyzing an exoplanet, descends to its oceanic surface, and ultimately terraforms and seeds life — watching civilizations emerge.

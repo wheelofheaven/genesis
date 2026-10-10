@@ -1,0 +1,8 @@
+[package]
+name = "genesis-lab-bevy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+genesis-lab-scene = { path = "../scene" }
+bevy = { version = "=0.18.1", default-features = false, features = ["std", "async_executor", "multi_threaded", "bevy_asset", "bevy_color", "bevy_core_pipeline", "bevy_image", "bevy_mesh", "bevy_camera", "bevy_shader", "bevy_render", "bevy_pbr", "bevy_window", "bevy_winit", "png", "x11", "tonemapping_luts"] }
