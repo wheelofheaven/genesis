@@ -17,6 +17,7 @@ pub struct View {
     config: wgpu::SurfaceConfiguration,
     gpu: Gpu,
     depth: wgpu::Texture,
+    glass: genesis_renderer::glass::Glass,
     gui_state: egui_winit::State,
     gui_renderer: egui_wgpu::Renderer,
     pub drawable: bool,
@@ -50,6 +51,9 @@ impl View {
             .into_iter()
             .find(|f| f.is_srgb())
             .ok_or("sRGB surface unavailable")?;
+        // egui supplies gamma-space premultiplied colors. Blend UI through an
+        // UNORM view; keep the world's lighting and frosting in linear light.
+        config.view_formats = vec![config.format.remove_srgb_suffix()];
         let gpu = Gpu::new(&adapter, config.format).await?;
         surface.configure(&gpu.device, &config);
         let depth = gpu.texture(
@@ -70,10 +74,13 @@ impl View {
         );
         let gui_renderer = egui_wgpu::Renderer::new(
             &gpu.device,
-            config.format,
+            config.format.remove_srgb_suffix(),
             egui_wgpu::RendererOptions::default(),
         );
+        let glass =
+            genesis_renderer::glass::Glass::new(&gpu, config.width, config.height, config.format);
         Ok(Self {
+            glass,
             occupied: Vec::new(),
             picker: None,
             terrain_cache: None,
@@ -100,6 +107,8 @@ impl View {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.gpu.device, &self.config);
+        self.glass
+            .resize(&self.gpu, width, height, self.config.format);
         self.depth = self.gpu.texture(
             width,
             height,
@@ -219,6 +228,11 @@ impl View {
             self.gpu.upload_overlay(&scene::overlay(session));
             session.overlay_dirty = false;
         }
+        let panels = if front.surface_backdrop() {
+            ui::glass::panels(&output.shapes, output.pixels_per_point)
+        } else {
+            Vec::new()
+        };
         let jobs = context.tessellate(output.shapes, output.pixels_per_point);
         for (id, delta) in &output.textures_delta.set {
             self.gui_renderer
@@ -236,8 +250,19 @@ impl View {
             .as_ref()
             .unwrap_or(&frame.texture)
             .create_view(&Default::default());
+        let gui_target = capture_texture
+            .as_ref()
+            .unwrap_or(&frame.texture)
+            .create_view(&wgpu::TextureViewDescriptor {
+                format: Some(self.config.format.remove_srgb_suffix()),
+                ..Default::default()
+            });
         let mut encoder = self.gpu.encode(
-            &target,
+            if panels.is_empty() {
+                &target
+            } else {
+                &self.glass.scene
+            },
             &self.depth.create_view(&Default::default()),
             camera.view_projection(self.config.width as f32 / self.config.height as f32),
             camera.direction(),
@@ -247,6 +272,10 @@ impl View {
                 self.started.elapsed().as_secs_f32()
             },
         );
+        if !panels.is_empty() {
+            self.glass
+                .composite(&self.gpu, &mut encoder, &target, &panels);
+        }
         let screen = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [self.config.width, self.config.height],
             pixels_per_point: output.pixels_per_point,
@@ -262,7 +291,7 @@ impl View {
             let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("inspector"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target,
+                    view: &gui_target,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {

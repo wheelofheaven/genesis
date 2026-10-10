@@ -104,10 +104,11 @@ impl Frontend {
         match self.screen {
             Screen::Playing | Screen::Arrival | Screen::Pause => true,
             Screen::Settings | Screen::Controls => self.return_to == Screen::Pause,
-            Screen::ConfirmQuit => matches!(
-                self.quit_return,
-                Screen::Pause | Screen::Playing | Screen::Arrival
-            ),
+            Screen::ConfirmQuit => match self.quit_return {
+                Screen::Pause | Screen::Playing | Screen::Arrival => true,
+                Screen::Settings | Screen::Controls => self.return_to == Screen::Pause,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -279,8 +280,10 @@ mod tests {
             ..Default::default()
         };
         front.enter_settings();
+        assert!(front.surface_backdrop());
         front.request_quit();
         assert_eq!(front.screen, Screen::ConfirmQuit);
+        assert!(front.surface_backdrop());
         front.escape();
         assert_eq!(front.screen, Screen::Settings);
         front.escape();

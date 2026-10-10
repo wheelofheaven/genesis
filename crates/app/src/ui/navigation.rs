@@ -1,4 +1,7 @@
-use super::theme::*;
+use super::{
+    icons::{self, Icon},
+    theme::*,
+};
 use crate::session::Session;
 use egui::{Align2, FontId, Sense, Shape, Stroke, Vec2};
 use genesis_renderer::camera::Camera;
@@ -8,13 +11,18 @@ pub fn scale(ctx: &egui::Context, camera: &Camera) -> egui::Rect {
     let pixels_per_metre = ctx.content_rect().height()
         / camera.visible_height()
         / genesis_sim_core::units::METRES_PER_UNIT;
+    let max_pixels = if ctx.content_rect().width() < 900. {
+        60.
+    } else {
+        100.
+    };
     let length = [1., 2., 5., 10., 20., 50., 100., 200., 500., 1000.]
         .into_iter()
         .rev()
-        .find(|m| m * pixels_per_metre <= 100.)
+        .find(|m| m * pixels_per_metre <= max_pixels)
         .unwrap_or(1.);
     egui::Area::new("map_scale".into())
-        .anchor(Align2::LEFT_BOTTOM, [20., -12.])
+        .anchor(Align2::LEFT_BOTTOM, [16., -16.])
         .movable(false)
         .fade_in(false)
         .show(ctx, |ui| {
@@ -46,7 +54,7 @@ pub fn scale(ctx: &egui::Context, camera: &Camera) -> egui::Rect {
 
 pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui::Rect {
     egui::Area::new("navigation".into())
-        .anchor(Align2::RIGHT_TOP, [-20., 100.])
+        .anchor(Align2::LEFT_BOTTOM, [16., -68.])
         .order(egui::Order::Foreground)
         .movable(false)
         .fade_in(false)
@@ -81,40 +89,48 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                 if response.on_hover_text("Face north").clicked() {
                     camera.face_north();
                 }
-                if session.survey.active() && ctx.content_rect().height() < 650. {
+                if ctx.content_rect().width() < 900. || ctx.content_rect().height() < 650. {
                     return;
                 }
-                ui.add_space(4.);
+                ui.add_space(2.);
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_sized([28., 30.], egui::Button::new("−"))
-                        .on_hover_text("Zoom out")
+                    ui.spacing_mut().item_spacing.x = 0.;
+                    if icons::button(ui, Icon::Minus, "Zoom out", false, false, "Zoom out")
                         .clicked()
                     {
                         camera.zoom(-1.5);
                     }
-                    if ui
-                        .add_sized([28., 30.], egui::Button::new("+"))
-                        .on_hover_text("Zoom in")
-                        .clicked()
-                    {
+                    if icons::button(ui, Icon::Plus, "Zoom in", false, false, "Zoom in").clicked() {
                         camera.zoom(1.5);
                     }
                 });
-                if ui
-                    .add_sized([64., 30.], egui::Button::new("Focus"))
-                    .on_hover_text("Center selection · F")
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.;
+                    if icons::button(
+                        ui,
+                        Icon::Focus,
+                        "Focus",
+                        false,
+                        false,
+                        "Focus selection · F",
+                    )
                     .clicked()
-                {
-                    camera.center(session.selected_point());
-                }
-                if ui
-                    .add_sized([64., 30.], egui::Button::new("Home"))
-                    .on_hover_text("Reset camera · R")
+                    {
+                        camera.center(session.selected_point());
+                    }
+                    if icons::button(
+                        ui,
+                        Icon::Home,
+                        "Home",
+                        false,
+                        false,
+                        "Return to regional overview · R",
+                    )
                     .clicked()
-                {
-                    crate::terrain::home_camera(&session.sim, camera);
-                }
+                    {
+                        crate::terrain::home_camera(&session.sim, camera);
+                    }
+                });
             });
         })
         .response

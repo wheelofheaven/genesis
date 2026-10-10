@@ -12,6 +12,7 @@ pub struct Check {
     began: Option<Instant>,
     time: f64,
     revision: u64,
+    changed_at: u32,
 }
 impl Check {
     /// Returns a capture suffix. The final capture happens only after completion.
@@ -83,10 +84,30 @@ impl Check {
             session.landscape_tools = false;
             self.time = session.sim.time;
             front.escape();
+            self.stage = 6;
+            self.changed_at = frame;
+            return Ok(None);
+        }
+        if self.stage == 6 && frame >= self.changed_at + 4 {
             self.stage = 2;
+            self.changed_at = frame;
             return Ok(Some("pause.png"));
         }
-        if self.stage == 2 && frame.is_multiple_of(10) {
+        if self.stage == 2 && frame >= self.changed_at + 4 {
+            front.enter_settings();
+            self.stage = 7;
+            self.changed_at = frame;
+        }
+        if self.stage == 7 && frame >= self.changed_at + 4 {
+            self.stage = 8;
+            self.changed_at = frame;
+            return Ok(Some("surface-settings.png"));
+        }
+        if self.stage == 8 && frame >= self.changed_at + 4 {
+            front.escape();
+            if front.screen != Screen::Pause {
+                return Err("surface settings lost the pause menu".into());
+            }
             if session.sim.time != self.time {
                 return Err("paused menu advanced simulation".into());
             }
@@ -104,10 +125,16 @@ impl Check {
             }
             crate::terrain::home_camera(&session.sim, camera);
             self.stage = 4;
+            self.changed_at = frame;
+        }
+        // New egui Areas need a measured frame before they paint. Capture a
+        // settled HUD, not the empty first frame after returning to play.
+        if self.stage == 4 && frame >= self.changed_at + 4 {
+            self.stage = 9;
         }
         Ok(None)
     }
     pub fn done(&self) -> bool {
-        self.stage == 4
+        self.stage == 9
     }
 }

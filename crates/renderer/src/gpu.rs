@@ -156,6 +156,11 @@ impl Gpu {
         format: wgpu::TextureFormat,
         usage: wgpu::TextureUsages,
     ) -> wgpu::Texture {
+        let view_formats = if format.is_srgb() {
+            vec![format.remove_srgb_suffix()]
+        } else {
+            Vec::new()
+        };
         self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -168,7 +173,7 @@ impl Gpu {
             dimension: wgpu::TextureDimension::D2,
             format,
             usage,
-            view_formats: &[],
+            view_formats: &view_formats,
         })
     }
 

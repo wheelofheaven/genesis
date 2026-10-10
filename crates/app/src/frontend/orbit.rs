@@ -1,6 +1,11 @@
 //! Cached orbital illustration: Natural Earth silhouettes with decorative shading.
 //! This is navigation presentation, not a simulated planet or historical map.
-use crate::ui::theme::*;
+// The orbital illustration has its own luminous palette, independent of HUD ink.
+const TEXT: Color32 = Color32::from_rgb(225, 237, 246);
+const MUTED: Color32 = Color32::from_rgb(180, 199, 213);
+const ACCENT: Color32 = Color32::from_rgb(98, 222, 232);
+const LINE: Color32 = Color32::from_rgb(86, 112, 130);
+const HIGHLIGHT: Color32 = Color32::from_rgb(183, 174, 255);
 use egui::{Color32, FontId, Painter, Pos2, Rect, Stroke, TextureHandle, Vec2};
 use genesis_sim_core::worldgen::{
     Region,

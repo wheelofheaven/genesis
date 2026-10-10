@@ -43,7 +43,7 @@ pub fn show(
         ctx.layer_painter(egui::LayerId::background()).rect_filled(
             rect,
             0.,
-            Color32::from_black_alpha(110),
+            Color32::from_white_alpha(8),
         );
     } else {
         let region = matches!(
@@ -55,7 +55,7 @@ pub fn show(
     }
     egui::SidePanel::left("front_menu")
         .resizable(false).exact_width(width)
-        .frame(egui::Frame::new().fill(Color32::from_rgba_unmultiplied(12, 22, 35, 248)).inner_margin(egui::Margin::symmetric(26, 22)))
+        .frame(egui::Frame::new().fill(if front.surface_backdrop() { glass_tint() } else { Color32::from_rgba_unmultiplied(235, 247, 252, 185) }).inner_margin(egui::Margin::symmetric(26, 22)))
         .show(ctx, |ui| {
             if rect.height() < 650. { ui.spacing_mut().item_spacing.y = 6.; }
             egui::ScrollArea::vertical().id_salt(("menu_scroll", front.screen))

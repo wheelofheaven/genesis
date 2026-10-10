@@ -81,6 +81,16 @@ understand needs such as water and shelter, then choose an intervention. Until
 people are simulated, show actual dwellings and available survey/build tools;
 never invent population numbers, needs, or task completion in the interface.
 
+The surface interface uses light, mostly transparent frosted glass with strong
+backdrop blur, dark readable text, and restrained teal highlights. Use consistent
+line icons, short captions for main tools, and tooltips for utility controls; avoid
+dark tinted slabs and redundant labels. Take layout cues from Anno 1800 and Manor Lords:
+region and settlement summaries at the top, actions at the bottom, contextual
+inspection at the right, navigation and time at the corners. Keep the central
+landscape clear. Adapt to smaller windows through scrolling and compact controls;
+retain immediate feedback and consistent keyboard navigation. Menus, surveys,
+build tools, and pause/settings surfaces should share this glass treatment.
+
 ## Individual lives and emotional investment
 
 Every person should have a persistent identity and a life that matters within

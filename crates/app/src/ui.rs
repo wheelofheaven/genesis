@@ -1,9 +1,14 @@
+pub mod glass;
+mod hud;
+mod icons;
+#[cfg(test)]
+mod interaction_tests;
 mod navigation;
 mod survey;
 pub mod theme;
 
 use crate::session::Session;
-use egui::{Align2, Color32, RichText, Stroke};
+use egui::{Align2, Color32, RichText};
 use genesis_renderer::camera::Camera;
 use genesis_sim_core::{actions::Action, spatial};
 use theme::*;
@@ -15,122 +20,26 @@ pub fn show(
     camera: &mut Camera,
     front: &mut crate::frontend::Frontend,
 ) -> Vec<egui::Rect> {
-    let mut occupied = Vec::new();
-    let identity = egui::Area::new("identity".into())
-        .anchor(Align2::LEFT_TOP, [20., 20.])
-        .order(egui::Order::Foreground)
-        .movable(false)
-        .fade_in(false)
-        .show(ctx, |ui| {
-            card().show(ui, |ui| {
-                ui.set_width(236.);
-                ui.horizontal(|ui| {
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(32., 38.), egui::Sense::hover());
-                    let painter = ui.painter();
-                    let center = rect.center();
-                    painter.circle_stroke(center, 12., Stroke::new(1.5, ACCENT));
-                    painter.line_segment(
-                        [center + egui::vec2(-16., 4.), center + egui::vec2(16., 4.)],
-                        Stroke::new(1.5, HIGHLIGHT),
-                    );
-                    painter.circle_filled(center - egui::vec2(0., 5.), 3., HIGHLIGHT);
-                    ui.vertical(|ui| {
-                        eyebrow(ui, "GENESIS / SURFACE OPERATIONS");
-                        ui.label(
-                            RichText::new(session.sim.geography.region.name())
-                                .size(19.)
-                                .color(TEXT),
-                        );
-                    });
-                });
-                muted(
-                    ui,
-                    format!(
-                        "{} dwellings  ·  {}",
-                        session.sim.buildings.len(),
-                        if session.survey.active() {
-                            session.survey.label()
-                        } else if session.placing {
-                            "Shaping a settlement"
-                        } else {
-                            "Surface link active"
-                        }
-                    ),
-                );
-            });
-        });
-    occupied.push(identity.response.rect);
-    let time = egui::Area::new("time".into())
-        .anchor(Align2::RIGHT_TOP, [-20., 20.])
-        .order(egui::Order::Foreground)
-        .movable(false)
-        .fade_in(false)
-        .show(ctx, |ui| {
-            card().inner_margin(10).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(egui::vec2(8., 8.), egui::Sense::hover());
-                    ui.painter().circle_filled(
-                        r.center(),
-                        3.,
-                        if session.clock.paused {
-                            HIGHLIGHT
-                        } else {
-                            ACCENT
-                        },
-                    );
-                    if button(
-                        ui,
-                        if session.clock.paused {
-                            "Resume"
-                        } else {
-                            "Pause"
-                        },
-                        false,
-                        "Space · pause or resume the world",
-                    ) {
-                        session.clock.paused = !session.clock.paused;
-                    }
-                    if button(ui, "Menu", false, "Pause menu · Esc") {
-                        front.screen = crate::frontend::Screen::Pause;
-                    }
-                    ui.separator();
-                    for speed in [1, 4, 16] {
-                        if button(
-                            ui,
-                            &format!("{speed}×"),
-                            session.clock.speed() == speed,
-                            "1 / 2 / 3 · simulation speed",
-                        ) {
-                            session.clock.set_speed(speed);
-                        }
-                    }
-                    if ui
-                        .add_enabled(session.clock.paused, egui::Button::new("Step"))
-                        .on_hover_text("Advance one tick while paused")
-                        .clicked()
-                    {
-                        session.step_once();
-                    }
-                });
-            });
-        });
-    occupied.push(time.response.rect);
-    occupied.push(navigation::show(ctx, session, camera));
-    occupied.push(navigation::scale(ctx, camera));
-
+    let compact = ctx.content_rect().width() < 1120.;
+    let mut occupied = vec![
+        hud::identity(ctx, session),
+        hud::utilities(ctx, session, front),
+        hud::time(ctx, session, compact),
+        hud::dock(ctx, session),
+        navigation::show(ctx, session, camera),
+        navigation::scale(ctx, camera),
+    ];
     if session.placing || session.landscape_tools || session.survey.open || session.world_tools {
-        let available =
-            (ctx.content_rect().height() - identity.response.rect.bottom() - 186.).max(100.);
+        let top = if compact { 148. } else { 88. };
+        let available = (occupied[3].top() - top - 50.).max(80.);
         let tool = egui::Area::new("tool_card".into())
-            .fixed_pos([20., identity.response.rect.bottom() + 16.])
-            .default_height(available + 38.)
+            .anchor(Align2::RIGHT_TOP, [-16., top])
             .order(egui::Order::Foreground)
             .movable(false)
             .fade_in(false)
             .show(ctx, |ui| {
-                card().inner_margin(18).show(ui, |ui| {
-                    ui.set_width(228.);
+                card().inner_margin(16).show(ui, |ui| {
+                    ui.set_width(248.);
                     ui.set_max_height(available);
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(
@@ -138,13 +47,37 @@ pub fn show(
                         )
                         .max_height(available)
                         .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                eyebrow(ui, "INSPECTOR");
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .small_button("×")
+                                            .on_hover_text("Close tool · Esc")
+                                            .clicked()
+                                        {
+                                            session.set_placing(false);
+                                            session.survey.open = false;
+                                            session.landscape_tools = false;
+                                            session.world_tools = false;
+                                        }
+                                    },
+                                );
+                            });
+                            ui.separator();
+                            if session.survey.active() && !session.survey.open {
+                                ui.collapsing("Active survey legend", |ui| {
+                                    survey::legend_contents(ui, session)
+                                });
+                            }
                             if session.world_tools {
                                 world(ui, session, camera);
                             } else if session.survey.open {
                                 survey::panel(ui, session);
                             } else if session.placing {
                                 building(ui, session, ctx.content_rect().height() < 650.);
-                            } else {
+                            } else if session.landscape_tools {
                                 landscape(ui, session);
                             }
                         });
@@ -152,146 +85,10 @@ pub fn show(
             });
         occupied.push(tool.response.rect);
     }
-
-    let dock = egui::Area::new("tool_dock".into())
-        .anchor(Align2::CENTER_BOTTOM, [0., -56.])
-        .order(egui::Order::Foreground)
-        .movable(false)
-        .fade_in(false)
-        .show(ctx, |ui| {
-            card().inner_margin(10).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if button(
-                        ui,
-                        "Explore",
-                        !session.placing
-                            && !session.landscape_tools
-                            && !session.survey.open
-                            && !session.world_tools,
-                        "Select a location and explore · Esc",
-                    ) {
-                        session.set_placing(false);
-                        session.landscape_tools = false;
-                        session.survey.open = false;
-                        session.world_tools = false;
-                    }
-                    if button(
-                        ui,
-                        "Survey   V",
-                        session.survey.open,
-                        "Hydrology and geological layers · V",
-                    ) {
-                        session.set_survey(!session.survey.open);
-                    }
-                    if button(ui, "Build   B", session.placing, "Place a dwelling · B") {
-                        session.set_placing(!session.placing);
-                    }
-                    if button(
-                        ui,
-                        "Landscape",
-                        session.landscape_tools,
-                        "Raise, lower, or plant at the selected location",
-                    ) {
-                        session.set_placing(false);
-                        session.landscape_tools = !session.landscape_tools;
-                        session.survey.open = false;
-                        session.world_tools = false;
-                    }
-                    if button(
-                        ui,
-                        "World",
-                        session.world_tools,
-                        "Seed and region generation",
-                    ) {
-                        let open = !session.world_tools;
-                        session.set_placing(false);
-                        session.survey.open = false;
-                        session.landscape_tools = false;
-                        session.world_tools = open;
-                    }
-                    ui.separator();
-                    if button(
-                        ui,
-                        "Help   H",
-                        session.help,
-                        "Navigation and keyboard controls · H",
-                    ) {
-                        session.help = !session.help;
-                    }
-                });
-            });
-        });
-    occupied.push(dock.response.rect);
-    let hint = egui::Area::new("hints".into())
-        .anchor(Align2::CENTER_BOTTOM, [0., -12.])
-        .order(egui::Order::Foreground)
-        .movable(false)
-        .fade_in(false)
-        .show(ctx, |ui| {
-            ui.spacing_mut().interact_size.y = 16.;
-            ui.spacing_mut().item_spacing.y = 0.;
-            card()
-                .inner_margin(egui::Margin::symmetric(12, 5))
-                .corner_radius(8)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if session.placing {
-                            key_hint(ui, "Click", "Build");
-                            key_hint(ui, "Q / E", "Rotate");
-                            key_hint(ui, "Shift", "Repeat");
-                            key_hint(ui, "Esc", "Cancel");
-                        } else {
-                            key_hint(ui, "WASD", "Move");
-                            key_hint(ui, "Drag right", "Orbit");
-                            key_hint(ui, "Scroll", "Zoom");
-                        }
-                    });
-                });
-        });
-    occupied.push(hint.response.rect);
-    if session.pending_count() > 0 || !session.message.is_empty() {
-        // Feedback belongs near the action dock, without obscuring the placement site.
-        let response = egui::Area::new("feedback".into())
-            .anchor(Align2::CENTER_BOTTOM, [0., -128.])
-            .order(egui::Order::Foreground)
-            .movable(false)
-            .fade_in(false)
-            .show(ctx, |ui| {
-                card()
-                    .inner_margin(egui::Margin::symmetric(16, 10))
-                    .show(ui, |ui| {
-                        ui.set_max_width(370.);
-                        if session.pending_count() > 0 {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} action{} queued",
-                                    session.pending_count(),
-                                    if session.pending_count() == 1 {
-                                        ""
-                                    } else {
-                                        "s"
-                                    }
-                                ))
-                                .strong()
-                                .color(HIGHLIGHT),
-                            );
-                            if session.clock.paused {
-                                muted(ui, "Resume or Step to apply your changes.");
-                            }
-                        } else {
-                            ui.label(RichText::new(&session.message).color(
-                                if session.message_is_error {
-                                    ERROR
-                                } else {
-                                    ACCENT
-                                },
-                            ));
-                        }
-                    });
-            });
-        occupied.push(response.response.rect);
+    if let Some(rect) = hud::feedback(ctx, session) {
+        occupied.push(rect);
     }
-    if let Some(rect) = survey::legend(ctx, session) {
+    if let Some(rect) = survey::legend(ctx, session, occupied[3].top()) {
         occupied.push(rect);
     }
     survey::labels(ctx, session, camera, &occupied);
@@ -371,7 +168,6 @@ fn world(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
 }
 
 fn building(ui: &mut egui::Ui, session: &mut Session, compact: bool) {
-    eyebrow(ui, "SETTLEMENT / BUILD");
     ui.heading("A new dwelling");
     muted(ui, "6.5 × 4.8 m · single storey");
     if !compact {
@@ -387,7 +183,7 @@ fn building(ui: &mut egui::Ui, session: &mut Session, compact: bool) {
         None => ("Move onto the landscape".to_owned(), MUTED),
     };
     egui::Frame::new()
-        .fill(Color32::from_rgb(25, 43, 60))
+        .fill(Color32::from_white_alpha(16))
         .inner_margin(10)
         .corner_radius(7)
         .show(ui, |ui| {
@@ -419,7 +215,6 @@ fn building(ui: &mut egui::Ui, session: &mut Session, compact: bool) {
 }
 
 fn landscape(ui: &mut egui::Ui, session: &mut Session) {
-    eyebrow(ui, "LANDSCAPE / SHAPE");
     ui.heading("Terrain intervention");
     muted(ui, "Click the landscape to choose where to work.");
     let p = session.position;

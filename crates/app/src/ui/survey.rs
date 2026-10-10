@@ -9,12 +9,11 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
     ui.spacing_mut().item_spacing.y = 6.;
     ui.spacing_mut().interact_size.y = 26.;
     ui.spacing_mut().button_padding.y = 6.;
-    eyebrow(ui, "ELOHIM / PLANETARY SURVEY");
     ui.heading("Beneath the surface");
     ui.label(RichText::new("Synthetic coastal survey").size(11.).color(MUTED))
         .on_hover_text("Generated scenario data. Depth, storage and yield use game units; this is not a geological reconstruction of the Levant.");
     let before = session.survey;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut session.survey.water, "Hydrology");
         ui.checkbox(&mut session.survey.minerals, "Geology");
         ui.checkbox(&mut session.survey.seafloor, "Seafloor");
@@ -30,6 +29,7 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
     if before != session.survey {
         session.refresh_survey();
     }
+    ui.collapsing("Reading the survey", |ui| legend_contents(ui, session));
     ui.separator();
     let p = session.position;
     let reading = session.sim.subsurface.reading(p);
@@ -195,9 +195,9 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
 
 fn color(mineral: Mineral) -> Color32 {
     match mineral {
-        Mineral::Copper => Color32::from_rgb(255, 178, 121),
-        Mineral::Iron => Color32::from_rgb(206, 178, 255),
-        Mineral::Clay => Color32::from_rgb(235, 212, 123),
+        Mineral::Copper => Color32::from_rgb(128, 57, 18),
+        Mineral::Iron => Color32::from_rgb(83, 49, 129),
+        Mineral::Clay => Color32::from_rgb(108, 79, 15),
     }
 }
 
@@ -286,57 +286,79 @@ fn profile(ui: &mut egui::Ui, session: &Session) {
     );
 }
 
-pub fn legend(ctx: &egui::Context, session: &Session) -> Option<egui::Rect> {
-    if !session.survey.active() {
+pub fn legend(ctx: &egui::Context, session: &Session, dock_top: f32) -> Option<egui::Rect> {
+    if !session.survey.active()
+        || session.survey.open
+        || session.placing
+        || session.landscape_tools
+        || session.world_tools
+    {
         return None;
     }
     Some(
         egui::Area::new("survey_legend".into())
-            .anchor(Align2::RIGHT_BOTTOM, [-20., -138.])
+            .anchor(
+                Align2::RIGHT_TOP,
+                [
+                    -16.,
+                    if ctx.content_rect().width() < 1120. {
+                        148.
+                    } else {
+                        88.
+                    },
+                ],
+            )
             .order(egui::Order::Foreground)
             .movable(false)
             .fade_in(false)
             .show(ctx, |ui| {
                 card().inner_margin(12).show(ui, |ui| {
                     ui.set_width(158.);
-                    eyebrow(ui, "SUBSURFACE SIGNALS");
-                    if session.survey.seafloor {
-                        muted(ui, "Seafloor exposed");
-                        muted(ui, "Depth contours · 25 m");
-                    }
-                    if session.survey.water {
-                        muted(ui, "Groundwater stored");
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(158., 8.), Sense::hover());
-                        for i in 0..32 {
-                            let t = i as f32 / 31.;
-                            let rgb = crate::survey::water_color(t * 200.);
-                            let c: Color32 = egui::Rgba::from_rgb(rgb.x, rgb.y, rgb.z).into();
-                            ui.painter().rect_filled(
-                                egui::Rect::from_min_max(
-                                    egui::pos2(rect.left() + i as f32 * 158. / 32., rect.top()),
-                                    egui::pos2(
-                                        rect.left() + (i + 1) as f32 * 158. / 32.,
-                                        rect.bottom(),
-                                    ),
-                                ),
-                                0,
-                                c,
-                            );
-                        }
-                        muted(ui, "0                     200+ u");
-                    }
-                    if session.survey.minerals {
-                        for m in [Mineral::Copper, Mineral::Iron, Mineral::Clay] {
-                            ui.colored_label(color(m), format!("— {}", m.name()));
-                        }
-                        muted(ui, "Outlines = body extent");
-                    }
+                    let top = if ctx.content_rect().width() < 1120. {
+                        148.
+                    } else {
+                        88.
+                    };
+                    egui::ScrollArea::vertical()
+                        .max_height((dock_top - top - 42.).max(70.))
+                        .show(ui, |ui| legend_contents(ui, session));
                 });
             })
             .response
             .rect,
     )
+}
+
+pub fn legend_contents(ui: &mut egui::Ui, session: &Session) {
+    eyebrow(ui, "SUBSURFACE SIGNALS");
+    if session.survey.seafloor {
+        muted(ui, "Seafloor exposed");
+        muted(ui, "Depth contours · 25 m");
+    }
+    if session.survey.water {
+        muted(ui, "Groundwater stored");
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(158., 8.), Sense::hover());
+        for i in 0..32 {
+            let t = i as f32 / 31.;
+            let rgb = crate::survey::water_color(t * 200.);
+            let c: Color32 = egui::Rgba::from_rgb(rgb.x, rgb.y, rgb.z).into();
+            ui.painter().rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.left() + i as f32 * 158. / 32., rect.top()),
+                    egui::pos2(rect.left() + (i + 1) as f32 * 158. / 32., rect.bottom()),
+                ),
+                0,
+                c,
+            );
+        }
+        muted(ui, "0                     200+ u");
+    }
+    if session.survey.minerals {
+        for m in [Mineral::Copper, Mineral::Iron, Mineral::Clay] {
+            ui.colored_label(color(m), format!("— {}", m.name()));
+        }
+        muted(ui, "Outlines = body extent");
+    }
 }
 
 pub fn labels(ctx: &egui::Context, session: &Session, camera: &Camera, occupied: &[egui::Rect]) {
@@ -360,7 +382,7 @@ pub fn labels(ctx: &egui::Context, session: &Session, camera: &Camera, occupied:
         if !screen.contains_rect(rect) || occupied.iter().any(|r| r.intersects(rect)) {
             continue;
         }
-        painter.rect_filled(rect, 5, PANEL);
+        painter.rect_filled(rect, 5, glass_tint());
         painter.text(
             p,
             Align2::CENTER_CENTER,

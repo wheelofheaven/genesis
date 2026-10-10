@@ -14,7 +14,7 @@ Read the [project vision](docs/vision.md) and the
 
 **Current status:** an orbital title screen leads through destination selection,
 regional scenarios, an expedition briefing, and a skippable settlement arrival.
-Dark instrument panels carry through menus, controls, and survey tools. Display
+Frosted instrument panels carry through menus, controls, and survey tools. Display
 and navigation preferences persist between launches.
 The custom application generates seeded coastal and inland regions with
 irregular shores, mountain ridges, drainage networks, woodland patches, and exposed
@@ -62,7 +62,7 @@ sensitivity, and reversed scroll zoom. Apply saves these preferences to
 `~/Library/Application Support/Genesis/settings.conf` on macOS; Cancel leaves
 settings unchanged. Audio settings will follow when audio exists.
 
-Use **World → Generate next seed** during play to explore another region, or
+Use **Region → Generate next seed** during play to explore another region, or
 preselect a seed in the new-world menu from the command line:
 
 ```sh
@@ -229,6 +229,38 @@ Terrain positions and normals are cached until editing or regeneration; river
 geometry and foliage are cached until terrain or buildings change. Spatial chunks accelerate picking.
 Surface colours refresh once per second; active survey colours refresh up to four
 times per second, with immediate refresh for player actions and layer changes.
+
+## Surface interface
+
+Glass panels use a light, mostly transparent tint, rounded edges, soft shadows, and a real
+GPU-blurred world backdrop. Dark text and vector icons remain sharp. The renderer reuses
+quarter-resolution horizontal/vertical blur targets and composites frosting only
+inside the painted panel bounds, including clipped popups and survey labels.
+GPU pipelines remain cached on resize. The world and blur render in linear light;
+egui blends through a gamma-space texture view so translucent colors stay clear. Orbital menus share the translucent theme
+over their illustrated background.
+
+- Upper left: region identity and actual dwelling/borehole counts.
+- Upper right: region tools, help, and the session menu.
+- Bottom center: Explore, Build, Landscape, and Survey icons with short captions.
+- Right inspector: the active tool, readings, and interventions; close with × or Esc.
+- Lower left: compass, camera controls, and metric scale.
+- Lower right: time controls; these move under the menu on narrower windows.
+
+Utility, camera, and playback icons have descriptive tooltips and keyboard hints.
+Small windows simplify navigation while preserving keyboard controls.
+Long inspectors scroll. Survey legends live inside the inspector while tools are
+open, and remain available as a separate card while exploring with overlays.
+Notifications stay at the left so they do not cover the placement site.
+Pause, settings, help, and confirmation surfaces use the same glass treatment.
+
+The layout adapts the overview/action separation seen in
+[Anno 1800's official UI study](https://www.anno-union.com/devblog-user-interface-2/)
+and the edge-mounted status bars, bottom action strip, and time controls visible in
+[this Manor Lords gameplay screenshot](https://www.sector.sk/files/recenzie/202441514461275/manor-lords-39305-4264490-2.jpg).
+These are layout references; Genesis retains its spacefaring visual language.
+Population, approval, food, and production summaries should appear only when the
+simulation actually supports them.
 
 ## Planetary survey
 
