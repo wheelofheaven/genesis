@@ -300,7 +300,7 @@ pub fn overlay(session: &Session) -> Vec<Vertex> {
                 )
             })
             .collect();
-        ribbon(sim, &mut out, &points, 0.035, [0.95, 0.76, 0.35]);
+        ribbon(sim, &mut out, &points, 0.035, [0.2, 0.85, 0.95]);
     }
     if session.survey.seafloor {
         for v in &mut out {

@@ -1,6 +1,6 @@
 use super::theme::*;
 use crate::session::Session;
-use egui::{Align2, Color32, FontId, Sense, Shape, Stroke, Vec2};
+use egui::{Align2, FontId, Sense, Shape, Stroke, Vec2};
 use genesis_renderer::camera::Camera;
 
 /// Orthographic horizontal distances retain their ground-plane metric scale.
@@ -23,13 +23,13 @@ pub fn scale(ctx: &egui::Context, camera: &Camera) -> egui::Rect {
                 ui.label(
                     egui::RichText::new(format!("{length:.0} m"))
                         .size(11.)
-                        .color(INK),
+                        .color(TEXT),
                 );
                 let (rect, _) = ui.allocate_exact_size(
                     egui::vec2(length * pixels_per_metre, 7.),
                     egui::Sense::hover(),
                 );
-                let line = egui::Stroke::new(1.5, INK);
+                let line = egui::Stroke::new(1.5, TEXT);
                 ui.painter()
                     .line_segment([rect.left_center(), rect.right_center()], line);
                 for x in [rect.left(), rect.right()] {
@@ -70,13 +70,13 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                     ACCENT,
                     Stroke::NONE,
                 ));
-                painter.circle_filled(center, 2., GOLD);
+                painter.circle_filled(center, 2., HIGHLIGHT);
                 painter.text(
                     center + north * 29.,
                     Align2::CENTER_CENTER,
                     "N",
                     FontId::proportional(10.),
-                    INK,
+                    TEXT,
                 );
                 if response.on_hover_text("Face north").clicked() {
                     camera.face_north();
@@ -152,7 +152,7 @@ pub fn help(ctx: &egui::Context, open: &mut bool) -> Option<egui::Rect> {
                         ("Esc", "Cancel the active tool"),
                         ("Space / 1, 2, 3", "Pause / change speed"),
                     ] {
-                        ui.label(egui::RichText::new(key).strong().color(INK));
+                        ui.label(egui::RichText::new(key).strong().color(TEXT));
                         ui.label(egui::RichText::new(action).color(MUTED));
                         ui.end_row();
                     }
@@ -161,7 +161,7 @@ pub fn help(ctx: &egui::Context, open: &mut bool) -> Option<egui::Rect> {
             ui.label(
                 egui::RichText::new("Paused actions wait until you resume or step forward.")
                     .size(12.)
-                    .color(Color32::from_rgb(118, 91, 51)),
+                    .color(HIGHLIGHT),
             );
         })
         .map(|r| r.response.rect)

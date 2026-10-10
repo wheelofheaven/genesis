@@ -41,6 +41,11 @@ pub fn generate(seed: u64) -> SimState {
     generate_region(seed, Region::LevantCoast)
 }
 pub fn generate_region(seed: u64, region: Region) -> SimState {
+    generate_scenario(seed, region, true)
+}
+
+/// Generate a regional sandbox with an optional starting settlement.
+pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState {
     let mut sim = SimState::new(SimConfig {
         width: WIDTH,
         height: HEIGHT,
@@ -92,7 +97,9 @@ pub fn generate_region(seed: u64, region: Region) -> SimState {
         c.fungus = c.moisture * 0.55;
         c.plants = (c.moisture * c.fertility * 1.5).clamp(0., 0.9);
     }
-    settlement::seed(&mut sim);
+    if inhabited {
+        settlement::seed(&mut sim);
+    }
     for (x, z, c) in sim.grid.iter_coords() {
         let i = (z * WIDTH + x) as u64;
         let p = Position::new(

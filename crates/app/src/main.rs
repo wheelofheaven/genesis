@@ -1,7 +1,9 @@
 mod clock;
+mod frontend;
 mod horizon;
 mod input;
 mod landscape;
+mod menu_smoke;
 mod scene;
 mod session;
 mod survey;
@@ -35,6 +37,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 #[derive(Default)]
 struct App {
     view: Option<View>,
+    front: frontend::Frontend,
     session: Session,
     camera: Camera,
     input: Input,
@@ -46,6 +49,7 @@ struct App {
     survey_smoke: bool,
     world_smoke: bool,
     frames: u32,
+    menu_smoke: Option<menu_smoke::Check>,
 }
 
 impl App {
@@ -66,15 +70,43 @@ impl App {
             return Ok(false);
         }
         self.frames += 1;
+        if self.menu_smoke.is_some() && [18, 24].contains(&self.frames) {
+            let (width, height) = if self.frames == 18 {
+                (760, 540)
+            } else {
+                (1280, 800)
+            };
+            let _ = view
+                .window
+                .request_inner_size(winit::dpi::LogicalSize::new(width, height));
+        }
+        let menu_capture = if let Some(check) = &mut self.menu_smoke {
+            check
+                .advance(
+                    self.frames,
+                    &mut self.front,
+                    &mut self.session,
+                    &mut self.camera,
+                )?
+                .and_then(|suffix| self.capture.as_ref().map(|p| p.with_extension(suffix)))
+        } else {
+            None
+        };
         if self.world_smoke {
             world_smoke::advance(self.frames, &mut self.session, &mut self.camera)?;
         }
-        self.session.advance(elapsed);
-        self.input.update_camera(
-            &mut self.camera,
-            elapsed.as_secs_f32(),
-            view.window.inner_size().height as f32,
-        );
+        self.front.poll(&mut self.session, &mut self.camera);
+        if self.front.playing() {
+            self.session.advance(elapsed);
+            self.input.update_camera(
+                &mut self.camera,
+                elapsed.as_secs_f32() * self.front.settings.sensitivity,
+                view.window.inner_size().height as f32,
+            );
+        } else {
+            self.input.clear();
+            self.session.set_hover(None);
+        }
         if self.smoke && !self.survey_smoke && self.frames >= 8 {
             if self.frames == 8 {
                 self.session.set_placing(true);
@@ -210,13 +242,31 @@ impl App {
         } else {
             None
         };
-        let capture = if self.frames >= 30 {
+        let finished =
+            self.frames >= 30 && self.menu_smoke.as_ref().is_none_or(|check| check.done());
+        let capture = if finished {
             self.capture.as_deref()
         } else {
-            layer_capture.as_deref()
+            menu_capture.as_deref().or(layer_capture.as_deref())
         };
-        let rendered = view.draw(&mut self.session, &mut self.camera, capture)?;
-        if self.input.cursor.is_some_and(|p| !view.pointer_over_ui(p)) {
+        let rendered = view.draw(
+            &mut self.session,
+            &mut self.camera,
+            capture,
+            &mut self.front,
+        )?;
+        let fullscreen = self.front.settings.fullscreen;
+        if view.window.fullscreen().is_some() != fullscreen {
+            view.window
+                .set_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));
+        }
+        if !self.front.playing() {
+            self.input.clear();
+        }
+        if self.front.quit {
+            return Ok(true);
+        }
+        if self.front.playing() && self.input.cursor.is_some_and(|p| !view.pointer_over_ui(p)) {
             use winit::window::CursorIcon;
             view.window
                 .set_cursor(if self.input.pan || self.input.orbit {
@@ -227,7 +277,7 @@ impl App {
                     CursorIcon::Default
                 });
         }
-        Ok(rendered && capture.is_some() && self.frames >= 30)
+        Ok(rendered && capture.is_some() && finished)
     }
 }
 
@@ -240,7 +290,7 @@ impl ApplicationHandler for App {
             let window = Arc::new(
                 event_loop.create_window(
                     Window::default_attributes()
-                        .with_title("Genesis — Coastal settlement")
+                        .with_title("Genesis")
                         .with_min_inner_size(winit::dpi::LogicalSize::new(
                             if self.survey_smoke { 1100 } else { 760 },
                             if self.survey_smoke { 800 } else { 540 },
@@ -274,13 +324,14 @@ impl ApplicationHandler for App {
         if id != view.window.id() {
             return;
         }
-        let consumed = view.input(&event);
+        let playing = self.front.playing();
+        let consumed = view.input(&event, playing);
         let over_ui = self.input.cursor.is_some_and(|p| view.pointer_over_ui(p));
         if !matches!(event, WindowEvent::RedrawRequested) && view.drawable && !self.hidden {
             view.window.request_redraw();
         }
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => self.front.request_quit(),
             WindowEvent::Focused(false) => {
                 self.input.clear();
                 self.session.set_hover(None);
@@ -305,7 +356,21 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
-                    if !pressed || ((!consumed || code == KeyCode::Escape) && !event.repeat) {
+                    if pressed && !event.repeat && code == KeyCode::Escape {
+                        if playing
+                            && (self.session.placing
+                                || self.session.help
+                                || self.session.landscape_tools
+                                || self.session.survey.open
+                                || self.session.world_tools)
+                        {
+                            self.input
+                                .key(code, true, &mut self.session, &mut self.camera);
+                        } else {
+                            self.front.escape();
+                        }
+                        self.input.clear();
+                    } else if playing && (!pressed || (!consumed && !event.repeat)) {
                         self.input
                             .key(code, pressed, &mut self.session, &mut self.camera);
                     }
@@ -315,18 +380,23 @@ impl ApplicationHandler for App {
                 let point = Vec2::new(position.x as f32, position.y as f32);
                 if let Some(previous) = self.input.cursor.replace(point) {
                     let delta = point - previous;
-                    if self.input.orbit {
-                        self.camera.orbit(delta / view.window.scale_factor() as f32);
+                    if playing && self.input.orbit {
+                        self.camera.orbit(
+                            delta * self.front.settings.sensitivity
+                                / view.window.scale_factor() as f32,
+                        );
                     }
-                    if self.input.pan {
-                        self.camera
-                            .pan(delta, view.window.inner_size().height as f32);
+                    if playing && self.input.pan {
+                        self.camera.pan(
+                            delta * self.front.settings.sensitivity,
+                            view.window.inner_size().height as f32,
+                        );
                     }
                 }
             }
             WindowEvent::MouseInput { button, state, .. } => {
                 let pressed = state == ElementState::Pressed;
-                if !pressed || (!consumed && !over_ui) {
+                if playing && (!pressed || (!consumed && !over_ui)) {
                     match button {
                         MouseButton::Right => self.input.orbit = pressed,
                         MouseButton::Middle => self.input.pan = pressed,
@@ -350,13 +420,20 @@ impl ApplicationHandler for App {
                 }
             }
 
-            WindowEvent::MouseWheel { delta, .. } if !consumed && !over_ui => {
+            WindowEvent::MouseWheel { delta, .. } if playing && !consumed && !over_ui => {
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => {
                         p.y as f32 / (40. * view.window.scale_factor() as f32)
                     }
                 };
+                let lines = lines
+                    * self.front.settings.sensitivity
+                    * if self.front.settings.invert_zoom {
+                        -1.
+                    } else {
+                        1.
+                    };
                 if let Some(cursor) = self.input.cursor {
                     let height = view
                         .pick(&self.session, &self.camera, cursor)
@@ -385,7 +462,8 @@ impl ApplicationHandler for App {
             && view.drawable
             && !self.hidden
         {
-            let deadline = self.last_frame.unwrap_or_else(Instant::now) + Duration::from_millis(8);
+            let deadline = self.last_frame.unwrap_or_else(Instant::now)
+                + Duration::from_secs_f64(1. / self.front.settings.fps as f64);
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
             if Instant::now() >= deadline {
                 view.window.request_redraw();
@@ -431,19 +509,37 @@ fn main() -> Result<()> {
                 || flag == "--seafloor-capture"
                 || flag == "--smoke-test"
                 || flag == "--survey-test"
-                || flag == "--world-test" =>
+                || flag == "--world-test"
+                || flag == "--menu-capture"
+                || flag == "--menu-test" =>
         {
             app.capture = Some(PathBuf::from(path));
             app.smoke = flag == "--smoke-test" || flag == "--survey-test";
             app.survey_smoke = flag == "--survey-test";
             app.world_smoke = flag == "--world-test";
+            if flag == "--menu-test" {
+                app.menu_smoke = Some(menu_smoke::Check::default());
+            }
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --settlement-capture output.png | --world-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --settlement-capture output.png | --world-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
+    if app.capture.is_some()
+        && !args
+            .first()
+            .is_some_and(|f| f == "--menu-capture" || f == "--menu-test")
+    {
+        app.front.screen = frontend::Screen::Playing;
+        app.front.has_session = true;
+    }
+    if app.capture.is_some() {
+        app.front.settings = frontend::Settings::default();
+    }
+    app.front.region = region;
+    app.front.seed = seed.to_string();
     if app.smoke {
         if explicit_seed || explicit_region {
             return Err(

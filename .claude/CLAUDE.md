@@ -8,7 +8,8 @@
 > **Original prototype instructions — superseded product direction (October 10, 2026).**
 > Read [the current vision](../docs/vision.md) and [AGENTS.md](../AGENTS.md) first.
 > Genesis now prioritizes individual life and society simulation, an initial Elohim
-> settlement mode, multiple future scenarios and modes, and Sable-inspired 3D.
+> settlement mode, Earth and future exoplanet scenarios, and spacefaring technology
+> inspired by Phantasy Star Online and Xenoblade Chronicles X.
 > The ocean-only MVP, exclusion of humans, Tiny Glade aesthetic, and rendering-first
 > phase order below are historical, not current requirements. Engineering rules
 > about deterministic simulation, separation from Bevy, and code quality still apply.

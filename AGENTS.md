@@ -5,7 +5,11 @@ custom engine. Read `docs/engine-decision.md` for the accepted winit/wgpu direct
 and transition plan. Bevy is the legacy prototype, not the target architecture.
 Read `docs/vision.md` for the agreed product direction: individual lives, a shared
 simulation supporting multiple modes, and grounded, readable 3D.
-The first focus is a living settlement supervised by an Elohim.
+The first focus is a colony/city builder supervised by an Elohim from an advanced
+spacefaring civilization. Phantasy Star Online and Xenoblade Chronicles X inform
+the technological UX. Earth is the first destination, not a universal engine
+assumption; future exoplanets reuse planet/scenario/expedition boundaries. Keep
+historically grounded local societies distinct from the player's technology.
 
 Read `../AGENTS.md` first for workspace-wide GitHub account isolation and
 project conventions. The previous Claude Code context is `.claude/CLAUDE.md`;

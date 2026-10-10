@@ -9,8 +9,11 @@ modes, observing and influencing stories that emerge from the simulation.
 
 Each version should deepen the same underlying world and provide a satisfying
 playable expansion. The first focus is society and settlement building through
-the role of an Elohim supervising human inhabitants. Terraforming remains a
-possible future mode and an existing prototype subsystem.
+the role of an Elohim supervising inhabitants. The player belongs to a highly
+advanced civilization with interplanetary and interstellar travel, life engineering,
+and terraforming capabilities. Acting as gods describes the relationship with
+local societies; the player's presentation is technological and spacefaring.
+These capabilities are a long-term direction, not all implemented systems.
 
 This vision supersedes the original ocean-terraforming MVP and the subsequent
 Tiny Glade-inspired, rendering-first roadmap. It describes intended development;
@@ -18,13 +21,14 @@ the repository does not yet implement the life or civilization simulation.
 
 ## Shared simulation and multiple modes
 
-Separate three concepts:
+Keep world identity, scenario content, and player capabilities separate:
 
 | Concept | Responsibility |
 | --- | --- |
+| Planet definition | Physical properties, geography, atmosphere, climate, and biosphere; Earth is the first supported destination |
 | World simulation | Geography, ecology, individuals, households, settlements, resources, institutions, and historical change |
 | Scenario | Location, starting period, population, initial conditions, and available knowledge |
-| Game mode | Player role, information access, interventions, constraints, and objectives |
+| Expedition / game mode | Player role, information access, equipment, resources, interventions, constraints, and objectives |
 
 The long-term aim is to let players choose locations and historical periods.
 Each scenario requires appropriate research and content; a date selector alone
@@ -34,19 +38,48 @@ unproven future requirements.
 
 ## First mode and setting
 
-The player is one of the Creator Gods, the Elohim, supervising a region of Earth
-and interacting with its human inhabitants. The Levant in the 10th century BC
-is the initial scenario candidate, not a permanent restriction on the world.
+The first mode is **Settlement**, a colony/city builder informed by Dwarf Fortress,
+Manor Lords, and Songs of Syx. The player is one of the Elohim, operating from an
+advanced expedition and guiding a local community. Designate construction,
+organize production, develop infrastructure, and manage resources. Individuals
+should carry out work through their skills, needs, relationships, and motivations.
 
-The historical reconstruction and the fictional Elohim premise should remain
-distinguishable. History can diverge after the starting conditions.
+Earth is the first destination, with a long-term scenario range from the past
+through the present day. The Levant in the tenth century BCE is an initial
+historical candidate. The same architecture must admit other planets, biospheres,
+and societies later; do not embed Earth or a single period into universal rules.
+A complete galaxy or spaceflight simulator is not required for the first mode.
 
-Human communities should have agency. Possible interventions include appearances,
-material assistance, teachings, environmental changes, and relationships with
-intermediaries. People interpret interventions through their own interests,
-experiences, and beliefs; the consequences can differ from the player's intent.
-The exact balance between direct settlement management and indirect influence
-remains open.
+Local settlements retain architecture and material culture appropriate to their
+world and period. Advanced surveys, equipment, biological engineering, and
+terraforming belong to the player's civilization. Capabilities should eventually
+be constrained by equipment, energy, logistics, and consequences. Avoid arbitrary
+miracle currencies. Neither these constraints nor individual workers exist yet.
+
+The historical reconstruction and the fictional Elohim premise must remain
+distinguishable. History can diverge after supported starting conditions. People
+retain agency and interpret interventions through their interests, experiences,
+and beliefs; outcomes may differ from the player's intentions.
+
+## Entering the game
+
+The accepted opening is **orbit → destination → regional scenario → briefing →
+settlement**. The title screen establishes an expedition above a planet, with
+precise instrumentation and spacecraft forms. Continue returns directly to the
+active settlement. Settlement is the primary starting experience; World Builder
+remains a secondary sandbox using the same systems.
+
+Choose a destination, then a supported place and scenario. Briefings should explain
+local conditions, the community, and available interventions. Region selection
+must distinguish procedural previews from researched historical reconstruction.
+Do not offer arbitrary dates without matching cultures, technology, buildings,
+and populations. Future exoplanets must not appear playable before content exists.
+
+A short, skippable arrival links planetary observation to local scale. The first
+living-settlement target begins beside an existing community: meet households,
+understand needs such as water and shelter, then choose an intervention. Until
+people are simulated, show actual dwellings and available survey/build tools;
+never invent population numbers, needs, or task completion in the interface.
 
 ## Individual lives and emotional investment
 
@@ -92,7 +125,7 @@ underground resources. Settlements should respond to those conditions. Continuou
 positions, irregular boundaries, and curved watercourses must keep the internal
 sampling grid out of the player's spatial experience.
 
-Earth is the intended world: selectable geographic regions such as the Levant,
+Earth is the first supported world: selectable geographic regions such as the Levant,
 with continuous terrain above and below sea level. Islands are one landform,
 not the universal map structure. Ocean basins, shelves, slopes, and continental
 interiors belong to the same elevation surface.
@@ -139,15 +172,18 @@ geometric forms. Sable remains a reference for colour restraint and readability;
 it should not limit terrain detail or physical credibility. Exact shaders,
 outline treatment, texture detail, and camera limits remain exploratory.
 
-Human environments should use historically informed architecture and materials.
-Elohim technology can use precise geometry, unusual materials, and controlled
-luminous accents within the same rendering language. Carry the style across
-regions and periods through shape and rendering; do not make a desert palette
-universal. Test detail and outlines at both close and settlement distances.
+The primary technological references are **Phantasy Star Online** and
+**Xenoblade Chronicles X**: an advanced civilization capable of exploring worlds,
+with vessels, observation platforms, survey drones, and field equipment. These
+are references for direction, not requests to copy assets or interfaces.
 
-Phantasy Star Online and Sable are visual references rather than fixed rendering
-requirements. The prior Tiny Glade aesthetic and custom rendering roadmap
-are no longer requirements.
+The player-facing UX uses dark instrument panels, clear typography, precise
+geographic diagrams, and restrained luminous accents. Supersede the parchment,
+antique gold, and biblical presentation of the early menus. Local communities
+remain historically or ecologically grounded; their architecture need not match
+the expedition's technology. Sable remains a secondary reference for restraint
+and readability, not the overarching setting. The landscape retains believable
+materials, scale, and detail rather than becoming a holographic abstraction.
 
 ## Iterative development horizons
 

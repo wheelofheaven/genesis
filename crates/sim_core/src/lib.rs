@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod catalog;
 pub mod config;
 pub mod events;
 pub mod grid;

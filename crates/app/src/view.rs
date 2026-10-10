@@ -108,11 +108,12 @@ impl View {
         );
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, event: &WindowEvent, playing: bool) -> bool {
         // A focused toolbar button must not swallow camera keys or turn Space
         // into an accidental second build. There are no text editors in this HUD.
         if let WindowEvent::KeyboardInput { event, .. } = event
             && let winit::keyboard::PhysicalKey::Code(code) = event.physical_key
+            && playing
             && crate::input::Input::is_shortcut(code)
         {
             return false;
@@ -154,6 +155,7 @@ impl View {
         session: &mut Session,
         camera: &mut Camera,
         capture: Option<&Path>,
+        front: &mut crate::frontend::Frontend,
     ) -> Result<bool> {
         if !self.drawable {
             return Ok(false);
@@ -168,12 +170,18 @@ impl View {
             Err(error) => return Err(error.into()),
         };
         let context = self.gui_state.egui_ctx().clone();
+        context.set_zoom_factor(front.settings.scale);
         let output = context.run(self.gui_state.take_egui_input(&self.window), |ctx| {
-            self.occupied = ui::show(ctx, session, camera);
+            self.occupied = if front.playing() {
+                ui::show(ctx, session, camera, front)
+            } else {
+                front.show(ctx, session, camera)
+            };
         });
         self.gui_state
             .handle_platform_output(&self.window, output.platform_output);
-        if session.dirty
+        if front.surface_backdrop()
+            && session.dirty
             && (session.urgent_redraw
                 || self.last_world_upload.elapsed()
                     >= Duration::from_millis(if session.survey.active() { 250 } else { 1000 }))

@@ -1,6 +1,7 @@
 # Earth terrain foundation
 
-Genesis targets Earth with selectable places and periods. Terrain is one signed
+Earth is the first destination in a simulation intended to support other planets.
+Earth scenarios target selectable places and periods from the past to the present. Terrain is one signed
 elevation surface: land continues through the shoreline onto the continental
 shelf, slope, and ocean floor. Water occupies space above that surface. An island
 mask is a scenario choice, not a planetary assumption.

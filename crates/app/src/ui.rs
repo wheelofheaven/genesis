@@ -9,7 +9,12 @@ use genesis_sim_core::{actions::Action, spatial};
 use theme::*;
 
 /// Floating cards return their actual bounds to keep world input out of the HUD.
-pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> Vec<egui::Rect> {
+pub fn show(
+    ctx: &egui::Context,
+    session: &mut Session,
+    camera: &mut Camera,
+    front: &mut crate::frontend::Frontend,
+) -> Vec<egui::Rect> {
     let mut occupied = Vec::new();
     let identity = egui::Area::new("identity".into())
         .anchor(Align2::LEFT_TOP, [20., 20.])
@@ -27,15 +32,15 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
                     painter.circle_stroke(center, 12., Stroke::new(1.5, ACCENT));
                     painter.line_segment(
                         [center + egui::vec2(-16., 4.), center + egui::vec2(16., 4.)],
-                        Stroke::new(1.5, GOLD),
+                        Stroke::new(1.5, HIGHLIGHT),
                     );
-                    painter.circle_filled(center - egui::vec2(0., 5.), 3., GOLD);
+                    painter.circle_filled(center - egui::vec2(0., 5.), 3., HIGHLIGHT);
                     ui.vertical(|ui| {
-                        eyebrow(ui, "G E N E S I S");
+                        eyebrow(ui, "GENESIS / SURFACE OPERATIONS");
                         ui.label(
                             RichText::new(session.sim.geography.region.name())
                                 .size(19.)
-                                .color(INK),
+                                .color(TEXT),
                         );
                     });
                 });
@@ -49,7 +54,7 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
                         } else if session.placing {
                             "Shaping a settlement"
                         } else {
-                            "A world taking shape"
+                            "Surface link active"
                         }
                     ),
                 );
@@ -68,7 +73,11 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
                     ui.painter().circle_filled(
                         r.center(),
                         3.,
-                        if session.clock.paused { GOLD } else { ACCENT },
+                        if session.clock.paused {
+                            HIGHLIGHT
+                        } else {
+                            ACCENT
+                        },
                     );
                     if button(
                         ui,
@@ -81,6 +90,9 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
                         "Space · pause or resume the world",
                     ) {
                         session.clock.paused = !session.clock.paused;
+                    }
+                    if button(ui, "Menu", false, "Pause menu · Esc") {
+                        front.screen = crate::frontend::Screen::Pause;
                     }
                     ui.separator();
                     for speed in [1, 4, 16] {
@@ -261,7 +273,7 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
                                     }
                                 ))
                                 .strong()
-                                .color(GOLD),
+                                .color(HIGHLIGHT),
                             );
                             if session.clock.paused {
                                 muted(ui, "Resume or Step to apply your changes.");
@@ -293,7 +305,7 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
 
 fn world(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
     eyebrow(ui, "WORLD / GENERATION");
-    ui.heading("A place to begin");
+    ui.heading("Regional survey");
     muted(ui, session.sim.geography.region.description());
     muted(
         ui,
@@ -375,7 +387,7 @@ fn building(ui: &mut egui::Ui, session: &mut Session, compact: bool) {
         None => ("Move onto the landscape".to_owned(), MUTED),
     };
     egui::Frame::new()
-        .fill(Color32::from_rgb(231, 232, 212))
+        .fill(Color32::from_rgb(25, 43, 60))
         .inner_margin(10)
         .corner_radius(7)
         .show(ui, |ui| {
@@ -408,7 +420,7 @@ fn building(ui: &mut egui::Ui, session: &mut Session, compact: bool) {
 
 fn landscape(ui: &mut egui::Ui, session: &mut Session) {
     eyebrow(ui, "LANDSCAPE / SHAPE");
-    ui.heading("Tend the land");
+    ui.heading("Terrain intervention");
     muted(ui, "Click the landscape to choose where to work.");
     let p = session.position;
     let h = spatial::elevation(&session.sim.grid, p);

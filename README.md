@@ -1,13 +1,22 @@
 # Genesis
 
-A life, society, world, and civilization simulator where history emerges from
-individual lives. The first planned mode places the player in the role of an
-Elohim supervising human settlements, with Sable-inspired illustrated 3D.
+A life, society, world, and civilization simulator. You belong to an advanced
+spacefaring civilization: cross the stars, observe another world, and guide a
+local community. The first focus is a colony/city builder with individual lives
+at its heart. Earth is the first destination; the architecture should support
+future exoplanets and their own environments and societies.
+
+Phantasy Star Online and Xenoblade Chronicles X inform the technological visual
+direction. Local settlements retain architecture appropriate to their setting.
 
 Read the [project vision](docs/vision.md) and the
 [custom Rust engine decision](docs/engine-decision.md).
 
-**Current status:** the custom application generates seeded coastal regions with
+**Current status:** an orbital title screen leads through destination selection,
+regional scenarios, an expedition briefing, and a skippable settlement arrival.
+Dark instrument panels carry through menus, controls, and survey tools. Display
+and navigation preferences persist between launches.
+The custom application generates seeded coastal and inland regions with
 irregular shores, mountain ridges, drainage networks, woodland patches, and exposed
 rock. Six freely positioned dwellings seek suitable terrain near water. Terrain
 inspection, terraforming, combined groundwater/mineral surveys, and working
@@ -26,7 +35,35 @@ mise run run
 With the configured Rust toolchain active, `cargo run` also starts the game.
 macOS is the primary development platform.
 
-Use **World → Generate next seed** to explore another region, or reproduce one:
+Choose **Begin expedition** from the orbital title screen:
+
+1. **Destination:** Earth is the only currently supported planet.
+2. **Region:** choose the Levant coast, inland hills, or a synthetic Mediterranean
+   island. Current scenarios are undated procedural previews. Historical periods
+   and exoplanets are not yet selectable.
+3. **Briefing:** review environmental conditions, the starting site, and available
+   interventions. Expand **Generation settings** to edit or shuffle the seed.
+4. **Deploy:** generation runs in the background. Arrival focuses on the actual
+   village and reports real dwelling, watercourse, and deposit counts. Enter the
+   settlement, choose a regional overview, or press Escape to skip the arrival.
+
+Settlement is the primary mode. The secondary **World Builder sandbox** link on
+the main menu uses the same expedition flow with uninhabited terrain. These modes
+currently provide different starting conditions and shared tools; workers,
+households, production chains, and expedition logistics remain future systems.
+
+**Menu** (or **Escape** after closing a tool) suspends world time. Return to the
+main menu and choose **Continue expedition** to resume the same session. Saving
+sessions is not implemented yet; continuing works only while the app stays open.
+Replacing a session or quitting asks for confirmation.
+
+**Settings** provides fullscreen, interface scale, a 30/60/120 frame limit, camera
+sensitivity, and reversed scroll zoom. Apply saves these preferences to
+`~/Library/Application Support/Genesis/settings.conf` on macOS; Cancel leaves
+settings unchanged. Audio settings will follow when audio exists.
+
+Use **World → Generate next seed** during play to explore another region, or
+preselect a seed in the new-world menu from the command line:
 
 ```sh
 mise exec -- cargo run -- --seed 7320
@@ -44,7 +81,7 @@ world and its edits; the World panel makes this explicit.
 - **B / Build dwelling:** preview follows the pointer; **Q / E** rotate by 15°;
   **click** to place or **Shift-click** to continue placing.
 - Green previews indicate suitable sites; red footprints explain blocked placement.
-- **Escape:** cancel placement / dismiss help. Close the window to exit.
+- **Escape:** close the active tool, then open/resume from the pause menu.
 - **Space:** pause/resume; **1 / 2 / 3:** select 1× / 4× / 16× speed.
 - **Landscape:** open the contextual panel to raise/lower terrain or plant.
 - **V / Survey:** toggle hydrology and geology independently, or combine them.
@@ -55,7 +92,7 @@ world and its edits; the World panel makes this explicit.
 - The compass follows the camera; click it to face north. Adjacent buttons provide
   zoom, focus, and home controls.
 
-The HUD uses floating parchment panels, a bottom tool dock, and contextual
+The HUD uses dark instrument panels, a bottom tool dock, and contextual
 shortcut hints. Exploration keeps the center clear; building, survey, and landscape panels
 appear only for their active tool. The minimum window is 760 × 540 logical pixels,
 with compact controls and scrolling where needed.
@@ -82,6 +119,13 @@ stepping, free building placement, and resize before writing a PNG and exiting:
 mise exec -- cargo run -- --smoke-test /tmp/genesis-foundation.png
 ```
 
+`--menu-capture /tmp/genesis-title.png` captures the title menu.
+`--menu-test /tmp/genesis-menu.png` checks the destination/region/briefing flow,
+small-window settings, asynchronous settlement creation, paused arrival, pause,
+and return/continue without losing the prior pause state. It captures each menu,
+the arrival, and the resumed world.
+
+Other capture commands bypass the menu to preserve scene regression checks.
 `--capture /tmp/genesis.png` captures the initial scene without the smoke actions.
 `--survey-test /tmp/genesis-survey.png` also checks borehole drawdown and picking,
 and captures hydrology, geology, and their combination (the separate layers use
@@ -269,3 +313,17 @@ The original biosphere score remains a prototype mechanic, not the overall goal.
 ## License
 
 [CC0-1.0](LICENSE)
+
+## Planet and scenario boundaries
+
+The engine-independent `sim_core::catalog` stores stable destination/scenario IDs
+and associates each implemented region with its planet. Undated previews have no
+historical start year. Player mode and capabilities belong to the expedition;
+selecting an unsupported destination cannot silently invoke an Earth recipe.
+Earth climate/biology assumptions in the current simulation still need explicit
+physical models before non-Earth scenarios can be supported.
+
+The orbital globe is a cached illustration built from Natural Earth land outlines,
+with decorative shading and atmospheric patterns. It is separate from simulation
+terrain; see [asset provenance](assets/maps/README.md). There is no simulated
+spaceflight, historical Earth reconstruction, or global terrain streaming yet.

@@ -142,3 +142,15 @@ fn mainland_windows_have_continuous_seafloor_and_no_ocean_moat() {
         .unwrap();
     assert!(ne.latitude > center.latitude && ne.longitude > center.longitude);
 }
+
+#[test]
+fn uninhabited_scenario_keeps_the_same_terrain_without_settlement() {
+    let populated = super::generate_region(7319, super::Region::LevantCoast);
+    let empty = super::generate_scenario(7319, super::Region::LevantCoast, false);
+    assert!(!populated.buildings.is_empty());
+    assert!(empty.buildings.is_empty() && empty.paths.is_empty());
+    assert_eq!(populated.geography.rivers, empty.geography.rivers);
+    for (a, b) in populated.grid.cells().iter().zip(empty.grid.cells()) {
+        assert_eq!(a.elevation, b.elevation);
+    }
+}

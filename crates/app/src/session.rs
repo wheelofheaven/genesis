@@ -6,6 +6,7 @@ use genesis_sim_core::{
 use std::{collections::VecDeque, time::Duration};
 
 pub struct Session {
+    pub mode: crate::frontend::Mode,
     pub sim: SimState,
     pub clock: Clock,
     pub selected: (i32, i32),
@@ -42,6 +43,7 @@ impl Session {
         );
         let region_choice = sim.geography.region;
         Self {
+            mode: crate::frontend::Mode::Settlement,
             region_choice,
             sim,
             clock: Clock::default(),
@@ -68,13 +70,16 @@ impl Session {
 impl Session {
     pub fn regenerate(&mut self, seed: u64) {
         let revision = self.terrain_revision + 1;
-        *self = Self::from_sim(genesis_sim_core::worldgen::generate_region(
+        let mode = self.mode;
+        *self = Self::from_sim(genesis_sim_core::worldgen::generate_scenario(
             seed,
             self.region_choice,
+            mode == crate::frontend::Mode::Settlement,
         ));
+        self.mode = mode;
         self.terrain_revision = revision;
         self.world_tools = true;
-        self.message = format!("New coastal region · seed {seed}");
+        self.message = format!("New region · seed {seed}");
     }
     pub fn queue(&mut self, action: Action) {
         self.pending.push(action);

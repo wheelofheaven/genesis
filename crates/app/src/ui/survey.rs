@@ -195,9 +195,9 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
 
 fn color(mineral: Mineral) -> Color32 {
     match mineral {
-        Mineral::Copper => Color32::from_rgb(176, 81, 33),
-        Mineral::Iron => Color32::from_rgb(117, 77, 154),
-        Mineral::Clay => Color32::from_rgb(146, 114, 29),
+        Mineral::Copper => Color32::from_rgb(255, 178, 121),
+        Mineral::Iron => Color32::from_rgb(206, 178, 255),
+        Mineral::Clay => Color32::from_rgb(235, 212, 123),
     }
 }
 
@@ -261,7 +261,7 @@ fn profile(ui: &mut egui::Ui, session: &Session) {
         Align2::LEFT_TOP,
         "Surface",
         FontId::proportional(11.),
-        INK,
+        TEXT,
     );
     painter.text(
         egui::pos2(rect.left() + 66., top + 23.),
@@ -360,7 +360,7 @@ pub fn labels(ctx: &egui::Context, session: &Session, camera: &Camera, occupied:
         if !screen.contains_rect(rect) || occupied.iter().any(|r| r.intersects(rect)) {
             continue;
         }
-        painter.rect_filled(rect, 5, PAPER);
+        painter.rect_filled(rect, 5, PANEL);
         painter.text(
             p,
             Align2::CENTER_CENTER,
