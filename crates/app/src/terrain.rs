@@ -66,7 +66,14 @@ fn colored_vertex(
     let exposure = ((v.y - 18.) / 26.)
         .clamp(0., 1.)
         .max((slope * 2.5).clamp(0., 1.));
-    let color = sand.lerp(grass, inland).lerp(stone, exposure) * shade;
+    let mut color = sand.lerp(grass, inland).lerp(stone, exposure) * shade;
+    let seabed = layers.seafloor && v.y < sim.sea_level;
+    if seabed {
+        let depth = (sim.sea_level - v.y) * 20.;
+        color = Vec3::new(0.31, 0.45, 0.42)
+            .lerp(Vec3::new(0.075, 0.19, 0.27), (depth / 500.).clamp(0., 1.))
+            * shade;
+    }
     let color = crate::survey::terrain_color(sim, p, color, layers);
     Vertex {
         position: v.to_array(),
@@ -74,7 +81,13 @@ fn colored_vertex(
             color.x,
             color.y,
             color.z,
-            if layers.active() { 1. } else { 2. },
+            if seabed {
+                4.
+            } else if layers.water || layers.minerals {
+                1.
+            } else {
+                2.
+            },
         ],
     }
 }
@@ -99,6 +112,7 @@ pub fn triangles(sim: &SimState, mut visit: impl FnMut([Position; 3])) {
 
 /// Geometry and baked normals survive ecological ticks and water animation.
 pub struct Cache {
+    context: crate::horizon::Cache,
     samples: Vec<(Position, Vec3, Vec3)>,
     width: u32,
     height: u32,
@@ -122,6 +136,7 @@ impl Cache {
             })
             .collect();
         Self {
+            context: crate::horizon::Cache::new(sim),
             samples,
             width,
             height,
@@ -141,7 +156,9 @@ impl Cache {
                     for j in ids {
                         out.push(vertices[j]);
                     }
-                    if ids.iter().any(|&j| vertices[j].position[1] < sim.sea_level) {
+                    if !layers.seafloor
+                        && ids.iter().any(|&j| vertices[j].position[1] < sim.sea_level)
+                    {
                         for j in ids {
                             let [x, h, z] = vertices[j].position;
                             out.push(Vertex {
@@ -157,6 +174,13 @@ impl Cache {
                     }
                 }
             }
+        }
+        if sim.geography.region != genesis_sim_core::worldgen::Region::Island {
+            self.context.append(sim, out, layers);
+            return;
+        }
+        if layers.seafloor {
+            return;
         }
         // Four ocean patches extend the shelf beyond the simulation boundary.
         let x = sim.grid.width as f32 * 0.5;
@@ -242,7 +266,7 @@ impl Picker {
             sea: sim.sea_level,
         }
     }
-    pub fn pick(&self, origin: Vec3, dir: Vec3) -> Option<Position> {
+    pub fn pick(&self, origin: Vec3, dir: Vec3, include_water: bool) -> Option<Position> {
         let mut nearest = f32::INFINITY;
         for chunk in &self.chunks {
             let mut entry: f32 = 0.;
@@ -268,7 +292,7 @@ impl Picker {
                 }
             }
         }
-        if dir.y.abs() > 1e-7 {
+        if include_water && dir.y.abs() > 1e-7 {
             let t = (self.sea - origin.y) / dir.y;
             let p = origin + dir * t;
             if t >= 0. && p.x.abs() < self.width / 2. && p.z.abs() < self.height / 2. {
@@ -336,9 +360,22 @@ mod tests {
             for i in 0..16 {
                 let origin = Vec3::new(i as f32 - 8., 15., 12.);
                 let dir = Vec3::new(0.15, -1., -0.6).normalize();
-                assert_eq!(picker.pick(origin, dir), pick(&sim, origin, dir));
+                assert_eq!(picker.pick(origin, dir, true), pick(&sim, origin, dir));
             }
         }
+    }
+    #[test]
+    fn seafloor_picking_uses_exposed_bed_instead_of_hidden_water() {
+        let mut sim = genesis_sim_core::scenarios::coastal_outpost();
+        for c in sim.grid.cells_mut() {
+            c.elevation = -5.;
+        }
+        let picker = Picker::new(&sim);
+        let o = Vec3::new(0., 10., 0.);
+        let d = Vec3::new(0.2, -1., 0.).normalize();
+        let sea = picker.pick(o, d, true).unwrap();
+        let bed = picker.pick(o, d, false).unwrap();
+        assert!((bed.x - sea.x - 1.).abs() < 0.001);
     }
     #[test]
     #[ignore = "manual interaction timing; no timing assertions"]
@@ -355,7 +392,7 @@ mod tests {
         let original = start.elapsed().as_secs_f64() * 10.;
         let start = Instant::now();
         for _ in 0..100 {
-            black_box(picker.pick(black_box(origin), dir));
+            black_box(picker.pick(black_box(origin), dir, true));
         }
         eprintln!(
             "Pointer CPU mean: original {original:.3} ms; cached {:.3} ms",

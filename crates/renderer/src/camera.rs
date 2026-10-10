@@ -84,8 +84,8 @@ impl Camera {
     }
     fn clamp_focus(&mut self) {
         self.focus = self.focus.clamp(
-            Vec3::new(-self.extent, -40., -self.extent),
-            Vec3::new(self.extent, 80., self.extent),
+            Vec3::new(-self.extent, -600., -self.extent),
+            Vec3::new(self.extent, 450., self.extent),
         );
     }
 

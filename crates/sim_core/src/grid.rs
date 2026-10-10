@@ -60,11 +60,22 @@ impl Default for Cell {
     }
 }
 
-/// The world grid. Toroidal (wrapping) 2D grid of cells.
+/// Boundary conditions for a local field. Earth regions are bounded windows;
+/// only legacy fixtures and synthetic islands use toroidal wrapping.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Boundary {
+    #[default]
+    Wrap,
+    Clamp,
+}
+
+/// Environmental samples with explicit boundary conditions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Grid {
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub boundary: Boundary,
     cells: Vec<Cell>,
 }
 
@@ -76,24 +87,32 @@ impl Grid {
             width,
             height,
             cells,
+            boundary: Boundary::Wrap,
         }
     }
 
-    /// Convert (x, y) to a flat index with toroidal wrapping.
+    /// Convert (x, y) using the configured wrapping or bounded-edge policy.
     #[inline]
     pub fn index(&self, x: i32, y: i32) -> usize {
-        let wx = x.rem_euclid(self.width as i32) as u32;
-        let wy = y.rem_euclid(self.height as i32) as u32;
+        let coordinate = |v: i32, size: u32| match self.boundary {
+            Boundary::Wrap => v.rem_euclid(size as i32),
+            Boundary::Clamp => v.clamp(0, size as i32 - 1),
+        } as u32;
+        let wx = coordinate(x, self.width);
+        let wy = coordinate(y, self.height);
         (wy * self.width + wx) as usize
     }
 
-    /// Get a cell reference by grid coordinates (wrapping).
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        x >= 0 && y >= 0 && x < self.width as i32 && y < self.height as i32
+    }
+    /// Get a cell reference using this field's boundary conditions.
     #[inline]
     pub fn get(&self, x: i32, y: i32) -> &Cell {
         &self.cells[self.index(x, y)]
     }
 
-    /// Get a mutable cell reference by grid coordinates (wrapping).
+    /// Get a mutable cell using the configured boundary policy.
     #[inline]
     pub fn get_mut(&mut self, x: i32, y: i32) -> &mut Cell {
         let idx = self.index(x, y);
@@ -119,7 +138,7 @@ impl Grid {
         })
     }
 
-    /// Get the 4 cardinal neighbor coordinates (with wrapping).
+    /// Get cardinal neighbour coordinates; access applies the boundary policy.
     pub fn neighbors4(&self, x: i32, y: i32) -> [(i32, i32); 4] {
         [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
     }
@@ -137,6 +156,20 @@ mod tests {
         assert_eq!(grid.index(0, -1), grid.index(0, 9));
     }
 
+    #[test]
+    fn bounded_regions_do_not_connect_opposite_edges() {
+        let mut grid = Grid::new(10, 10);
+        grid.boundary = Boundary::Clamp;
+        grid.get_mut(0, 5).elevation = -10.;
+        grid.get_mut(9, 5).elevation = 20.;
+        assert_eq!(grid.get(-1, 5).elevation, -10.);
+        assert_eq!(grid.get(10, 5).elevation, 20.);
+        let h = crate::spatial::elevation(&grid, crate::spatial::Position::new(10., 5.));
+        assert!(h > 10.);
+        crate::rules::apply_terraform(&mut grid, 0, 5, 2, 1.);
+        assert_eq!(grid.get(0, 5).elevation, -9.);
+        assert_eq!(grid.get(9, 5).elevation, 20.);
+    }
     #[test]
     fn test_grid_size() {
         let grid = Grid::new(16, 8);

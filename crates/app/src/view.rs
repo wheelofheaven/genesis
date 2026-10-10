@@ -138,7 +138,10 @@ impl View {
             cursor,
             glam::Vec2::new(size.width as f32, size.height as f32),
         )?;
-        self.picker.as_ref()?.1.pick(origin, dir)
+        self.picker
+            .as_ref()?
+            .1
+            .pick(origin, dir, !session.survey.seafloor)
     }
     pub fn pointer_over_ui(&self, cursor: glam::Vec2) -> bool {
         let scale = self.gui_state.egui_ctx().pixels_per_point();

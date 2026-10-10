@@ -15,7 +15,13 @@ pub fn advance(frame: u32, session: &mut Session, camera: &mut Camera) -> Result
         12 => {
             let seed = session.sim.config.seed;
             let revision = session.terrain_revision;
-            let old = session.sim.grid.get(192, 160).elevation;
+            let old: Vec<_> = session
+                .sim
+                .grid
+                .cells()
+                .iter()
+                .map(|c| c.elevation)
+                .collect();
             session.queue(Action::Terraform {
                 x: 40,
                 y: 40,
@@ -27,7 +33,13 @@ pub fn advance(frame: u32, session: &mut Session, camera: &mut Camera) -> Result
             crate::terrain::home_camera(&session.sim, camera);
             if session.terrain_revision <= revision
                 || session.pending_count() != 0
-                || session.sim.grid.get(192, 160).elevation == old
+                || session
+                    .sim
+                    .grid
+                    .cells()
+                    .iter()
+                    .zip(&old)
+                    .all(|(c, h)| c.elevation == *h)
             {
                 return Err("regeneration did not replace terrain and clear stale actions".into());
             }
@@ -77,7 +89,10 @@ pub fn advance(frame: u32, session: &mut Session, camera: &mut Camera) -> Result
         }
         26 => {
             session.survey = Default::default();
-            session.world_tools = true;
+            session.survey.open = true;
+            session.survey.seafloor = true;
+            session.world_tools = false;
+            session.select(Position::new(65., 160.));
             session.refresh_survey();
         }
         _ => {}

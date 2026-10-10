@@ -17,12 +17,14 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
     ui.horizontal(|ui| {
         ui.checkbox(&mut session.survey.water, "Hydrology");
         ui.checkbox(&mut session.survey.minerals, "Geology");
+        ui.checkbox(&mut session.survey.seafloor, "Seafloor");
     });
     ui.collapsing("Signal settings", |ui| {
         ui.add(egui::Slider::new(&mut session.survey.opacity, 0.2..=1.).text("Signal"));
         if ui.small_button("Surface only").clicked() {
             session.survey.water = false;
             session.survey.minerals = false;
+            session.survey.seafloor = false;
         }
     });
     if before != session.survey {
@@ -33,6 +35,28 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
     let reading = session.sim.subsurface.reading(p);
     let ground = spatial::elevation(&session.sim.grid, p);
     eyebrow(ui, "SELECTED GROUND");
+    if let Some(geo) = session.sim.geography.region.geographic_position(
+        p,
+        session.sim.grid.width,
+        session.sim.grid.height,
+    ) {
+        muted(
+            ui,
+            format!("{:.4}° N · {:.4}° E", geo.latitude, geo.longitude),
+        );
+    }
+    let elevation = ground * genesis_sim_core::units::METRES_PER_UNIT;
+    ui.label(format!("Elevation {elevation:+.0} m"));
+    if ground < session.sim.sea_level {
+        muted(
+            ui,
+            format!(
+                "Water depth {:.0} m",
+                (session.sim.sea_level - ground) * genesis_sim_core::units::METRES_PER_UNIT
+            ),
+        );
+    }
+
     muted(
         ui,
         format!("{:.1}, {:.1} · {}", p.x, p.z, reading.rock.name()),
@@ -276,6 +300,10 @@ pub fn legend(ctx: &egui::Context, session: &Session) -> Option<egui::Rect> {
                 card().inner_margin(12).show(ui, |ui| {
                     ui.set_width(158.);
                     eyebrow(ui, "SUBSURFACE SIGNALS");
+                    if session.survey.seafloor {
+                        muted(ui, "Seafloor exposed");
+                        muted(ui, "Depth contours · 25 m");
+                    }
                     if session.survey.water {
                         muted(ui, "Groundwater stored");
                         let (rect, _) =

@@ -117,12 +117,11 @@ pub fn route(grid: &mut Grid, sea: f32) -> Drainage {
     }
 }
 
-pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32) -> Vec<River> {
-    const THRESHOLD: f32 = 110.;
+pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32, threshold: f32) -> Vec<River> {
     let n = grid.cells().len();
     let mut upstream = vec![0; n];
     for (i, receiver) in drainage.receivers.iter().enumerate() {
-        if drainage.accumulation[i] >= THRESHOLD
+        if drainage.accumulation[i] >= threshold
             && let Some(j) = receiver
         {
             upstream[*j] += 1;
@@ -132,7 +131,7 @@ pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32) -> Vec<River> {
     let mut used = vec![false; n];
     for &start in drainage.order.iter().rev() {
         if upstream[start] != 0
-            || drainage.accumulation[start] < THRESHOLD
+            || drainage.accumulation[start] < threshold
             || grid.cells()[start].elevation <= sea
         {
             continue;

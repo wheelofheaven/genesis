@@ -1,4 +1,7 @@
-use crate::grid::Grid;
+use crate::{
+    grid::{Boundary, Grid},
+    units::{MAX_ELEVATION, MIN_ELEVATION},
+};
 
 /// Apply a terraform action: modify elevation within a radius.
 /// Positive strength raises land, negative lowers it.
@@ -6,11 +9,22 @@ pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength:
     if !strength.is_finite() {
         return;
     }
-    let cx = cx.rem_euclid(grid.width as i32);
-    let cy = cy.rem_euclid(grid.height as i32);
+    let cx = if grid.boundary == Boundary::Wrap {
+        cx.rem_euclid(grid.width as i32)
+    } else {
+        cx
+    };
+    let cy = if grid.boundary == Boundary::Wrap {
+        cy.rem_euclid(grid.height as i32)
+    } else {
+        cy
+    };
     let r = radius.min(grid.width.max(grid.height)) as i32;
     for dy in -r..=r {
         for dx in -r..=r {
+            if grid.boundary == Boundary::Clamp && !grid.contains(cx + dx, cy + dy) {
+                continue;
+            }
             let dist_sq = (dx * dx + dy * dy) as f32;
             let radius_sq = (r * r) as f32;
             if dist_sq > radius_sq {
@@ -23,7 +37,8 @@ pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength:
                 1.0 - (dist_sq / radius_sq).sqrt()
             };
             let cell = grid.get_mut(cx + dx, cy + dy);
-            cell.elevation = (cell.elevation + strength * falloff).clamp(-40.0, 80.0);
+            cell.elevation =
+                (cell.elevation + strength * falloff).clamp(MIN_ELEVATION, MAX_ELEVATION);
         }
     }
 }
@@ -46,11 +61,8 @@ mod tests {
         assert_eq!(grid.get(3, 3).elevation, 1.);
         for strength in [f32::NAN, f32::INFINITY, f32::MAX, -f32::MAX] {
             apply_terraform(&mut grid, 3, 3, 2, strength);
-            assert!(
-                grid.cells()
-                    .iter()
-                    .all(|c| c.elevation.is_finite() && (-40.0..=80.0).contains(&c.elevation))
-            );
+            assert!(grid.cells().iter().all(|c| c.elevation.is_finite()
+                && (MIN_ELEVATION..=MAX_ELEVATION).contains(&c.elevation)));
         }
     }
 

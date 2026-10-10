@@ -1,4 +1,4 @@
-//! Adapter owning simulation and pending commands, without any graphics types.
+//! Application session owning simulation, pending commands, and presentation choices.
 use crate::clock::{Clock, TICK};
 use genesis_sim_core::{
     SimState, actions::Action, events::SimEvent, settlement::Building, spatial::Position,
@@ -19,6 +19,7 @@ pub struct Session {
     pub help: bool,
     pub landscape_tools: bool,
     pub world_tools: bool,
+    pub region_choice: genesis_sim_core::worldgen::Region,
     pub survey: crate::survey::Survey,
     pub message: String,
     pub message_is_error: bool,
@@ -39,7 +40,9 @@ impl Session {
             Position::new(sim.grid.width as f32 / 2., sim.grid.height as f32 / 2.),
             |b| b.position,
         );
+        let region_choice = sim.geography.region;
         Self {
+            region_choice,
             sim,
             clock: Clock::default(),
             selected: (position.x.round() as i32, position.z.round() as i32),
@@ -65,7 +68,10 @@ impl Session {
 impl Session {
     pub fn regenerate(&mut self, seed: u64) {
         let revision = self.terrain_revision + 1;
-        *self = Self::from_sim(genesis_sim_core::worldgen::generate(seed));
+        *self = Self::from_sim(genesis_sim_core::worldgen::generate_region(
+            seed,
+            self.region_choice,
+        ));
         self.terrain_revision = revision;
         self.world_tools = true;
         self.message = format!("New coastal region · seed {seed}");
@@ -133,6 +139,16 @@ impl Session {
         self.dirty = true;
         self.overlay_dirty = true;
     }
+    pub fn selected_point(&self) -> glam::Vec3 {
+        self.visible_point(self.position)
+    }
+    pub fn visible_point(&self, p: Position) -> glam::Vec3 {
+        if self.survey.seafloor {
+            crate::terrain::point(&self.sim, p)
+        } else {
+            crate::terrain::surface_point(&self.sim, p)
+        }
+    }
     pub fn select(&mut self, position: Position) {
         self.position = position;
         self.selected = (position.x.round() as i32, position.z.round() as i32);
@@ -162,6 +178,7 @@ impl Session {
         }
     }
     pub fn refresh_survey(&mut self) {
+        self.overlay_dirty = true;
         self.dirty = true;
         self.urgent_redraw = true;
     }

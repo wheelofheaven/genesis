@@ -7,6 +7,7 @@ pub struct Survey {
     pub open: bool,
     pub water: bool,
     pub minerals: bool,
+    pub seafloor: bool,
     pub opacity: f32,
 }
 impl Default for Survey {
@@ -15,15 +16,19 @@ impl Default for Survey {
             open: false,
             water: false,
             minerals: false,
+            seafloor: false,
             opacity: 0.8,
         }
     }
 }
 impl Survey {
     pub fn active(self) -> bool {
-        self.water || self.minerals
+        self.water || self.minerals || self.seafloor
     }
     pub fn label(self) -> &'static str {
+        if self.seafloor && !self.water && !self.minerals {
+            return "Seafloor survey";
+        }
         match (self.water, self.minerals) {
             (true, true) => "Hydrology + geology",
             (true, false) => "Hydrology survey",
@@ -45,7 +50,7 @@ pub fn water_color(stored: f32) -> Vec3 {
 }
 /// Hydrology is a volume wash; mineralogy stays distinct through body outlines.
 pub fn terrain_color(sim: &SimState, p: Position, base: Vec3, layers: Survey) -> Vec3 {
-    if !layers.active() {
+    if !layers.water && !layers.minerals {
         return base;
     }
     let reading = sim.subsurface.reading(p);

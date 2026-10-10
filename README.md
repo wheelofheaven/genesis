@@ -110,18 +110,19 @@ map area. This is a working geometry convention, not a claim of historical house
 resource volumes, time, and existing survey readouts retain their prototype units.
 `--settlement-capture /tmp/genesis-settlement.png` captures a close view for scale
 review; `--landscape-capture /tmp/genesis-landscape.png` frames its surroundings.
-Generation recipe 3 preserves the revised settlement spacing.
+Generation recipe 4 preserves the revised settlement spacing.
 
 ### Generation recipe
 
-The main world is a 384 × 320 environmental sampling field with continuous geometry
+The active region is a 384 × 320 environmental sampling field with continuous geometry
 and free placement. A deterministic generation recipe combines warped multi-scale
 noise, overlapping uplands, saddles, coastal inlets, a submerged shelf, slope
 weathering, and sixteen passes of channel incision. Coastal terraces transition
 into foothills and nested ridges. Depression filling gives each inland sample a
 downhill outlet; rainfall
 accumulation identifies tributaries and channels. Curved river geometry rounds the
-internal routing directions. The submerged map rim preserves the wrapped field.
+internal routing directions. Continental regions have bounded field edges; only
+the optional island preset retains a submerged wrapping rim.
 
 Rainfall and drainage inform moisture and vegetation; elevation and broad formation
 fields inform host rock. Lowlands and drainage influence aquifer thickness and
@@ -134,13 +135,38 @@ connects short dry walks. River corridors reject new buildings. Vegetation forms
 seeded patches and avoids the initial settlement, paths, and channels; its meshes
 are placeholders, not individual simulated organisms.
 
-The current generator produces coastal islands, not arbitrary continents or real
-Earth locations. It uses the metric geometry convention above and a prescribed
-regional climate.
+The generator offers a Levant coastal plain, Levant inland hills, and a Mediterranean
+island. These are procedural regional interpretations, not surveyed reconstructions
+of those coordinates or historical coastlines. They use the metric geometry
+convention above and a prescribed regional climate.
 Rivers and their drainage fields are generation snapshots: later terraforming does
 not yet reroute them, create lakes, or simulate flooding. Ongoing sediment transport,
 seasons, vegetation succession, and groundwater/surface-water coupling remain future
 systems. The same seed reproduces this recipe; changing its version may change maps.
+
+### Earth regions and underwater relief
+
+The default is now **Levant · coastal plain**. Open **World**, choose a region,
+and select **Generate selected region**. **Generate next seed** also uses that
+selection. CLI equivalents are `--region coast`, `--region highlands`, and
+`--region island`; they combine with `--seed` and capture modes.
+
+Continental regions continue beyond the visible simulation window. A cached,
+coarse context mesh extends the same base relief around the playable patch;
+that surrounding context is visual only, not streamed simulation. Climate,
+interpolation, and brushes use bounded edges to avoid opposite-edge leakage.
+Border drainage can leave the region; neighbouring catchments are not yet loaded.
+
+Terrain includes the seabed, a shelf, a continental slope, and submarine channels.
+**Survey → Seafloor** removes the water surface, exposes depth contours every
+25 m, and allows selecting the actual bed. Elevation and water depth are shown
+in metres. Focus and cursor zoom follow the exposed bed. Use
+`--seafloor-capture /tmp/genesis-seafloor.png` to inspect this view.
+
+Place metadata includes a geographic anchor and a local east/south coordinate
+frame. Coordinates identify the scenario window; they do not make its generated
+terrain measured Earth data. The roadmap for actual elevation and bathymetry,
+dataset provenance, and historical scenarios is in [Earth terrain](docs/earth-terrain.md).
 
 ### Surface presentation and navigation
 
@@ -202,8 +228,8 @@ the earlier comparison fixture; it is not the main application.
 
 ## Organic spatial model
 
-Environmental values still live on an internal wrapped sampling grid. A bounded
-cubic B-spline surface interpolates those samples into continuous terrain, with
+Environmental values live on an internal sampling grid with bounded continental
+windows and optional legacy wrapping. A cubic B-spline surface interpolates those samples into continuous terrain, with
 smooth shading and a shared water plane. The grid does not constrain building
 positions or rotations. Picking intersects the rendered terrain triangles and
 water surface; the selection marker is circular.

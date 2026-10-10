@@ -77,10 +77,7 @@ impl Input {
                 session.survey.open = false;
                 session.world_tools = false;
             }
-            KeyCode::KeyF => camera.center(crate::terrain::surface_point(
-                &session.sim,
-                session.position,
-            )),
+            KeyCode::KeyF => camera.center(session.selected_point()),
             KeyCode::KeyH => session.help = !session.help,
             KeyCode::KeyV => session.set_survey(!session.survey.open),
             KeyCode::KeyQ | KeyCode::KeyE => {

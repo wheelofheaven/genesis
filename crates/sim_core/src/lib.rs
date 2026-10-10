@@ -120,6 +120,9 @@ impl SimState {
                     }
                 }
                 Action::BuildOutpost { x, y } => {
+                    if self.grid.boundary == grid::Boundary::Clamp && !self.grid.contains(*x, *y) {
+                        continue;
+                    }
                     let ux = (*x).rem_euclid(self.grid.width as i32) as u32;
                     let uy = (*y).rem_euclid(self.grid.height as i32) as u32;
                     if !self.outposts.contains(&(ux, uy)) {
@@ -186,9 +189,14 @@ impl SimState {
 
     /// Seed fungus or plants in a radius.
     fn seed_life(&mut self, cx: i32, cy: i32, radius: u32, is_fungus: bool) {
-        let r = radius as i32;
+        let r = radius.min(self.grid.width.max(self.grid.height)) as i32;
         for dy in -r..=r {
             for dx in -r..=r {
+                if self.grid.boundary == grid::Boundary::Clamp
+                    && !self.grid.contains(cx + dx, cy + dy)
+                {
+                    continue;
+                }
                 if dx * dx + dy * dy > r * r {
                     continue;
                 }

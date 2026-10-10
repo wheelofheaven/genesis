@@ -3,7 +3,9 @@
 mod drainage;
 mod geology;
 pub mod noise;
-mod relief;
+mod region;
+pub mod relief;
+pub use region::{GeoPoint, Region};
 mod settlement;
 #[cfg(test)]
 mod tests;
@@ -21,6 +23,8 @@ pub const HEIGHT: u32 = 320;
 pub struct Geography {
     /// Version of the generation recipe. Zero marks the old authored fixture.
     pub version: u32,
+    #[serde(default)]
+    pub region: Region,
     pub rivers: Vec<River>,
     pub cover: Vec<Cover>,
 }
@@ -34,6 +38,9 @@ pub struct Cover {
 /// A new Mediterranean-inspired coastal region with reproducible terrain,
 /// rainfall, drainage, formations, and a settlement on suitable ground.
 pub fn generate(seed: u64) -> SimState {
+    generate_region(seed, Region::LevantCoast)
+}
+pub fn generate_region(seed: u64, region: Region) -> SimState {
     let mut sim = SimState::new(SimConfig {
         width: WIDTH,
         height: HEIGHT,
@@ -41,7 +48,10 @@ pub fn generate(seed: u64) -> SimState {
         tick_dt: 0.1,
         ..Default::default()
     });
-    relief::build(&mut sim.grid, seed);
+    if region != Region::Island {
+        sim.grid.boundary = crate::grid::Boundary::Clamp;
+    }
+    relief::build(&mut sim.grid, seed, region);
     weather_slopes(&mut sim.grid);
     // Iterated stream-power-inspired incision. A generation heuristic, not a
     // running sediment transport solver. Re-route after each terrain pass.
@@ -58,12 +68,22 @@ pub fn generate(seed: u64) -> SimState {
     }
     let flow = drainage::route(&mut sim.grid, sim.sea_level);
     sim.geography = Geography {
-        version: 3,
-        rivers: drainage::rivers(&sim.grid, &flow, sim.sea_level),
+        version: 4,
+        region,
+        rivers: drainage::rivers(
+            &sim.grid,
+            &flow,
+            sim.sea_level,
+            if region == Region::LevantCoast {
+                240.
+            } else {
+                110.
+            },
+        ),
         cover: Vec::new(),
     };
     sim.step(0., &[]);
-    sim.subsurface = geology::generate(&sim.grid, seed, sim.sea_level);
+    sim.subsurface = geology::generate(&sim.grid, seed, sim.sea_level, region);
     for c in sim.grid.cells_mut() {
         if c.water_depth > 0. {
             continue;

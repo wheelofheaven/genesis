@@ -302,5 +302,16 @@ pub fn overlay(session: &Session) -> Vec<Vertex> {
             .collect();
         ribbon(sim, &mut out, &points, 0.035, [0.95, 0.76, 0.35]);
     }
+    if session.survey.seafloor {
+        for v in &mut out {
+            let p = Position::new(
+                v.position[0] + sim.grid.width as f32 * 0.5,
+                v.position[2] + sim.grid.height as f32 * 0.5,
+            );
+            if terrain::point(sim, p).y < sim.sea_level {
+                v.position[1] = terrain::point(sim, p).y + metres(0.1);
+            }
+        }
+    }
     out
 }

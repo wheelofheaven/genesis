@@ -1,4 +1,4 @@
-//! Continuous positions over a wrapped environmental field. No renderer types.
+//! Continuous positions over an environmental field with explicit boundaries. No renderer types.
 use crate::grid::{Cell, Grid};
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +25,12 @@ pub fn sample(grid: &Grid, p: Position, field: impl Fn(&Cell) -> f32) -> f32 {
             t.powi(3) / 6.,
         ]
     }
-    let x = p.x.rem_euclid(grid.width as f32);
-    let z = p.z.rem_euclid(grid.height as f32);
+    let coordinate = |v: f32, size: u32| match grid.boundary {
+        crate::grid::Boundary::Wrap => v.rem_euclid(size as f32),
+        crate::grid::Boundary::Clamp => v.clamp(0., size as f32 - 1.),
+    };
+    let x = coordinate(p.x, grid.width);
+    let z = coordinate(p.z, grid.height);
     let wx = weights(x.fract());
     let wz = weights(z.fract());
     let mut result = 0.;

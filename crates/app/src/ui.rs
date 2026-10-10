@@ -32,7 +32,11 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
                     painter.circle_filled(center - egui::vec2(0., 5.), 3., GOLD);
                     ui.vertical(|ui| {
                         eyebrow(ui, "G E N E S I S");
-                        ui.label(RichText::new("Coastal region").size(19.).color(INK));
+                        ui.label(
+                            RichText::new(session.sim.geography.region.name())
+                                .size(19.)
+                                .color(INK),
+                        );
                     });
                 });
                 muted(
@@ -290,7 +294,18 @@ pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> 
 fn world(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
     eyebrow(ui, "WORLD / GENERATION");
     ui.heading("A place to begin");
-    muted(ui, "Mediterranean-inspired coast");
+    muted(ui, session.sim.geography.region.description());
+    muted(
+        ui,
+        "Procedural preview · Earth reconstruction in development",
+    );
+    egui::ComboBox::from_id_salt("region_choice")
+        .selected_text(session.region_choice.name())
+        .show_ui(ui, |ui| {
+            for region in genesis_sim_core::worldgen::Region::ALL {
+                ui.selectable_value(&mut session.region_choice, region, region.name());
+            }
+        });
     ui.label(format!("Seed {}", session.sim.config.seed));
     muted(
         ui,
@@ -325,9 +340,9 @@ fn world(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
     }
     if button(
         ui,
-        "Recreate this seed",
+        "Generate selected region",
         false,
-        "Restart this region from its original generated state",
+        "Replace the current region using the selected place and current seed",
     ) {
         session.regenerate(session.sim.config.seed);
         crate::terrain::home_camera(&session.sim, camera);

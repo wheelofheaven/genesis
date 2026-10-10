@@ -5,13 +5,20 @@ use crate::{
     subsurface::{Column, Deposit, Mineral, Rock, Subsurface},
 };
 
-pub fn generate(grid: &Grid, seed: u64, sea: f32) -> Subsurface {
+pub fn generate(grid: &Grid, seed: u64, sea: f32, region: super::Region) -> Subsurface {
     let mut result = Subsurface::new(grid.width, grid.height);
     for (x, z, cell) in grid.iter_coords() {
         let p = Position::new(x as f32, z as f32);
         let ground = spatial::elevation(grid, p);
         let formation = fbm(seed ^ 1237, p.x / 18., p.z / 18.);
-        let rock = if ground > 7. || formation > 0.24 {
+        let rock = if region != super::Region::Island {
+            // Broad procedural material family only, not a mapped formation.
+            if ground < 4. && formation < 0.15 {
+                Rock::Sandstone
+            } else {
+                Rock::Limestone
+            }
+        } else if ground > 7. || formation > 0.24 {
             Rock::Basalt
         } else if formation > -0.12 {
             Rock::Limestone

@@ -62,7 +62,11 @@ fn seed_sweep_has_land_sea_rivers_resources_and_valid_settlements() {
             sim.step(0.1, &[]);
         }
         for c in sim.grid.cells() {
-            assert!(c.elevation.is_finite() && (-40. ..80.).contains(&c.elevation));
+            assert!(
+                c.elevation.is_finite()
+                    && (crate::units::MIN_ELEVATION..crate::units::MAX_ELEVATION)
+                        .contains(&c.elevation)
+            );
             assert!((0. ..=1.).contains(&c.moisture));
             assert!((0. ..=1.).contains(&c.plants));
         }
@@ -82,7 +86,7 @@ fn seed_sweep_has_land_sea_rivers_resources_and_valid_settlements() {
 
 #[test]
 fn river_bounds_preserve_exact_distances_and_the_ocean_rim_wraps() {
-    let mut sim = generate(DEFAULT_SEED);
+    let mut sim = generate_region(DEFAULT_SEED, Region::Island);
     let points: Vec<_> = (0..96)
         .map(|i| Position::new(unit(59, i) * WIDTH as f32, unit(61, i) * HEIGHT as f32))
         .collect();
@@ -106,4 +110,35 @@ fn river_bounds_preserve_exact_distances_and_the_ocean_rim_wraps() {
             sim.grid.get(WIDTH as i32 - 1, z).elevation
         );
     }
+}
+
+#[test]
+fn mainland_windows_have_continuous_seafloor_and_no_ocean_moat() {
+    let coast = generate_region(DEFAULT_SEED, Region::LevantCoast);
+    assert_eq!(coast.grid.boundary, crate::grid::Boundary::Clamp);
+    for z in 0..HEIGHT as i32 {
+        assert!(coast.grid.get(0, z).elevation < -2.);
+        assert!(coast.grid.get(WIDTH as i32 - 1, z).elevation > 0.);
+    }
+    assert!(coast.grid.get(0, 160).elevation < coast.grid.get(90, 160).elevation);
+    let hills = generate_region(DEFAULT_SEED, Region::LevantHighlands);
+    assert!(
+        hills
+            .grid
+            .cells()
+            .iter()
+            .all(|c| c.elevation > hills.sea_level)
+    );
+    assert_eq!(hills.buildings.len(), 6);
+    assert!(!hills.geography.rivers.is_empty());
+    assert_eq!(hills.subsurface.deposits.len(), 9);
+    let p = Position::new(WIDTH as f32 * 0.5, HEIGHT as f32 * 0.5);
+    let center = Region::LevantCoast
+        .geographic_position(p, WIDTH, HEIGHT)
+        .unwrap();
+    assert_eq!(Some(center), Region::LevantCoast.anchor());
+    let ne = Region::LevantCoast
+        .geographic_position(Position::new(p.x + 50., p.z - 50.), WIDTH, HEIGHT)
+        .unwrap();
+    assert!(ne.latitude > center.latitude && ne.longitude > center.longitude);
 }

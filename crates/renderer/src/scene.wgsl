@@ -58,6 +58,13 @@ fn noise(p: vec2<f32>) -> f32 {
         let foam = (1.0 - smoothstep(wash, wash + 0.48, depth))
             * (0.25 + 0.30 * noise(metres * 0.6 + time * 0.1));
         color = mix(color, vec3<f32>(0.66,0.71,0.65), foam);
+    } else if in.color.a > 3.5 {
+        let depth = -in.world.y * 20.0;
+        let interval = depth / 25.0;
+        let spacing = max(fwidth(interval), 0.002);
+        let line = 1.0 - smoothstep(spacing * 0.5, spacing * 1.5, abs(fract(interval + 0.5) - 0.5));
+        color *= 0.92 + noise(metres * 0.04) * 0.12;
+        color = mix(color, color * 0.55, line * 0.45);
     } else if in.color.a > 2.5 {
         let surface = in.world.xz * 20.0 + vec2<f32>(in.world.y * 13.0, in.world.y * 19.0);
         let grit = (noise(surface * 5.0) - 0.5) * (1.0 - smoothstep(0.05,0.7,pixel));

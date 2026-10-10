@@ -92,11 +92,17 @@ underground resources. Settlements should respond to those conditions. Continuou
 positions, irregular boundaries, and curved watercourses must keep the internal
 sampling grid out of the player's spatial experience.
 
-The first seeded generator creates Mediterranean-inspired coastal islands with
-relief, rainfall, drainage, aquifers, deposits, vegetation patches, and settlement
-siting. It is a synthetic regional prototype. Historical Earth reconstruction,
-multiple climate regimes, and evolving river and sediment systems remain separate
-development steps; visual plausibility is not evidence of scientific calibration.
+Earth is the intended world: selectable geographic regions such as the Levant,
+with continuous terrain above and below sea level. Islands are one landform,
+not the universal map structure. Ocean basins, shelves, slopes, and continental
+interiors belong to the same elevation surface.
+
+Current place presets provide procedural Levant coastal and inland windows, plus
+an island, with geographic anchors, relief, rainfall, drainage, aquifers, deposits,
+vegetation, and settlement siting. They remain synthetic interpretations.
+Real topography/bathymetry and historical Earth reconstruction require a separate
+data layer; see [Earth terrain](earth-terrain.md). Visual plausibility and attached
+coordinates are not evidence of scientific or historical accuracy.
 
 ## Planetary instrumentation
 
@@ -178,9 +184,10 @@ implementation priorities, not claims of existing functionality. Schedule
 different decisions at appropriate frequencies while preserving individual
 continuity. Do not simulate every aspect of every person every rendering frame.
 
-The existing wrapped grid is the prototype's spatial model. Revisit spatial
-representation deliberately when designing regional Earth scenarios; this vision
-does not itself authorize or require an immediate topology rewrite.
+The environmental grid now supports bounded continental windows and wrapped
+legacy/island fixtures. Actual Earth coverage requires shared geographic source
+data and consistent neighbouring region boundaries; visual context meshes are
+not a substitute for that simulation architecture.
 
 Introduce modules and crates when concrete work requires them. Preserve bounded,
 stable simulation values, invariant tests, and clear ownership of state.

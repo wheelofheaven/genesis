@@ -4,7 +4,7 @@ Genesis is a Rust life, society, world, and civilization simulator with a
 custom engine. Read `docs/engine-decision.md` for the accepted winit/wgpu direction
 and transition plan. Bevy is the legacy prototype, not the target architecture.
 Read `docs/vision.md` for the agreed product direction: individual lives, a shared
-simulation supporting multiple modes, and Sable-inspired illustrated 3D.
+simulation supporting multiple modes, and grounded, readable 3D.
 The first focus is a living settlement supervised by an Elohim.
 
 Read `../AGENTS.md` first for workspace-wide GitHub account isolation and
@@ -31,8 +31,10 @@ and testable.
 
 ## Simulation Rules
 
-- The wrapped grid now stores environmental samples, interpolated into continuous
-  terrain. Buildings and paths use independent continuous positions and rotations.
+- The grid stores environmental samples interpolated into continuous terrain.
+  Continental Earth region windows use bounded edges; synthetic islands and legacy
+  fixtures retain wrapping. Never connect the inland edge of a region to its sea edge.
+  Buildings and paths use independent continuous positions and rotations.
   Do not reintroduce visible tiles or grid-snapped building placement.
 - Keep cell values bounded and stable; avoid NaNs and unbounded feedback.
 - Player actions should become explicit `Action` values consumed by

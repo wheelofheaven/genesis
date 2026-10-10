@@ -4,7 +4,8 @@ use bytemuck::{Pod, Zeroable};
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
-    /// RGB is linear colour. W packs material: 1 solid, 2 terrain, 3 weathered building,
+    /// RGB is linear colour. W packs material: 1 solid, 2 terrain,
+    /// 3 weathered building, 4 seafloor with depth contours;
     /// negative values encode water depth in metres as -(1 + depth).
     /// These are opaque materials; W is not transparency.
     pub color: [f32; 4],

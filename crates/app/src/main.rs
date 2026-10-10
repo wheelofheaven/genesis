@@ -1,4 +1,5 @@
 mod clock;
+mod horizon;
 mod input;
 mod landscape;
 mod scene;
@@ -359,7 +360,7 @@ impl ApplicationHandler for App {
                 if let Some(cursor) = self.input.cursor {
                     let height = view
                         .pick(&self.session, &self.camera, cursor)
-                        .map_or(0., |p| terrain::surface_point(&self.session.sim, p).y);
+                        .map_or(0., |p| self.session.visible_point(p).y);
                     let size = view.window.inner_size();
                     self.camera.zoom_at(
                         lines,
@@ -399,13 +400,27 @@ fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut app = App::default();
     let explicit_seed = args.iter().any(|arg| arg == "--seed");
+    let explicit_region = args.iter().any(|arg| arg == "--region");
+    let mut seed = genesis_sim_core::worldgen::DEFAULT_SEED;
+    let mut region = genesis_sim_core::worldgen::Region::LevantCoast;
     if let Some(index) = args.iter().position(|arg| arg == "--seed") {
-        let seed = args
+        seed = args
             .get(index + 1)
             .ok_or("--seed needs an unsigned integer")?
             .parse::<u64>()?;
         args.drain(index..=index + 1);
-        app.session = Session::from_sim(genesis_sim_core::worldgen::generate(seed));
+    }
+    if let Some(index) = args.iter().position(|arg| arg == "--region") {
+        region = match args.get(index + 1).map(String::as_str) {
+            Some("coast") => genesis_sim_core::worldgen::Region::LevantCoast,
+            Some("highlands") => genesis_sim_core::worldgen::Region::LevantHighlands,
+            Some("island") => genesis_sim_core::worldgen::Region::Island,
+            _ => return Err("--region must be coast, highlands, or island".into()),
+        };
+        args.drain(index..=index + 1);
+    }
+    if explicit_seed || explicit_region {
+        app.session = Session::from_sim(genesis_sim_core::worldgen::generate_region(seed, region));
     }
     match args.as_slice() {
         [] => {}
@@ -413,6 +428,7 @@ fn main() -> Result<()> {
             if flag == "--capture"
                 || flag == "--settlement-capture"
                 || flag == "--landscape-capture"
+                || flag == "--seafloor-capture"
                 || flag == "--smoke-test"
                 || flag == "--survey-test"
                 || flag == "--world-test" =>
@@ -424,12 +440,12 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--capture output.png | --landscape-capture output.png | --settlement-capture output.png | --world-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --settlement-capture output.png | --world-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
     if app.smoke {
-        if explicit_seed {
+        if explicit_seed || explicit_region {
             return Err(
                 "--seed applies to generated regions; use --world-test for seeded smoke checks"
                     .into(),
@@ -453,6 +469,17 @@ fn main() -> Result<()> {
             } else {
                 4.5
             });
+    }
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--seafloor-capture")
+    {
+        app.session.survey.open = true;
+        app.session.survey.seafloor = true;
+        app.session.clock.paused = true;
+        app.session
+            .select(genesis_sim_core::spatial::Position::new(65., 160.));
+        app.session.refresh_survey();
     }
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;

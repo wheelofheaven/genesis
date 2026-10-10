@@ -1,5 +1,5 @@
 use super::theme::*;
-use crate::{session::Session, terrain};
+use crate::session::Session;
 use egui::{Align2, Color32, FontId, Sense, Shape, Stroke, Vec2};
 use genesis_renderer::camera::Camera;
 
@@ -106,7 +106,7 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                     .on_hover_text("Center selection · F")
                     .clicked()
                 {
-                    camera.center(terrain::surface_point(&session.sim, session.position));
+                    camera.center(session.selected_point());
                 }
                 if ui
                     .add_sized([64., 30.], egui::Button::new("Home"))
