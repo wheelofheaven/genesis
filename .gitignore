@@ -2,6 +2,7 @@
 /target/
 **/*.rs.bk
 Cargo.lock
+!/Cargo.lock
 
 # macOS
 .DS_Store

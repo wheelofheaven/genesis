@@ -3,7 +3,12 @@ use crate::grid::Grid;
 /// Apply a terraform action: modify elevation within a radius.
 /// Positive strength raises land, negative lowers it.
 pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength: f32) {
-    let r = radius as i32;
+    if !strength.is_finite() {
+        return;
+    }
+    let cx = cx.rem_euclid(grid.width as i32);
+    let cy = cy.rem_euclid(grid.height as i32);
+    let r = radius.min(grid.width.max(grid.height)) as i32;
     for dy in -r..=r {
         for dx in -r..=r {
             let dist_sq = (dx * dx + dy * dy) as f32;
@@ -12,9 +17,13 @@ pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength:
                 continue;
             }
             // Falloff: stronger at center, weaker at edges.
-            let falloff = 1.0 - (dist_sq / radius_sq).sqrt();
+            let falloff = if r == 0 {
+                1.0
+            } else {
+                1.0 - (dist_sq / radius_sq).sqrt()
+            };
             let cell = grid.get_mut(cx + dx, cy + dy);
-            cell.elevation += strength * falloff;
+            cell.elevation = (cell.elevation + strength * falloff).clamp(-40.0, 80.0);
         }
     }
 }
@@ -29,6 +38,21 @@ pub fn update_water_depth(grid: &mut Grid, sea_level: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn brush_stays_finite_and_bounded_even_for_zero_radius() {
+        let mut grid = Grid::new(8, 8);
+        apply_terraform(&mut grid, 3, 3, 0, 2.);
+        assert_eq!(grid.get(3, 3).elevation, 1.);
+        for strength in [f32::NAN, f32::INFINITY, f32::MAX, -f32::MAX] {
+            apply_terraform(&mut grid, 3, 3, 2, strength);
+            assert!(
+                grid.cells()
+                    .iter()
+                    .all(|c| c.elevation.is_finite() && (-40.0..=80.0).contains(&c.elevation))
+            );
+        }
+    }
 
     #[test]
     fn test_terraform_raises_center() {

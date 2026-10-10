@@ -2,8 +2,12 @@
 rust = "1.93.1"
 
 [tasks.run]
-description = "Run the game (release, debug crashes on macOS 26)"
-run = "cargo run --package genesis-app --release"
+description = "Run the custom-engine application"
+run = "cargo run --package genesis-app"
+
+[tasks.legacy-run]
+description = "Run the preserved Bevy prototype"
+run = "cargo run --manifest-path legacy/Cargo.toml --package genesis-app --release"
 
 [tasks.build]
 description = "Build all crates"
@@ -19,7 +23,7 @@ run = "cargo check --workspace"
 
 [tasks.clippy]
 description = "Run clippy lints"
-run = "cargo clippy --workspace -- -D warnings"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
 
 [tasks.fmt]
 description = "Format all code"

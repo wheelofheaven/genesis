@@ -15,16 +15,15 @@ supersedes the Bevy engine requirement and earlier comparison recommendations.
 
 ## Architecture
 
-The main workspace still has four crates from the legacy Bevy prototype:
+The main workspace has three crates:
 
-- `crates/sim_core` - pure Rust deterministic simulation core.
-- `crates/app` - Bevy input, UI, and integration layer.
-- `crates/renderer` - rendering materials, camera, and visual effects.
-- `crates/planet` - planet mesh and presentation.
+- `crates/sim_core` — pure Rust deterministic simulation and scenario fixtures.
+- `crates/app` — winit lifecycle, input, fixed clock, egui inspector, and scene adapter.
+- `crates/renderer` — wgpu resources, geometry, and camera navigation.
 
-The working custom renderer is in `experiments/engine-lab/custom`; its migration
-into the main workflow is the next engineering milestone. Do not add new Bevy
-features as the default path. Introduce modules or crates when needed by concrete work.
+The Bevy prototype is preserved in the separate `legacy` workspace. The isolated
+`experiments/engine-lab` remains historical comparison evidence. New engine work
+belongs in the main workspace; add abstractions only for concrete needs.
 
 Never let rendering, windowing, UI, or engine entity types leak into `sim_core`.
 Do not put simulation logic in the app crate. `sim_core` should remain deterministic, serde-friendly, portable,
@@ -32,7 +31,9 @@ and testable.
 
 ## Simulation Rules
 
-- Preserve the prototype wrapped 2D grid until a deliberate spatial design change.
+- The wrapped grid now stores environmental samples, interpolated into continuous
+  terrain. Buildings and paths use independent continuous positions and rotations.
+  Do not reintroduce visible tiles or grid-snapped building placement.
 - Keep cell values bounded and stable; avoid NaNs and unbounded feedback.
 - Player actions should become explicit `Action` values consumed by
   `sim_core.step()`.
@@ -50,8 +51,8 @@ and testable.
 
 ## Iteration Goals
 
-- Maintain a documented single-command macOS launch. `mise run run` currently
-  starts the legacy Bevy application; see the engine lab for the custom launch.
+- Maintain a documented single-command macOS launch. `mise run run`
+  starts the custom application; `mise run legacy-run` starts the Bevy reference.
 - Each iteration delivers a playable, reviewable expansion of the shared simulation.
 - The next target is a living settlement with understandable individual behavior
   and consequential Elohim intervention; see `docs/vision.md` for scope and open choices.

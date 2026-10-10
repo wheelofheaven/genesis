@@ -1,6 +1,7 @@
 # Genesis — Project Instructions
 
 > **Engine decision:** [Custom Rust engine](../docs/engine-decision.md) is accepted.
+> The main workspace now runs winit/wgpu with egui; Bevy lives in `legacy/`.
 > Use winit/wgpu as the starting foundation. Bevy-specific requirements below
 > describe the legacy prototype; follow the current decision for new development.
 

@@ -1,82 +1,463 @@
-use bevy::asset::AssetPlugin;
-use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use bevy::render::settings::{RenderCreation, WgpuFeatures, WgpuLimits, WgpuSettings};
-use genesis_planet::PlanetPlugin;
-use genesis_renderer::OrbitCamera;
-
+mod clock;
 mod input;
-mod plugins;
-mod render;
+mod landscape;
+mod scene;
+mod session;
+mod survey;
+mod terrain;
 mod ui;
+mod view;
+mod water;
+mod world_smoke;
 
-use plugins::simulation::SimulationPlugin;
+use genesis_renderer::camera::Camera;
+use glam::Vec2;
+use input::Input;
+use session::Session;
+use std::{
+    error::Error,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use view::View;
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
+    window::{Window, WindowId},
+};
 
-fn main() {
-    // Workaround for two macOS 26 Tahoe + Metal issues:
-    // 1. GPU preprocessing (indirect draw) crashes — disable the features that
-    //    enable it so Bevy falls back to CPU-side batch preparation.
-    // 2. wgpu-types 27 validates min/max_subgroup_size unconditionally, but
-    //    Bevy's constrained_limits logic can create an invalid state where
-    //    min_subgroup_size (clamped up) > max_subgroup_size (clamped down to 0).
-    //    Setting max_subgroup_size to u32::MAX prevents the downward clamp.
-    let wgpu_settings = WgpuSettings {
-        disabled_features: Some(
-            WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::PUSH_CONSTANTS,
-        ),
-        constrained_limits: Some(WgpuLimits {
-            max_subgroup_size: u32::MAX,
-            ..WgpuLimits::default()
-        }),
-        ..default()
-    };
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Genesis — Ocean Terraformer".into(),
-                        resolution: (1280, 800).into(),
-                        ..default()
-                    }),
-                    ..default()
-                })
-                .set(AssetPlugin {
-                    file_path: "../../assets".to_string(),
-                    ..default()
-                })
-                .set(RenderPlugin {
-                    render_creation: RenderCreation::Automatic(wgpu_settings),
-                    ..default()
-                }),
-        )
-        .add_plugins(genesis_renderer::CameraPlugin)
-        .add_plugins(SimulationPlugin)
-        .add_plugins(PlanetPlugin)
-        .add_systems(Startup, setup_scene)
-        .run();
+#[derive(Default)]
+struct App {
+    view: Option<View>,
+    session: Session,
+    camera: Camera,
+    input: Input,
+    last_frame: Option<Instant>,
+    hidden: bool,
+    error: Option<String>,
+    capture: Option<PathBuf>,
+    smoke: bool,
+    survey_smoke: bool,
+    world_smoke: bool,
+    frames: u32,
 }
 
-fn setup_scene(mut commands: Commands) {
-    // 3D camera with orbit controls and tonemapping.
-    // NoIndirectDrawing: workaround for macOS 26 Tahoe Metal driver crash
-    // with indirect draw calls during GPU preprocessing.
-    commands.spawn((
-        Camera3d::default(),
-        Tonemapping::TonyMcMapface,
-        OrbitCamera::default(),
-        bevy::render::view::NoIndirectDrawing,
-    ));
+impl App {
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl ToString) {
+        self.error = Some(error.to_string());
+        event_loop.exit();
+    }
+    fn frame(&mut self) -> Result<bool> {
+        let Some(view) = &mut self.view else {
+            return Ok(false);
+        };
+        let now = Instant::now();
+        let elapsed = self
+            .last_frame
+            .replace(now)
+            .map_or(Duration::ZERO, |last| now - last);
+        if self.hidden || !view.drawable {
+            return Ok(false);
+        }
+        self.frames += 1;
+        if self.world_smoke {
+            world_smoke::advance(self.frames, &mut self.session, &mut self.camera)?;
+        }
+        self.session.advance(elapsed);
+        self.input.update_camera(
+            &mut self.camera,
+            elapsed.as_secs_f32(),
+            view.window.inner_size().height as f32,
+        );
+        if self.smoke && !self.survey_smoke && self.frames >= 8 {
+            if self.frames == 8 {
+                self.session.set_placing(true);
+            }
+            let p = terrain::surface_point(
+                &self.session.sim,
+                genesis_sim_core::spatial::Position::new(22.4, 20.4),
+            );
+            let size = view.window.inner_size();
+            let ndc = self
+                .camera
+                .view_projection(size.width as f32 / size.height as f32)
+                .project_point3(p);
+            self.input.cursor = Some(Vec2::new(
+                (ndc.x + 1.) * 0.5 * size.width as f32,
+                (1. - ndc.y) * 0.5 * size.height as f32,
+            ));
+        }
+        if self.survey_smoke && self.frames == 8 {
+            self.session.set_survey(true);
+            self.session.survey.minerals = true;
+            self.session.refresh_survey();
+            let site = genesis_sim_core::spatial::Position::new(18.25, 21.5);
+            self.session.select(site);
+            let before = self.session.sim.subsurface.reading(site).stored;
+            self.session
+                .queue(genesis_sim_core::actions::Action::DrillWell { position: site });
+            for _ in 0..100 {
+                self.session.step_once();
+            }
+            if self.session.sim.subsurface.wells.len() != 1
+                || self.session.sim.subsurface.reading(site).stored >= before
+            {
+                return Err("survey intervention did not draw down groundwater".into());
+            }
+            let size = view.window.inner_size();
+            let p = terrain::surface_point(&self.session.sim, site);
+            let ndc = self
+                .camera
+                .view_projection(size.width as f32 / size.height as f32)
+                .project_point3(p);
+            let cursor = Vec2::new(
+                (ndc.x + 1.) * 0.5 * size.width as f32,
+                (1. - ndc.y) * 0.5 * size.height as f32,
+            );
+            let picked = view
+                .pick(&self.session, &self.camera, cursor)
+                .ok_or("survey picking failed")?;
+            if (picked.x - site.x).abs() > 0.05 || (picked.z - site.z).abs() > 0.05 {
+                return Err("survey changed world picking".into());
+            }
+        }
+        if self.session.placing && !self.input.orbit && !self.input.pan {
+            let hover = self
+                .input
+                .cursor
+                .filter(|p| !view.pointer_over_ui(*p))
+                .and_then(|p| view.pick(&self.session, &self.camera, p));
+            self.session.set_hover(hover);
+        }
+        if self.smoke && self.frames == 1 {
+            // Exercise the same camera, command, clock, and resize paths as input.
+            self.camera.orbit(Vec2::new(50., -10.));
+            self.camera.pan(Vec2::new(-30., 10.), 800.);
+            self.camera.zoom(1.);
+            self.input
+                .key(KeyCode::Space, true, &mut self.session, &mut self.camera);
+            self.input
+                .key(KeyCode::Space, false, &mut self.session, &mut self.camera);
+            let before = self.session.sim.time;
+            self.session.advance(Duration::from_secs(10));
+            if self.session.sim.time != before {
+                return Err("pause did not preserve time".into());
+            }
+            self.session
+                .queue(genesis_sim_core::actions::Action::Terraform {
+                    x: 15,
+                    y: 12,
+                    radius: 2,
+                    strength: 0.4,
+                });
+            self.session.step_once();
+            if self.session.pending_count() != 0 {
+                return Err("step did not consume queued action".into());
+            }
+            let count = self.session.sim.buildings.len();
+            self.session
+                .select(genesis_sim_core::spatial::Position::new(25.31, 20.27));
+            self.session.building_rotation = 0.47;
+            self.session.set_placing(true);
+            self.session.set_hover(Some(self.session.position));
+            self.session.build_hovered(false);
+            self.session.step_once();
+            if self.session.sim.buildings.len() != count + 1 {
+                return Err("free building placement failed".into());
+            }
+            self.session.set_placing(false);
+            view.resize(0, 0);
+            if view.drawable {
+                return Err("zero-sized surface was not suspended".into());
+            }
+            let size = view.window.inner_size();
+            view.resize(size.width, size.height);
+            let _ = view.window.request_inner_size(winit::dpi::LogicalSize::new(
+                if self.survey_smoke { 1100 } else { 760 },
+                if self.survey_smoke { 800 } else { 540 },
+            ));
+        }
+        if self.smoke && !self.survey_smoke && self.frames == 30 && self.session.hover.is_none() {
+            return Err("cursor-following preview has no terrain hit".into());
+        }
+        if self.survey_smoke && [12, 18, 24].contains(&self.frames) {
+            self.session.survey.water = self.frames != 18;
+            self.session.survey.minerals = self.frames != 12;
+            self.session.refresh_survey();
+        }
+        let layer_capture = if self.survey_smoke && [16, 22].contains(&self.frames) {
+            self.capture.as_ref().map(|path| {
+                path.with_extension(if self.frames == 16 {
+                    "water.png"
+                } else {
+                    "geology.png"
+                })
+            })
+        } else if self.world_smoke && [10, 24].contains(&self.frames) {
+            self.capture.as_ref().map(|path| {
+                path.with_extension(if self.frames == 10 {
+                    "initial.png"
+                } else {
+                    "survey.png"
+                })
+            })
+        } else {
+            None
+        };
+        let capture = if self.frames >= 30 {
+            self.capture.as_deref()
+        } else {
+            layer_capture.as_deref()
+        };
+        let rendered = view.draw(&mut self.session, &mut self.camera, capture)?;
+        if self.input.cursor.is_some_and(|p| !view.pointer_over_ui(p)) {
+            use winit::window::CursorIcon;
+            view.window
+                .set_cursor(if self.input.pan || self.input.orbit {
+                    CursorIcon::Grabbing
+                } else if self.session.placing {
+                    CursorIcon::Crosshair
+                } else {
+                    CursorIcon::Default
+                });
+        }
+        Ok(rendered && capture.is_some() && self.frames >= 30)
+    }
+}
 
-    // Directional light (sun).
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 10_000.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.5, 0.0)),
-    ));
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.view.is_some() {
+            return;
+        }
+        let result = (|| -> Result<View> {
+            let window = Arc::new(
+                event_loop.create_window(
+                    Window::default_attributes()
+                        .with_title("Genesis — Coastal settlement")
+                        .with_min_inner_size(winit::dpi::LogicalSize::new(
+                            if self.survey_smoke { 1100 } else { 760 },
+                            if self.survey_smoke { 800 } else { 540 },
+                        ))
+                        .with_inner_size(winit::dpi::LogicalSize::new(1280, 800)),
+                )?,
+            );
+            pollster::block_on(View::new(window))
+        })();
+        match result {
+            Ok(view) => {
+                self.session.dirty = true;
+                self.session.urgent_redraw = true;
+                self.session.overlay_dirty = true;
+                self.last_frame = Some(Instant::now());
+                self.hidden = false;
+                self.view = Some(view);
+            }
+            Err(error) => self.fail(event_loop, error),
+        }
+    }
+    fn suspended(&mut self, _: &ActiveEventLoop) {
+        self.view = None;
+        self.last_frame = None;
+        self.input.clear();
+    }
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        let Some(view) = &mut self.view else {
+            return;
+        };
+        if id != view.window.id() {
+            return;
+        }
+        let consumed = view.input(&event);
+        let over_ui = self.input.cursor.is_some_and(|p| view.pointer_over_ui(p));
+        if !matches!(event, WindowEvent::RedrawRequested) && view.drawable && !self.hidden {
+            view.window.request_redraw();
+        }
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Focused(false) => {
+                self.input.clear();
+                self.session.set_hover(None);
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.input.cursor = None;
+                self.session.set_hover(None);
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.input.shift = modifiers.state().shift_key();
+                self.input.alt = modifiers.state().alt_key();
+            }
+            WindowEvent::Occluded(hidden) => {
+                self.hidden = hidden;
+                self.last_frame = Some(Instant::now());
+                self.input.clear();
+            }
+            WindowEvent::Resized(size) => {
+                view.resize(size.width, size.height);
+                self.last_frame = Some(Instant::now());
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    let pressed = event.state == ElementState::Pressed;
+                    if !pressed || ((!consumed || code == KeyCode::Escape) && !event.repeat) {
+                        self.input
+                            .key(code, pressed, &mut self.session, &mut self.camera);
+                    }
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let point = Vec2::new(position.x as f32, position.y as f32);
+                if let Some(previous) = self.input.cursor.replace(point) {
+                    let delta = point - previous;
+                    if self.input.orbit {
+                        self.camera.orbit(delta / view.window.scale_factor() as f32);
+                    }
+                    if self.input.pan {
+                        self.camera
+                            .pan(delta, view.window.inner_size().height as f32);
+                    }
+                }
+            }
+            WindowEvent::MouseInput { button, state, .. } => {
+                let pressed = state == ElementState::Pressed;
+                if !pressed || (!consumed && !over_ui) {
+                    match button {
+                        MouseButton::Right => self.input.orbit = pressed,
+                        MouseButton::Middle => self.input.pan = pressed,
+                        MouseButton::Left if !pressed => self.input.pan = false,
+                        MouseButton::Left if self.input.alt => self.input.pan = true,
+                        MouseButton::Left if pressed => {
+                            if let Some(cursor) = self.input.cursor
+                                && let Some(position) =
+                                    view.pick(&self.session, &self.camera, cursor)
+                            {
+                                if self.session.placing {
+                                    self.session.set_hover(Some(position));
+                                    self.session.build_hovered(self.input.shift);
+                                } else {
+                                    self.session.select(position);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            WindowEvent::MouseWheel { delta, .. } if !consumed && !over_ui => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => {
+                        p.y as f32 / (40. * view.window.scale_factor() as f32)
+                    }
+                };
+                if let Some(cursor) = self.input.cursor {
+                    let height = view
+                        .pick(&self.session, &self.camera, cursor)
+                        .map_or(0., |p| terrain::surface_point(&self.session.sim, p).y);
+                    let size = view.window.inner_size();
+                    self.camera.zoom_at(
+                        lines,
+                        cursor,
+                        Vec2::new(size.width as f32, size.height as f32),
+                        height,
+                    );
+                } else {
+                    self.camera.zoom(lines);
+                }
+            }
+            WindowEvent::RedrawRequested => match self.frame() {
+                Ok(true) => event_loop.exit(),
+                Ok(false) => {}
+                Err(error) => self.fail(event_loop, error),
+            },
+            _ => {}
+        }
+    }
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(view) = &self.view
+            && view.drawable
+            && !self.hidden
+        {
+            let deadline = self.last_frame.unwrap_or_else(Instant::now) + Duration::from_millis(8);
+            event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+            if Instant::now() >= deadline {
+                view.window.request_redraw();
+            }
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
+    }
+}
+
+fn main() -> Result<()> {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let mut app = App::default();
+    let explicit_seed = args.iter().any(|arg| arg == "--seed");
+    if let Some(index) = args.iter().position(|arg| arg == "--seed") {
+        let seed = args
+            .get(index + 1)
+            .ok_or("--seed needs an unsigned integer")?
+            .parse::<u64>()?;
+        args.drain(index..=index + 1);
+        app.session = Session::from_sim(genesis_sim_core::worldgen::generate(seed));
+    }
+    match args.as_slice() {
+        [] => {}
+        [flag, path]
+            if flag == "--capture"
+                || flag == "--settlement-capture"
+                || flag == "--landscape-capture"
+                || flag == "--smoke-test"
+                || flag == "--survey-test"
+                || flag == "--world-test" =>
+        {
+            app.capture = Some(PathBuf::from(path));
+            app.smoke = flag == "--smoke-test" || flag == "--survey-test";
+            app.survey_smoke = flag == "--survey-test";
+            app.world_smoke = flag == "--world-test";
+        }
+        _ => {
+            return Err(
+                "usage: genesis-app [--seed number] [--capture output.png | --landscape-capture output.png | --settlement-capture output.png | --world-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+            );
+        }
+    }
+    if app.smoke {
+        if explicit_seed {
+            return Err(
+                "--seed applies to generated regions; use --world-test for seeded smoke checks"
+                    .into(),
+            );
+        }
+        // Keep the small authored regression fixture for camera/action tests.
+        app.session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
+    }
+    crate::terrain::home_camera(&app.session.sim, &mut app.camera);
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--settlement-capture" || flag == "--landscape-capture")
+    {
+        app.camera.center(terrain::surface_point(
+            &app.session.sim,
+            app.session.position,
+        ));
+        app.camera
+            .set_visible_height(if args[0] == "--landscape-capture" {
+                55.
+            } else {
+                4.5
+            });
+    }
+    let event_loop = EventLoop::new()?;
+    event_loop.run_app(&mut app)?;
+    if let Some(error) = app.error {
+        return Err(error.into());
+    }
+    Ok(())
 }

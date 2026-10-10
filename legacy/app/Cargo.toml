@@ -1,0 +1,12 @@
+[package]
+name = "genesis-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+genesis-sim-core = { path = "../../crates/sim_core" }
+bevy = { workspace = true }
+bevy_egui = { workspace = true }
+genesis-renderer = { workspace = true }
+genesis-planet = { workspace = true }

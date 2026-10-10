@@ -31,6 +31,16 @@ pub fn update_climate(grid: &mut Grid) {
             let water_factor = water_neighbors as f32 / 4.0;
             let self_water = if cell.water_depth > 0.0 { 1.0 } else { 0.0 };
             moisture_buf[idx] = (water_factor * 0.6 + self_water * 0.4).clamp(0.0, 1.0);
+            if cell.rainfall > 0. {
+                // A regional map does not span equator to poles. Keep its
+                // prescribed rainfall and drainage influence between ticks.
+                temp_buf[idx] = (0.76 - cell.elevation.max(0.) * 0.006).clamp(0., 1.);
+                moisture_buf[idx] = (cell.rainfall * 0.7
+                    + (cell.drainage / 55.).sqrt().min(1.) * 0.28
+                    + water_factor * 0.16
+                    + self_water * 0.4)
+                    .clamp(0., 1.);
+            }
         }
     }
 
@@ -41,20 +51,25 @@ pub fn update_climate(grid: &mut Grid) {
             let cell = grid.get_mut(x, y);
             cell.temp = temp_buf[idx];
             cell.moisture = moisture_buf[idx];
-            cell.biome = derive_biome(cell.elevation, cell.temp, cell.moisture);
+            cell.biome = derive_biome(
+                cell.elevation,
+                cell.temp,
+                cell.moisture,
+                if cell.rainfall > 0. { 24. } else { 3. },
+            );
         }
     }
 }
 
 /// Derive biome from cell properties.
-fn derive_biome(elevation: f32, temp: f32, moisture: f32) -> Biome {
+fn derive_biome(elevation: f32, temp: f32, moisture: f32, mountain_height: f32) -> Biome {
     if elevation < -0.1 {
         return Biome::Ocean;
     }
     if elevation < 0.1 {
         return Biome::Beach;
     }
-    if elevation > 3.0 {
+    if elevation > mountain_height {
         return Biome::Mountain;
     }
     if temp < 0.25 {
@@ -75,22 +90,22 @@ mod tests {
 
     #[test]
     fn test_ocean_biome_for_submerged() {
-        assert_eq!(derive_biome(-1.0, 0.5, 0.5), Biome::Ocean);
+        assert_eq!(derive_biome(-1.0, 0.5, 0.5, 3.), Biome::Ocean);
     }
 
     #[test]
     fn test_mountain_biome_for_high_elevation() {
-        assert_eq!(derive_biome(4.0, 0.5, 0.5), Biome::Mountain);
+        assert_eq!(derive_biome(4.0, 0.5, 0.5, 3.), Biome::Mountain);
     }
 
     #[test]
     fn test_desert_biome_for_dry() {
-        assert_eq!(derive_biome(0.5, 0.5, 0.1), Biome::Desert);
+        assert_eq!(derive_biome(0.5, 0.5, 0.1, 3.), Biome::Desert);
     }
 
     #[test]
     fn test_tundra_biome_for_cold() {
-        assert_eq!(derive_biome(0.5, 0.1, 0.5), Biome::Tundra);
+        assert_eq!(derive_biome(0.5, 0.1, 0.5, 3.), Biome::Tundra);
     }
 
     #[test]

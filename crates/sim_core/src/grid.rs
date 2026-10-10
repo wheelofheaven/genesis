@@ -16,6 +16,12 @@ pub enum Biome {
 /// A single cell in the world grid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cell {
+    /// Prescribed regional rainfall proxy; zero preserves the legacy climate.
+    #[serde(default)]
+    pub rainfall: f32,
+    /// Generated upstream rainfall accumulation, in abstract catchment units.
+    #[serde(default)]
+    pub drainage: f32,
     /// Elevation relative to sea level. Negative = submerged.
     pub elevation: f32,
     /// Derived water depth (sea_level - elevation, clamped >= 0).
@@ -39,6 +45,8 @@ pub struct Cell {
 impl Default for Cell {
     fn default() -> Self {
         Self {
+            rainfall: 0.,
+            drainage: 0.,
             elevation: -1.0,
             water_depth: 1.0,
             temp: 0.5,

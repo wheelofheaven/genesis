@@ -3,6 +3,12 @@ pub mod config;
 pub mod events;
 pub mod grid;
 pub mod rules;
+pub mod scenarios;
+pub mod settlement;
+pub mod spatial;
+pub mod subsurface;
+pub mod units;
+pub mod worldgen;
 
 use actions::Action;
 use config::SimConfig;
@@ -20,6 +26,10 @@ pub struct SimState {
     pub stability_score: f32,
     pub outposts: Vec<(u32, u32)>,
     pub research_points: f32,
+    pub buildings: Vec<settlement::Building>,
+    pub paths: Vec<settlement::Path>,
+    pub subsurface: subsurface::Subsurface,
+    pub geography: worldgen::Geography,
 }
 
 impl SimState {
@@ -27,7 +37,10 @@ impl SimState {
     pub fn new(config: SimConfig) -> Self {
         let grid = Grid::new(config.width, config.height);
         let sea_level = config.sea_level;
+        let subsurface = subsurface::Subsurface::new(config.width, config.height);
         Self {
+            geography: worldgen::Geography::default(),
+            subsurface,
             grid,
             config,
             sea_level,
@@ -35,6 +48,8 @@ impl SimState {
             stability_score: 0.0,
             outposts: Vec::new(),
             research_points: 0.0,
+            buildings: Vec::new(),
+            paths: Vec::new(),
         }
     }
 
@@ -60,6 +75,50 @@ impl SimState {
                 Action::SeedPlants { x, y, radius } => {
                     self.seed_life(*x, *y, *radius, false);
                 }
+                Action::DrillWell { position } => {
+                    match self.subsurface.validate_well(
+                        &self.grid,
+                        self.sea_level,
+                        &self.buildings,
+                        *position,
+                    ) {
+                        Ok(()) => {
+                            let id = self.subsurface.drill(*position);
+                            events.push(SimEvent::WellDrilled { id });
+                        }
+                        Err(reason) => events.push(SimEvent::WellRejected { reason }),
+                    }
+                }
+                Action::SetWellActive { id, active } => {
+                    if let Some(well) = self.subsurface.wells.iter_mut().find(|w| w.id == *id) {
+                        well.active = *active;
+                        if !active {
+                            well.last_yield = 0.;
+                        }
+                        events.push(SimEvent::WellOperationChanged {
+                            id: *id,
+                            active: *active,
+                        });
+                    } else {
+                        events.push(SimEvent::WellRejected {
+                            reason: subsurface::WellError::UnknownWell,
+                        });
+                    }
+                }
+                Action::PlaceBuilding { position, rotation } => {
+                    let building = settlement::Building {
+                        id: self.buildings.len() as u64 + 1,
+                        position: *position,
+                        rotation: rotation.rem_euclid(std::f32::consts::TAU),
+                    };
+                    match self.validate_building(&building) {
+                        Ok(()) => {
+                            events.push(SimEvent::BuildingPlaced { id: building.id });
+                            self.buildings.push(building);
+                        }
+                        Err(reason) => events.push(SimEvent::BuildingRejected { reason }),
+                    }
+                }
                 Action::BuildOutpost { x, y } => {
                     let ux = (*x).rem_euclid(self.grid.width as i32) as u32;
                     let uy = (*y).rem_euclid(self.grid.height as i32) as u32;
@@ -79,6 +138,8 @@ impl SimState {
 
         // 4. Update life.
         update_life(&mut self.grid, dt);
+
+        self.subsurface.step(&self.grid, self.sea_level, dt);
 
         // 5. Accumulate research points from outposts.
         self.research_points += self.outposts.len() as f32 * 0.1 * dt;
@@ -101,6 +162,26 @@ impl SimState {
         self.time += dt as f64;
 
         events
+    }
+
+    /// Shared validation for build previews and action processing.
+    pub fn validate_building(
+        &self,
+        building: &settlement::Building,
+    ) -> Result<(), settlement::PlacementError> {
+        settlement::validate(&self.grid, self.sea_level, &self.buildings, building)?;
+        if worldgen::river_distance(self, building.position) < 1.2 {
+            return Err(settlement::PlacementError::Watercourse);
+        }
+        if self.subsurface.wells.iter().any(|w| {
+            (w.position.x - building.position.x).powi(2)
+                + (w.position.z - building.position.z).powi(2)
+                < settlement::Building::WELL_CLEARANCE.powi(2)
+        }) {
+            Err(settlement::PlacementError::Occupied)
+        } else {
+            Ok(())
+        }
     }
 
     /// Seed fungus or plants in a radius.
@@ -154,6 +235,48 @@ impl SimState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuous_build_commands_are_ordered_validated_and_reproducible() {
+        use spatial::Position;
+        let mut a = scenarios::coastal_outpost();
+        assert_eq!(a.buildings.len(), 6);
+        let mut b = a.clone();
+        let build = Action::PlaceBuilding {
+            position: Position::new(25.31, 20.27),
+            rotation: 0.47,
+        };
+        let actions = [
+            build.clone(),
+            build,
+            Action::PlaceBuilding {
+                position: Position::new(0.5, 0.5),
+                rotation: 0.,
+            },
+        ];
+        let events = a.step(0.1, &actions);
+        b.step(0.1, &actions);
+        assert_eq!(a.buildings, b.buildings);
+        assert_eq!(a.buildings.len(), 7);
+        assert_eq!(
+            a.buildings.last().unwrap().position,
+            Position::new(25.31, 20.27)
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, SimEvent::BuildingPlaced { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, SimEvent::BuildingRejected { .. }))
+                .count(),
+            2
+        );
+    }
 
     #[test]
     fn test_new_sim_state() {
