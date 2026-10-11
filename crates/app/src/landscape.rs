@@ -1,5 +1,6 @@
 //! Cached metric scenery, culled and instanced at three distances.
 mod meshes;
+mod visibility;
 use crate::terrain;
 use genesis_renderer::{
     camera::Camera,
@@ -23,6 +24,7 @@ pub fn meshes() -> Vec<Vec<SceneryVertex>> {
         })
         .collect()
 }
+#[derive(Clone)]
 struct Item {
     kind: CoverKind,
     variant: usize,
@@ -31,26 +33,15 @@ struct Item {
     radius: f32,
 }
 pub struct Scenery {
-    items: Vec<Item>,
+    clusters: Vec<visibility::Cluster>,
 }
 impl Scenery {
     pub fn new(sim: &SimState) -> Self {
         let mut items = Vec::new();
+        let clearance = crate::scene::Clearance::new(sim);
         for plant in &sim.geography.cover {
             let p = terrain::point(sim, plant.position);
-            if p.y < sim.sea_level + metres(0.3)
-                || sim.buildings.iter().any(|b| {
-                    genesis_sim_core::paths::distance(b.position, plant.position)
-                        < metres(if plant.kind.tree() { 6. } else { 4. })
-                })
-                || sim.paths.iter().any(|path| {
-                    genesis_sim_core::paths::on_path(
-                        path,
-                        plant.position,
-                        plant.kind.collision_radius() * plant.size + metres(0.2),
-                    )
-                })
-            {
+            if p.y < sim.sea_level + metres(0.3) || clearance.hides_cover(plant) {
                 continue;
             }
             let variation = unit(plant.seed, 955);
@@ -75,74 +66,130 @@ impl Scenery {
                         shade * (0.92 + variation * 0.12),
                         variation * std::f32::consts::TAU,
                     ],
+                    coverage: [0., 1.],
                 },
             });
         }
-        Self { items }
+        Self::from_items(items)
     }
-    /// Large conservative bounds keep whole crowns visible at screen edges.
-    pub fn visible(&self, camera: &Camera, aspect: f32) -> Vec<Vec<Instance>> {
-        let mut batches = vec![Vec::new(); BATCHES];
-        let matrix = camera.view_projection(aspect);
-        let eye = camera.eye();
-        for item in &self.items {
-            let distance = item.position.distance(eye);
-            let range = metres(if item.kind.tree() {
-                12000.
-            } else if item.kind.rock() {
-                1400.
-            } else {
-                400.
-            });
-            if distance > range {
-                continue;
-            }
-            let clip = matrix * (item.position + Vec3::Y * item.radius * 0.4).extend(1.);
-            let margin = item.radius * 3.;
-            if clip.w < -margin || clip.x.abs() > clip.w + margin || clip.y.abs() > clip.w + margin
-            {
-                continue;
-            }
-            let lod = if distance < metres(85.) {
-                0
-            } else if distance < metres(320.) {
-                1
-            } else {
-                2
-            };
-            let mut instance = item.instance;
-            // Shrubs fade by shrinking only over the last 60 m of their range.
-            if !item.kind.tree() && !item.kind.rock() {
-                instance.position_scale[3] *= ((range - distance) / metres(60.)).clamp(0., 1.);
-            }
-            batches[batch(item.kind, item.variant, lod)].push(instance);
+    fn from_items(items: Vec<Item>) -> Self {
+        Self {
+            clusters: visibility::cluster(items),
         }
-        batches
     }
+}
+
+fn smooth(start: f32, end: f32, value: f32) -> f32 {
+    let t = ((value - start) / (end - start)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
+}
+
+/// Adjacent meshes share complementary screen coverage through each transition.
+fn detail_weights(distance: f32) -> [f32; LODS] {
+    let near = smooth(metres(65.), metres(105.), distance);
+    let far = smooth(metres(260.), metres(380.), distance);
+    [1. - near, near - far, far]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
+    fn detail_transitions_preserve_coverage_without_scaling_objects() {
+        let mut previous = detail_weights(0.);
+        for m in 0..=16000 {
+            let weights = detail_weights(metres(m as f32 * 0.1));
+            assert!((weights.iter().sum::<f32>() - 1.).abs() < 1e-6);
+            assert!(weights.iter().all(|w| (0. ..=1.).contains(w)));
+            assert!(weights.iter().filter(|&&w| w > 0.).count() <= 2);
+            for i in 0..LODS {
+                assert!((weights[i] - previous[i]).abs() < 0.004);
+            }
+            previous = weights;
+        }
+        assert_eq!(detail_weights(0.), [1., 0., 0.]);
+        assert_eq!(detail_weights(metres(400.)), [0., 0., 1.]);
+    }
+    #[test]
+    fn visible_batches_crossfade_and_range_fade_with_fixed_scale() {
+        let mut camera = Camera::default();
+        camera.enter_ground(-Vec3::Y, 1.);
+        for (distance, count, coverage) in
+            [(85., 2, 1.), (320., 2, 1.), (364., 2, 0.5), (401., 0, 0.)]
+        {
+            let position = camera.eye() - camera.direction() * metres(distance);
+            let scenery = Scenery::from_items(vec![Item {
+                kind: CoverKind::DryShrub,
+                variant: 0,
+                position,
+                radius: metres(2.),
+                instance: Instance {
+                    position_scale: [position.x, position.y, position.z, 0.8],
+                    tint_rotation: [1., 1., 1., 0.],
+                    coverage: [0., 1.],
+                },
+            }]);
+            let batches = scenery.visible(&camera, 1.5);
+            let instances: Vec<_> = batches.main.iter().flatten().collect();
+            assert_eq!(instances.len(), count);
+            let mut high = 0.;
+            for instance in instances {
+                assert_eq!(instance.position_scale[3], 0.8);
+                assert!((instance.coverage[0] - high).abs() < 1e-6);
+                high = instance.coverage[1];
+            }
+            assert!((high - coverage).abs() < 1e-5);
+        }
+    }
+    #[test]
     fn scenery_meshes_have_finite_metric_bounds_and_reduce_detail() {
         for kind in CoverKind::ALL {
-            let detailed = meshes::build(kind, 0, 0);
-            let distant = meshes::build(kind, 0, 2);
-            assert!(detailed.len() > distant.len(), "{}", kind.name());
-            for v in &detailed {
-                assert!(
-                    v.position
-                        .iter()
-                        .chain(&v.normal)
-                        .chain(&v.color)
-                        .all(|v| v.is_finite())
-                );
-                let p = Vec3::from_array(v.position);
-                assert!(p.length() < metres(20.), "{}: {p:?}", kind.name());
-            }
-            if kind.tree() {
-                assert!(distant.len() < 2500);
+            for variant in 0..VARIANTS {
+                let levels: [_; LODS] =
+                    std::array::from_fn(|lod| meshes::build(kind, variant, lod));
+                assert!(levels[0].len() > levels[1].len(), "{}", kind.name());
+                assert!(levels[1].len() >= levels[2].len(), "{}", kind.name());
+                for mesh in &levels {
+                    for v in mesh {
+                        assert!(
+                            v.position
+                                .iter()
+                                .chain(&v.normal)
+                                .chain(&v.color)
+                                .chain(&v.uv)
+                                .all(|v| v.is_finite())
+                        );
+                        let p = Vec3::from_array(v.position);
+                        assert!(p.length() < metres(20.), "{}: {p:?}", kind.name());
+                        if kind.tree() {
+                            // Match the conservative sphere used by scenery culling,
+                            // leaving room for the shader's small wind displacement.
+                            assert!(
+                                (p - Vec3::Y * metres(17. * 0.4)).length()
+                                    < metres(17. * 1.4 - 0.2)
+                            );
+                        }
+                    }
+                }
+                if kind.tree() {
+                    assert!(levels[0].len() < 18_000);
+                    assert!(levels[2].len() < 1_500);
+                }
+                if !kind.rock() {
+                    let areas = levels.each_ref().map(|mesh| {
+                        mesh.chunks_exact(3)
+                            .filter(|t| (5. ..6.).contains(&t[0].color[3]))
+                            .map(|t| {
+                                let [a, b, c] =
+                                    std::array::from_fn(|i| Vec3::from_array(t[i].position));
+                                (b - a).cross(c - a).length() * 0.5
+                            })
+                            .sum::<f32>()
+                    });
+                    // Simplification must not make a tree lose most of its leaf area.
+                    assert!(areas[0] > 0.);
+                    assert!(areas.iter().all(|area| (area / areas[0] - 1.).abs() < 0.01));
+                }
             }
         }
     }

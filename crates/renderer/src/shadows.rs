@@ -1,17 +1,22 @@
-//! One bounded local sun-shadow map. Distant terrain remains on ambient lighting.
+//! Two nested, stable sun-shadow maps: detail around the observer and settlement context.
+pub const CASCADES: usize = 2;
+pub const RESOLUTION: u32 = 2048;
+// World units are 20 metres. Fixed extents prevent resolution pumping on zoom.
+pub const RADII: [f32; CASCADES] = [8., 32.];
+const DEPTHS: [f32; CASCADES] = [40., 128.];
 pub struct Shadows {
-    pub view: wgpu::TextureView,
+    pub views: [wgpu::TextureView; CASCADES],
     pub layout: wgpu::BindGroupLayout,
     pub group: wgpu::BindGroup,
 }
 impl Shadows {
     pub fn new(device: &wgpu::Device) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("local sunlight depth"),
+            label: Some("nested sunlight depth"),
             size: wgpu::Extent3d {
-                width: 2048,
-                height: 2048,
-                depth_or_array_layers: 1,
+                width: RESOLUTION,
+                height: RESOLUTION,
+                depth_or_array_layers: CASCADES as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -20,7 +25,18 @@ impl Shadows {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let view = texture.create_view(&Default::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let views = std::array::from_fn(|i| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: i as u32,
+                array_layer_count: Some(1),
+                ..Default::default()
+            })
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sun comparison"),
             compare: Some(wgpu::CompareFunction::LessEqual),
@@ -36,7 +52,7 @@ impl Shadows {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -64,16 +80,74 @@ impl Shadows {
             ],
         });
         Self {
-            view,
+            views,
             layout,
             group,
         }
     }
     pub fn matrix(center: glam::Vec3) -> glam::Mat4 {
-        let texel = 16. / 2048.;
-        let center = (center / texel).round() * texel;
+        Self::cascade_matrix(center, 0)
+    }
+    pub fn cascade_matrix(center: glam::Vec3, cascade: usize) -> glam::Mat4 {
+        let radius = RADII[cascade];
+        let depth = DEPTHS[cascade];
+        let texel = radius * 2. / RESOLUTION as f32;
         let sun = glam::Vec3::new(-0.5, 0.75, 0.3).normalize();
-        glam::Mat4::orthographic_rh(-8., 8., -8., 8., 0.1, 80.)
-            * glam::Mat4::look_at_rh(center + sun * 40., center, glam::Vec3::Y)
+        // Snap in the light's image plane; world-axis snapping still makes
+        // projected shadow edges crawl as the camera pans diagonally.
+        let basis = glam::Mat4::look_at_rh(sun * 40., glam::Vec3::ZERO, glam::Vec3::Y);
+        let mut light_center = basis.transform_point3(center);
+        light_center.x = (light_center.x / texel).round() * texel;
+        light_center.y = (light_center.y / texel).round() * texel;
+        let center = basis.inverse().transform_point3(light_center);
+        glam::Mat4::orthographic_rh(-radius, radius, -radius, radius, 0.1, depth * 2.)
+            * glam::Mat4::look_at_rh(center + sun * depth, center, glam::Vec3::Y)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shadow_projection_stays_still_inside_a_light_texel() {
+        let sun = glam::Vec3::new(-0.5, 0.75, 0.3).normalize();
+        let right = glam::Vec3::Y.cross(sun).normalize();
+        let point = glam::Vec3::new(1., 2., 3.);
+        for (cascade, radius) in RADII.into_iter().enumerate() {
+            let texel = radius * 2. / RESOLUTION as f32;
+            let a = Shadows::cascade_matrix(glam::Vec3::ZERO, cascade).project_point3(point);
+            let b = Shadows::cascade_matrix(right * texel * 0.2, cascade).project_point3(point);
+            assert!((a.truncate() - b.truncate()).length() < 1e-6);
+            let c = Shadows::cascade_matrix(right * texel, cascade).project_point3(point);
+            assert!(((a.x - c.x).abs() - 2. / RESOLUTION as f32).abs() < 1e-6);
+        }
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    #[test]
+    fn wide_map_contains_near_receivers_and_surrounding_settlement() {
+        use glam::{Vec3, Vec4};
+        for focus in [Vec3::ZERO, Vec3::new(-140., 21., 90.)] {
+            let near = Shadows::matrix(focus);
+            let far = Shadows::cascade_matrix(focus, 1);
+            for x in [-0.95, 0., 0.95] {
+                for y in [-0.95, 0., 0.95] {
+                    for z in [0.01, 0.5, 0.99] {
+                        let point = near.inverse() * Vec4::new(x, y, z, 1.);
+                        let q = far * point;
+                        assert!(q.x.abs() < 0.3 && q.y.abs() < 0.3);
+                        assert!(q.z > 0. && q.z < 1.);
+                    }
+                }
+            }
+            let sun = Vec3::new(-0.5, 0.75, 0.3).normalize();
+            let receiver = focus + Vec3::Y.cross(sun).normalize() * 20.;
+            assert!(near.project_point3(receiver).x.abs() > 1.);
+            let q = far.project_point3(receiver);
+            assert!(q.x.abs() < 0.8 && q.y.abs() < 0.8 && q.z > 0. && q.z < 1.);
+        }
     }
 }

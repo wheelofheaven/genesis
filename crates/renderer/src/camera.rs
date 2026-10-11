@@ -102,8 +102,14 @@ impl Camera {
     }
     pub fn look_at_ground(&mut self, target: Vec3) {
         if self.is_ground() {
-            let backward = self.focus - target;
-            self.yaw = backward.x.atan2(backward.z);
+            let backward = self.eye() - target;
+            if backward.length_squared() > 1e-12 {
+                self.yaw = backward.x.atan2(backward.z);
+                self.pitch = backward
+                    .y
+                    .atan2(backward.x.hypot(backward.z))
+                    .clamp(-1.3, 1.5);
+            }
         }
     }
     /// Vertical span of the focal plane, in world units.
@@ -193,6 +199,20 @@ impl Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ground_target_is_centered_above_and_below_the_eye() {
+        let mut camera = Camera::default();
+        camera.enter_ground(Vec3::new(8., 2., 3.), 0.085);
+        for offset in [Vec3::new(0.4, -0.2, -0.3), Vec3::new(-0.3, 0.3, 0.4)] {
+            let target = camera.eye() + offset;
+            camera.look_at_ground(target);
+            let projected = camera.view_projection(1.6).project_point3(target);
+            assert!(projected.truncate().length() < 1e-4);
+        }
+        let direction = camera.direction();
+        camera.look_at_ground(camera.eye());
+        assert_eq!(camera.direction(), direction);
+    }
     #[test]
     fn ground_view_uses_eye_height_and_restores_orbit_exactly() {
         let mut camera = Camera::default();

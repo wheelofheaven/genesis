@@ -83,12 +83,27 @@ pub fn regional_sample(seed: u64, region: Region, x: f32, z: f32) -> (f32, f32) 
     let ridge = 1. - noise(seed ^ 383, east / 900. + warp, south / 1500.).abs();
     let fine = fbm(seed ^ 481, east / 420., south / 420.);
     let height = if region == Region::LevantHighlands {
-        // An open, gently descending valley gives rainfall an outlet. Avoid
-        // closed noise basins that Priority-Flood would turn into broad flats.
-        let axis = (south / 1700.).sin() * 350.;
+        // A regional fall gives the valley an outlet; small local depressions
+        // are filled during routing rather than enclosing the whole catchment.
+        // Shape the valley before routing water through it. A single broad,
+        // unseeded sine left kilometre-long grid-aligned reaches near its extrema.
+        // Seeded bends at two scales and a smooth offset give the drainage graph
+        // a continuous, varying corridor rather than decorating river polylines.
+        let phase = unit(seed, 1103) * std::f32::consts::TAU;
+        let bend_phase = unit(seed, 1109) * std::f32::consts::TAU;
+        let axis = (south / 1700. + phase).sin() * 260.
+            + (south / 320. + bend_phase).sin() * 100.
+            + noise(seed ^ 1117, south / 700., 4.) * 70.;
         let distance = (east - axis).abs();
+        // A rounded valley floor avoids a sharp V crease locking flow to one
+        // column. Low relief varies the floor and tributary routes; the regional
+        // downstream fall remains separate from this smaller-scale terrain.
+        let valley = ((distance * distance + 90_f32.powi(2)).sqrt() - 90.) * 0.075;
+        let drainage_relief = noise(seed ^ 1123, east / 160., south / 160.) * 8.
+            + noise(seed ^ 1129, east / 55., south / 55.) * 1.4;
         160. + south * 0.018
-            + distance * 0.075
+            + valley
+            + drainage_relief
             + (ridge.powi(2) * 120. + fine * 50.) * (distance / 1500.).clamp(0., 1.)
     } else if inland >= 0. {
         let foothill = ((inland - 950.) / 2800.).clamp(0., 1.);

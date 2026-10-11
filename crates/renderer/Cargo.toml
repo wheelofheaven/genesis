@@ -2,7 +2,7 @@
 name = "genesis-renderer"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license = "CC0-1.0 AND Apache-2.0"
 
 [dependencies]
 wgpu.workspace = true

@@ -7,6 +7,7 @@ use crate::{
     units::metres,
     worldgen::noise::noise,
 };
+pub mod channels;
 pub mod walking;
 
 pub const SUBDIVISIONS: u32 = 32;
@@ -59,7 +60,8 @@ pub fn vertex_height(sim: &SimState, p: Position) -> f32 {
             detail *= ((distance - path.width * 0.5) / metres(0.5)).clamp(0., 1.);
         }
     }
-    (base + detail).clamp(crate::units::MIN_ELEVATION, crate::units::MAX_ELEVATION)
+    channels::carve(sim, p, base + detail)
+        .clamp(crate::units::MIN_ELEVATION, crate::units::MAX_ELEVATION)
 }
 
 /// Fixed triangle topology shared by local rendering, placement and walking.

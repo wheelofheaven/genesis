@@ -168,15 +168,25 @@ The scale bar measures horizontal distances at the camera focus; ground farther
 away appears smaller. Zoom remains anchored at the pointer's picked elevation,
 and the camera can move close enough to inspect individual homes.
 
+Dwellings now have 30 cm wall shells with recessed plank doors and shutters,
+timber lintels, stone sills, and individual foundation stones. Plaster, masonry,
+timber and roof earth have separate filtered material responses; face lighting
+follows the building's rotation. These remain procedural stand-ins with closed
+doors and no playable interiors. `--house-capture /tmp/genesis-house.png` gives a
+repeatable eye-height view of the first dwelling's front.
+
 The 384 × 320 region therefore spans **7.68 × 6.40 km**, sixteen times the previous
 map area. This is a working geometry convention, not a claim of historical house accuracy or calibrated hydrology:
 resource volumes, time, and existing survey readouts retain their prototype units.
 `--settlement-capture /tmp/genesis-settlement.png` captures a close view for scale
 review; `--landscape-capture /tmp/genesis-landscape.png` frames its surroundings.
-Generation recipe 7 preserves local surface detail and adds climate-aware vegetation
-assemblages, clustered understorey and formation-specific stones.
+Generation recipe 9 adds seeded highland valley bends, a rounded valley floor,
+and smaller relief that influences tributary routes. It retains recipe 8's shared
+physical riverbeds and banks and recipe 7's climate-aware vegetation, clustered
+understorey and formation-specific stones.
 The environmental field still uses 20 m samples. Trees and rocks share GPU meshes;
-each placement uses 32 bytes rather than duplicating its geometry. River widths
+each placement uses 40 bytes, including detail-transition coverage, rather than
+duplicating its geometry. River widths
 follow local rainfall-weighted catchment area (bounded to 0.8–12 m), instead of
 resetting a visual taper at each polyline. This is a visual heuristic, not a
 discharge model.
@@ -196,6 +206,13 @@ downhill outlet; rainfall
 accumulation identifies tributaries and channels. Curved river geometry rounds the
 internal routing directions. Continental regions have bounded field edges; only
 the optional island preset retains a submerged wrapping rim.
+
+The inland-hills valley now varies with the seed at several scales before drainage
+and erosion are calculated. Its rounded floor replaces the sharp central crease;
+small undulations break up uniform slopes. River corridors, banks, and catchments
+therefore derive from the same relief. This reduces the default valley's long
+straight reaches, although the eight-direction routing still leaves some visibly
+straight tributaries. Coastal and island relief recipes are unchanged in version 9.
 
 Rainfall and drainage inform moisture and vegetation; elevation and broad formation
 fields inform host rock. Lowlands and drainage influence aquifer thickness and
@@ -244,14 +261,21 @@ dataset provenance, and historical scenarios is in [Earth terrain](docs/earth-te
 ### Surface presentation and navigation
 
 Water is shaded using shelf depth, shallow bed colour, sky reflection, subtle
-animated waves, sun glints, and a moving shoreline wash. River surfaces
-follow the rendered valleys and sit close to the bed, avoiding floating ribbons
-and gaps caused by sampling a different surface from the terrain mesh. These are
+animated waves, sun glints, and a moving shoreline wash. Close river surfaces sit
+above incised beds, intersect the banks, and encode actual visible depth. Damp
+alluvial banks, geology-tinted shallows and irregular downstream ripples distinguish
+streams from the sea. Ripples follow channel orientation and fade below pixel
+resolution; reflections soften at the bank contact. Beyond 160–220 m, water
+gradually conforms to the coarser terrain while retaining channel depth for its
+shading, rather than treating the display offset as shallow water. River geometry
+follows the actual terrain triangles and its shallow bank edges use the existing
+MSAA coverage. That distant representation does not change the physical bed. These are
 presentation effects, not simulated waves or a river flow solver; water animation
 continues while the simulation is paused. Screenshot captures use a fixed phase.
 Ground uses filtered, world-space soil and gravel detail; trees use irregular,
 rounded foliage instead of diamond silhouettes. This remains procedural prototype
 art rather than scanned terrain or vegetation assets.
+Use `--river-capture /tmp/genesis-river.png` to inspect an inland channel.
 
 The camera frames the enlarged region and retains metre-scale close inspection.
 Terrain positions and normals are cached until editing or regeneration; river
@@ -373,6 +397,9 @@ The original biosphere score remains a prototype mechanic, not the overall goal.
 
 ## License
 
+The adapted Khronos tone-mapping shader is Apache-2.0; see
+[third-party notices](THIRD_PARTY.md). Other project code retains the licence below.
+
 [CC0-1.0](LICENSE)
 
 ## Planet and scenario boundaries
@@ -407,6 +434,21 @@ nearby grass; it does not yet grade terrain, build bridges, charge resources, or
 assign construction labour. Actions remain queued while paused until Resume or
 Step. This is a geometric path network; agent routing is still future work.
 
+Path surfaces are clipped to the current terrain triangles and offset by only
+1.2 cm to avoid depth fighting. Lit soil responds to geology and moisture, with
+soft worn edges resolved by the existing MSAA pass. Paths receive shadows but do
+not cast opaque ribbon shadows. Automatic entrance walks join the nearest point
+on the existing route; these remain cosmetic links without obstacle-aware routing.
+Vegetation clearances follow rotated house footprints and steps, including these
+entrance walks. Ground cover accounts for blade spread and instance size; hidden
+trees no longer leave cosmetic understorey behind. Nearby footprint queries use
+an 8 m spatial index during cache preparation.
+Path hover, selection and construction previews also follow the visible terrain
+triangles, and refresh when terrain detail changes. Their solid feedback colours
+remain clear above the soil surface.
+Building placement outlines and ground markers use the same terrain attachment,
+with closed corner joins and direct seabed attachment in seafloor survey mode.
+
 `mise exec -- cargo run -- --interaction-test /tmp/genesis-interactions.png`
 checks roof picking, path drafting, paused construction, and selecting the result
 on the native GPU. It also writes `.house.png` and `.draft.png` captures.
@@ -432,18 +474,92 @@ Rendering uses branching trunks, cutout leaf/needle sprays, two variants per typ
 three mesh detail levels, frustum culling and bounded shrub visibility. Scenery
 alone carries normals and leaf coordinates, leaving the terrain vertex budget
 unchanged. Bark, leaves and rocks have separate procedural material treatments.
-A 2048² local sun-shadow map includes terrain, houses, foliage and stones, with
-filtered comparison samples and a soft boundary around the camera focus. Foliage
-sway also affects the shadow pass. This is one bounded shadow region, not a
-planet-wide cascaded-shadow solution; mesh LOD transitions are currently discrete.
+Pines have asymmetric branch tiers around a tapered stem; broadleaf trees fork
+lower and carry smaller branching crowns plus upright leaders. Riparian forms
+retain a taller, narrower crown. Mixed leaf angles give foliage volume from both
+eye height and overhead. Close tree meshes stay below 18,000 vertices, and distant
+meshes below 1,500; these are geometry budgets, not frame-rate measurements.
+Two 2048² sun-shadow maps cover 320 m and 1.28 km across around the camera focus,
+with filtered comparison samples and a blended transition. Foliage sway affects
+both maps. Their projections snap independently in light space to reduce crawling
+while panning. Wider shadows use simpler caster meshes and omit tiny ground cover;
+this remains bounded regional coverage, not planet-wide lighting. The wider layer
+adds 16 MiB of depth storage and another shadow pass.
+
+Adjacent scenery detail levels crossfade over 65–105 m and 260–380 m using
+complementary, time-independent pixel masks. Range culling fades over the final
+18% of visibility instead of shrinking shrubs or abruptly removing rocks. Far
+crowns retain sparse leaf sprays and gaps instead of solid polygonal shells.
+These are dithered transitions, not mesh morphs; fine stippling can remain visible
+during a transition. Grass, bank plants and pebbles use a continuous 28–38 m
+camera-distance fade, with a 16 m cached margin to cover camera-key changes.
+Local canopy proximity favours fallen leaves beneath broadleaf trees, needles
+beneath pines and less grass under dense crowns. Litter follows the ground slope;
+grass colour varies with moisture and drought. Small stones also appear away from
+riverbanks with their local geological tint. These details are cosmetic, with no
+simulated leaf fall or decomposition.
+
+World geometry renders with 4× MSAA, and foliage uses derivative-smoothed leaf
+coverage with alpha-to-coverage. The resolved world feeds the glass compositor;
+UI stays at native resolution. Bark and stone detail fades with pixel footprint,
+and ambient fill keeps shadowed scenery readable. MSAA adds GPU memory and
+rendering cost; this is an edge-quality improvement, not a measured speedup or
+temporal anti-aliasing solution.
+
+The regional sky now has a directional colour gradient, a sun disk and halo;
+height-dependent aerial perspective separates distant landforms. Water reflects
+the same sky using its actual eye-to-surface direction. A drifting cloud sheet
+adds softly shaded sky patches, filtered water reflections and broad moving sun
+attenuation on terrain and scenery. Its shared 512² mipmapped density field uses
+about 341 KiB of nominal texture storage with no additional render pass.
+Survey views disable clouds and the aerial tint to preserve their data colours.
+This is a lightweight artistic
+approximation with configurable atmosphere parameters, not a planetary scattering
+or weather simulation.
+
+Scenery is grouped into 160 m clusters and rejected against camera and sun volumes
+before individual tests. Each shadow map gets its own caster list, including
+off-screen objects, instead of redrawing the camera's complete list. Pixels outside
+both maps skip depth samples. Captures report world/scenery submissions and optional
+GPU pass timings; invalid counters are marked unavailable. See
+[rendering notes](docs/rendering.md) for measured costs, references and remaining limits.
+
+World terrain, water and settlement geometry now use persistent spatial GPU
+batches as well. Only changed chunks are uploaded, and camera/sun passes reject
+their own invisible chunks. Water and path decals do not cast opaque shadows. Larger batches
+keep coarse horizon geometry from generating excessive draw calls. CPU terrain
+reconstruction is still regional; this is not yet planetary streaming.
+
+Ground colour follows living plant coverage, moisture, drought and local geology,
+with the same palette continued into the distant context. Close views add irregular
+earth patches, centimetre-scale mineral chips, fine grain and subtle surface-normal
+relief without increasing terrain vertex size or draw count. Rock detail blends
+projections to avoid vertical stretching on slopes; each detail scale fades with
+pixel footprint. These are cosmetic surface treatments; geology, collision and
+survey readings remain simulation data.
+
+The world now renders into a linear HDR buffer before a neutral display transform.
+Warm sunlight, cooler cast shadows and highlight compression add depth while the
+glass UI stays outside tone mapping. Survey colours bypass the display curve.
+HDR storage adds a full-screen pass and render-target memory; it is an SDR output
+pipeline, without automatic exposure or bloom. The visual targets are Anno 1800,
+Breath of the Wild and Manor Lords; see [rendering direction and costs](docs/rendering.md).
+
+To repeat the CPU visibility comparison:
+`mise exec -- cargo test -p genesis-app visibility_timing -- --ignored --nocapture`.
 
 `--ecology-capture /tmp/ecology.png` frames vegetation near the settlement;
 `--ecology-ground-capture /tmp/ecology-ground.png` inspects it at eye height.
-Both accept `--region coast|highlands|island` and `--seed`.
+Add `--tree broadleaf`, `--tree pine`, or `--tree riparian` to either ecology
+capture to inspect the nearest matching tree to the settlement.
+`--understorey-capture /tmp/understorey.png --tree broadleaf` places the camera at
+human height beneath a crown, looking down at the ground detail.
+These accept `--region coast|highlands|island` and `--seed`. Capture windows request
+no focus and ignore live keyboard/mouse input so the inspection camera stays fixed.
 
 Next realism work: species-specific authored assets, terrain-conforming roots and
-stone bedding, seasonal phenology, leaf litter and deadwood, continuous LOD
-transitions, and streamed vegetation chunks. Climate currently guides generation;
+stone bedding, seasonal phenology, leaf litter and deadwood, and streamed vegetation
+chunks. Climate currently guides generation;
 it does not yet simulate plant succession, growth, reproduction or mortality.
 Future ecosystems need their own species/functional catalogues and habitat rules,
 not just colour changes to this Mediterranean assemblage. Exoplanet chemistry,

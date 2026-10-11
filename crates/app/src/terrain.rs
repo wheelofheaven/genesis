@@ -40,28 +40,47 @@ pub fn surface_point(sim: &SimState, p: Position) -> Vec3 {
     v.y = v.y.max(sim.sea_level);
     v
 }
-fn colored_vertex(
+pub(crate) fn colored_vertex(
     sim: &SimState,
     p: Position,
     v: Vec3,
     normal: Vec3,
+    channel_detail: f32,
     layers: crate::survey::Survey,
 ) -> Vertex {
     let shade = 0.48 + 0.52 * normal.dot(Vec3::new(-0.5, 0.75, 0.3).normalize()).max(0.);
-    let green = spatial::sample(&sim.grid, p, |c| c.plants * 0.7 + c.fungus * 0.3);
+    let green = spatial::sample(&sim.grid, p, |c| c.plants).clamp(0., 1.);
+    let moisture = spatial::sample(&sim.grid, p, |c| c.moisture).clamp(0., 1.);
     let inland = ((v.y - sim.sea_level - 0.07) / 0.6).clamp(0., 1.);
     let sand = Vec3::new(0.55, 0.48, 0.34);
-    let grass = Vec3::new(0.30 - green * 0.10, 0.30 + green * 0.025, 0.13);
     let slope = (1. - normal.y).clamp(0., 1.);
     let stone = match sim.subsurface.reading(p).rock {
         genesis_sim_core::subsurface::Rock::Limestone => Vec3::new(0.53, 0.49, 0.39),
         genesis_sim_core::subsurface::Rock::Sandstone => Vec3::new(0.48, 0.33, 0.21),
         genesis_sim_core::subsurface::Rock::Basalt => Vec3::new(0.22, 0.23, 0.21),
     };
+    // Climate and living cover control the broad palette; cosmetic shader detail
+    // supplies centimetre-scale variation without resampling the simulation.
+    let dry = ((1. - moisture) * sim.geography.climate.summer_drought).clamp(0., 1.);
+    let earth = stone.lerp(Vec3::new(0.25, 0.19, 0.12), 0.65) * (1. - moisture * 0.22);
+    let grass = Vec3::new(0.19, 0.25, 0.085).lerp(Vec3::new(0.38, 0.31, 0.15), dry);
+    let ground = earth.lerp(grass, green * (1. - dry * 0.35));
     let exposure = ((v.y - 18.) / 26.)
         .clamp(0., 1.)
         .max((slope * 2.5).clamp(0., 1.));
-    let mut color = sand.lerp(grass, inland).lerp(stone, exposure) * shade;
+    let mut color = sand.lerp(ground, inland).lerp(stone, exposure) * shade;
+    if channel_detail > 0.
+        && let Some(section) = genesis_sim_core::surface::channels::section(sim, p)
+    {
+        let bank = ((section.distance - section.half_width)
+            / genesis_sim_core::surface::channels::BANK)
+            .clamp(0., 1.);
+        let damp = Vec3::new(0.24, 0.22, 0.15).lerp(sand * 0.82, bank);
+        color = color.lerp(
+            damp * shade,
+            (1. - bank * bank * (3. - 2. * bank)) * channel_detail,
+        );
+    }
     let seabed = layers.seafloor && v.y < sim.sea_level;
     if seabed {
         let depth = (sim.sea_level - v.y) * 20.;
@@ -81,7 +100,9 @@ fn colored_vertex(
             } else if layers.water || layers.minerals {
                 1.
             } else {
-                2.
+                // Fractional material data blends soil into exposed geology
+                // without adding attributes to every terrain vertex.
+                2. + exposure * 0.4
             },
         ],
     }
@@ -109,12 +130,12 @@ pub fn triangles(sim: &SimState, mut visit: impl FnMut([Position; 3])) {
 /// Geometry and baked normals survive ecological ticks and water animation.
 pub struct Cache {
     context: crate::horizon::Cache,
-    samples: Vec<(Position, Vec3, Vec3)>,
+    samples: Vec<(Position, Vec3, Vec3, f32)>,
     indices: Vec<[usize; 3]>,
     pub key: lod::Key,
     patches: lod::Patches,
     pub rivers: Vec<Vertex>,
-    pub ground_cover: Vec<genesis_renderer::instances::Instance>,
+    pub ground_cover: ground_cover::Placements,
 }
 impl Cache {
     #[cfg(test)]
@@ -125,16 +146,37 @@ impl Cache {
     }
     pub fn at(sim: &SimState, key: lod::Key) -> Self {
         let (points, indices, patches) = lod::topology(sim, key);
+        let height = |p: Position| {
+            let simplify = lod::channel_simplification(sim, key.eye(), p);
+            if simplify == 0. || sim.geography.version == 0 {
+                return genesis_sim_core::surface::vertex_height(sim, p);
+            }
+            let base = spatial::elevation(&sim.grid, p);
+            if simplify == 1. {
+                return base;
+            }
+            let detailed = genesis_sim_core::surface::vertex_height(sim, p);
+            detailed + (base - detailed) * simplify
+        };
         let samples = points
             .into_iter()
             .map(|p| {
-                let v = point(sim, p);
+                let v = Vec3::new(
+                    p.x - sim.grid.width as f32 * 0.5,
+                    height(p),
+                    p.z - sim.grid.height as f32 * 0.5,
+                );
                 let delta = genesis_sim_core::surface::SPACING;
-                let height =
-                    |x, z| genesis_sim_core::surface::vertex_height(sim, Position::new(x, z));
-                let dx = height(p.x + delta, p.z) - height(p.x - delta, p.z);
-                let dz = height(p.x, p.z + delta) - height(p.x, p.z - delta);
-                (p, v, Vec3::new(-dx, delta * 2., -dz).normalize())
+                let dx = height(Position::new(p.x + delta, p.z))
+                    - height(Position::new(p.x - delta, p.z));
+                let dz = height(Position::new(p.x, p.z + delta))
+                    - height(Position::new(p.x, p.z - delta));
+                (
+                    p,
+                    v,
+                    Vec3::new(-dx, delta * 2., -dz).normalize(),
+                    1. - lod::channel_simplification(sim, key.eye(), p),
+                )
             })
             .collect();
         let mut cache = Self {
@@ -163,6 +205,31 @@ impl Cache {
     pub fn detail_at(&self, p: Position) -> u32 {
         self.patch(p).map_or(1, |(s, _)| 32 / s)
     }
+    /// Nearby visible triangles for small conforming surface decals. Query the
+    /// finest lattice, deduplicate adaptive patches, then visit their triangles.
+    pub(crate) fn triangles_in(
+        &self,
+        min: Position,
+        max: Position,
+        mut visit: impl FnMut([Vec3; 3]),
+    ) {
+        let mut ranges = std::collections::BTreeMap::new();
+        for z in (min.z * 32.).floor() as i32..=(max.z * 32.).floor() as i32 {
+            for x in (min.x * 32.).floor() as i32..=(max.x * 32.).floor() as i32 {
+                if let Some((_, range)) = self.patch(Position::new(
+                    (x as f32 + 0.5) / 32.,
+                    (z as f32 + 0.5) / 32.,
+                )) {
+                    ranges.insert(range.start, range.end);
+                }
+            }
+        }
+        for (start, end) in ranges {
+            for id in start..end {
+                visit(self.indices[id].map(|i| self.samples[i].1));
+            }
+        }
+    }
     pub fn height_at(&self, sim: &SimState, p: Position) -> f32 {
         if let Some((_, range)) = self.patch(p) {
             for id in range.clone() {
@@ -187,7 +254,7 @@ impl Cache {
         let vertices: Vec<_> = self
             .samples
             .iter()
-            .map(|&(p, v, n)| colored_vertex(sim, p, v, n, layers))
+            .map(|&(p, v, n, channel_detail)| colored_vertex(sim, p, v, n, channel_detail, layers))
             .collect();
         for ids in &self.indices {
             for &j in ids {

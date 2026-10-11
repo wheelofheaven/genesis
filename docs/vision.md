@@ -188,13 +188,23 @@ geometric forms. Sable remains a reference for colour restraint and readability;
 it should not limit terrain detail or physical credibility. Exact shaders,
 outline treatment, texture detail, and camera limits remain exploratory.
 
+The renderer's current visual targets are **Anno 1800**, **The Legend of Zelda:
+Breath of the Wild**, and **Manor Lords**. For Genesis, interpret these as readable,
+richly populated settlements; clear silhouettes, expressive light and atmospheric
+depth; and grounded terrain, natural materials and organic settlement placement.
+This is a combined direction, not a promise to reproduce any game's rendering
+technology or assets. Preserve human scale and ecological distinctions across
+close inspection and regional views. Establish lighting, material response and
+authored asset quality together; additional shader noise alone cannot deliver
+the desired result. Measure costs on the target hardware as quality increases.
+
 The primary technological references are **Phantasy Star Online** and
 **Xenoblade Chronicles X**: an advanced civilization capable of exploring worlds,
 with vessels, observation platforms, survey drones, and field equipment. These
 are references for direction, not requests to copy assets or interfaces.
 
-The player-facing UX uses dark instrument panels, clear typography, precise
-geographic diagrams, and restrained luminous accents. Supersede the parchment,
+The player-facing UX uses light, translucent blurred glass, clear icons and
+typography, precise geographic diagrams, and restrained luminous accents. Supersede the parchment,
 antique gold, and biblical presentation of the early menus. Local communities
 remain historically or ecologically grounded; their architecture need not match
 the expedition's technology. Sable remains a secondary reference for restraint

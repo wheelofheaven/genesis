@@ -29,6 +29,8 @@ pub struct Geography {
     #[serde(default)]
     pub climate: crate::ecology::Climate,
     pub rivers: Vec<River>,
+    #[serde(default)]
+    pub channels: crate::surface::channels::Index,
     pub cover: Vec<Cover>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,7 +79,7 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
     }
     let flow = drainage::route(&mut sim.grid, sim.sea_level);
     sim.geography = Geography {
-        version: 7,
+        version: 9,
         climate: crate::ecology::Climate::for_region(region),
         region,
         rivers: drainage::rivers(
@@ -91,7 +93,10 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
             },
         ),
         cover: Vec::new(),
+        channels: Default::default(),
     };
+    sim.geography.channels =
+        crate::surface::channels::Index::new(WIDTH, HEIGHT, &sim.geography.rivers);
     sim.step(0., &[]);
     sim.subsurface = geology::generate(&sim.grid, seed, sim.sea_level, region);
     for c in sim.grid.cells_mut() {

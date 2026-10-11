@@ -1,6 +1,5 @@
 //! Split water at terrain triangle edges so narrow channels cannot disappear
 //! below creases. A finer strip alone cannot guarantee this at every crossing.
-#[cfg(test)]
 use crate::terrain;
 use genesis_renderer::geometry::Vertex;
 use genesis_sim_core::{SimState, spatial::Position, units::metres};
@@ -44,6 +43,117 @@ pub(super) fn drape_on(
     detail: u32,
     height: impl Fn(Position) -> f32,
 ) {
+    conform(sim, triangle, out, detail, |p| (height(p), 0.), false);
+}
+
+/// Intersect a separate water plane with the visible bed, retaining real depth.
+#[cfg(test)]
+pub(super) fn intersect_water(
+    sim: &SimState,
+    triangle: [Vertex; 3],
+    out: &mut Vec<Vertex>,
+    detail: u32,
+    height: impl Fn(Position) -> f32,
+    simplification: impl Fn(Position) -> f32,
+) {
+    conform(
+        sim,
+        triangle,
+        out,
+        detail,
+        |p| (height(p), simplification(p)),
+        true,
+    );
+}
+
+/// Clip to the actual adaptive triangles, including transition fans. The distant
+/// surface stays above simplified ground while retaining the channel's optical
+/// depth; the centimetre display offset is not a physical water-depth measurement.
+pub(super) fn intersect_cached(
+    sim: &SimState,
+    cache: &terrain::Cache,
+    triangle: [Vertex; 3],
+    out: &mut Vec<Vertex>,
+    simplification: impl Fn(Position) -> f32,
+) {
+    use glam::Vec3;
+    let position = |v: &Vertex| {
+        Position::new(
+            v.position[0] + sim.grid.width as f32 * 0.5,
+            v.position[2] + sim.grid.height as f32 * 0.5,
+        )
+    };
+    let points = triangle.map(|v| position(&v));
+    let min = Position::new(
+        points.iter().map(|p| p.x).fold(f32::INFINITY, f32::min),
+        points.iter().map(|p| p.z).fold(f32::INFINITY, f32::min),
+    );
+    let max = Position::new(
+        points.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max),
+        points.iter().map(|p| p.z).fold(f32::NEG_INFINITY, f32::max),
+    );
+    cache.triangles_in(min, max, |ground| {
+        let mut face = triangle.to_vec();
+        for i in 0..3 {
+            let a = ground[i];
+            let b = ground[(i + 1) % 3];
+            face = clip(&face, |v| {
+                (b.z - a.z) * (v.position[0] - a.x) - (b.x - a.x) * (v.position[2] - a.z)
+            });
+            if face.len() < 3 {
+                return;
+            }
+        }
+        let n = (ground[1] - ground[0]).cross(ground[2] - ground[0]);
+        if n.y <= 1e-12 {
+            return;
+        }
+        for v in &mut face {
+            let bed = ground[0].y
+                - (n.x * (v.position[0] - ground[0].x) + n.z * (v.position[2] - ground[0].z)) / n.y;
+            let simplify = simplification(position(v));
+            v.position[1] += (bed + metres(0.04) - v.position[1]).max(0.) * simplify;
+            v.color[3] = -(1. + (v.position[1] - bed) * 20.);
+        }
+        // Clip with geometric depth before replacing its distant optical proxy.
+        face = clip(&face, |v| -v.color[3] - 1.);
+        for v in &mut face {
+            let p = position(v);
+            let simplify = simplification(p);
+            if simplify > 0. {
+                let depth = (-v.color[3] - 1.) / 20.;
+                v.color[3] =
+                    -(1. + (depth + (channel_depth(sim, p) - depth) * simplify).max(0.) * 20.);
+            }
+        }
+        for i in 1..face.len().saturating_sub(1) {
+            let tri = [face[0], face[i], face[i + 1]];
+            let [a, b, c] = tri.map(|v| Vec3::from_array(v.position));
+            if (b - a).cross(c - a).y > 1e-12 {
+                out.extend(tri);
+            }
+        }
+    });
+}
+
+fn channel_depth(sim: &SimState, p: Position) -> f32 {
+    use genesis_sim_core::surface::channels;
+    let Some(section) = channels::section(sim, p) else {
+        return 0.;
+    };
+    let base = genesis_sim_core::spatial::elevation(&sim.grid, p);
+    let bed = channels::carve(sim, p, base);
+    (channels::level(sim, section.center) - bed).max(0.)
+}
+
+fn conform(
+    sim: &SimState,
+    triangle: [Vertex; 3],
+    out: &mut Vec<Vertex>,
+    detail: u32,
+    height: impl Fn(Position) -> (f32, f32),
+    water: bool,
+) {
     let d = detail as f32;
     let offset = [sim.grid.width as f32 * 0.5, sim.grid.height as f32 * 0.5];
     let grid = |v: &Vertex| {
@@ -51,6 +161,26 @@ pub(super) fn drape_on(
             (v.position[0] + offset[0]) * d,
             (v.position[2] + offset[1]) * d,
         ]
+    };
+    let mut emit = |mut face: Vec<Vertex>| {
+        for v in &mut face {
+            let (ground, simplify) = height(Position::new(
+                v.position[0] + offset[0],
+                v.position[2] + offset[1],
+            ));
+            if water {
+                v.position[1] += (ground + metres(0.04) - v.position[1]).max(0.) * simplify;
+                v.color[3] = -(1. + (v.position[1] - ground) * 20.);
+            } else {
+                v.position[1] = ground + metres(0.18);
+            }
+        }
+        if water {
+            face = clip(&face, |v| -v.color[3] - 1.);
+        }
+        for i in 1..face.len().saturating_sub(1) {
+            out.extend_from_slice(&[face[0], face[i], face[i + 1]]);
+        }
     };
     let cells = triangle.map(|v| {
         let [x, z] = grid(&v);
@@ -61,7 +191,7 @@ pub(super) fn drape_on(
         )
     });
     if cells.iter().all(|cell| *cell == cells[0]) {
-        out.extend_from_slice(&triangle);
+        emit(triangle.to_vec());
         return;
     }
     let xmin = cells.iter().map(|c| c.0).min().unwrap_or(0);
@@ -75,19 +205,11 @@ pub(super) fn drape_on(
             let polygon = clip(&polygon, |v| grid(v)[1] - z as f32);
             let polygon = clip(&polygon, |v| z as f32 + 1. - grid(v)[1]);
             for sign in [-1., 1.] {
-                let mut face = clip(&polygon, |v| {
+                let face = clip(&polygon, |v| {
                     let [px, pz] = grid(v);
                     (px + pz - (x + z + 1) as f32) * sign
                 });
-                for v in &mut face {
-                    v.position[1] = height(Position::new(
-                        v.position[0] + offset[0],
-                        v.position[2] + offset[1],
-                    )) + metres(0.18);
-                }
-                for i in 1..face.len().saturating_sub(1) {
-                    out.extend_from_slice(&[face[0], face[i], face[i + 1]]);
-                }
+                emit(face);
             }
         }
     }
@@ -96,6 +218,84 @@ pub(super) fn drape_on(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cached_water_matches_receiver_planes_without_duplicate_or_missing_area() {
+        use glam::Vec3;
+        let mut sim = SimState::new(genesis_sim_core::config::SimConfig {
+            width: 16,
+            height: 16,
+            ..Default::default()
+        });
+        sim.geography.version = 8;
+        for z in 0..16 {
+            for x in 0..16 {
+                sim.grid.get_mut(x, z).elevation = 2. + ((x * 3 + z * 7) % 11) as f32 * 0.06;
+            }
+        }
+        let triangle =
+            [[-7.2, 0., -5.7], [-6.9, 0., -2.1], [-4.8, 0., -4.2]].map(|position| Vertex {
+                position,
+                color: [-1., 0., 0., -1.],
+            });
+        let area = |t: &[Vertex]| {
+            let [a, b, c] = [t[0], t[1], t[2]].map(|v| Vec3::from_array(v.position));
+            (b - a).cross(c - a).y * 0.5
+        };
+        for eye in [Vec3::new(0., 2.1, 0.), Vec3::new(0., 100., 0.)] {
+            let cache = terrain::Cache::at(&sim, terrain::lod::Key::at(eye));
+            let mut mesh = Vec::new();
+            intersect_cached(&sim, &cache, triangle, &mut mesh, |_| 1.);
+            assert!(!mesh.is_empty() && mesh.len() < 200_000);
+            assert!((mesh.chunks_exact(3).map(area).sum::<f32>() - area(&triangle)).abs() < 1e-4);
+            for tri in mesh.chunks_exact(3) {
+                assert!(area(tri) > 0.);
+                let [a, b, c] = [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position));
+                for weights in [[0.2, 0.3, 0.5], [0.6, 0.3, 0.1]] {
+                    let p = a * weights[0] + b * weights[1] + c * weights[2];
+                    let h = cache.height_at(&sim, Position::new(p.x + 8., p.z + 8.));
+                    assert!((p.y - h - metres(0.04)).abs() < 2e-5);
+                }
+                assert!(
+                    tri.iter()
+                        .all(|v| v.position.iter().chain(&v.color).all(|x| x.is_finite()))
+                );
+            }
+        }
+    }
+    #[test]
+    fn water_plane_clips_at_banks_and_encodes_the_actual_depth() {
+        let sim = SimState::new(genesis_sim_core::config::SimConfig {
+            width: 8,
+            height: 8,
+            ..Default::default()
+        });
+        // Bed rises through a level plane halfway across this triangle.
+        let triangle = [[-1., 2., 0.], [1., 2., 0.], [-1., 2., 1.]].map(|position| Vertex {
+            position,
+            color: [-1., 1., 0., -1.],
+        });
+        let mut out = Vec::new();
+        intersect_water(
+            &sim,
+            triangle,
+            &mut out,
+            2,
+            |p| 2. + (p.x - 4.) * 0.1,
+            |_| 0.,
+        );
+        assert!(!out.is_empty());
+        let mut area = 0.;
+        for t in out.chunks_exact(3) {
+            let [a, b, c] = [t[0].position, t[1].position, t[2].position];
+            area += ((b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0])).abs() * 0.5;
+            for v in t {
+                assert!(v.position[0] <= 1e-5);
+                assert_eq!(v.position[1], 2.);
+                assert!((-v.color[3] - 1. + v.position[0] * 2.).abs() < 1e-5);
+            }
+        }
+        assert!((area - 0.75).abs() < 1e-5);
+    }
     #[test]
     fn channel_crossing_terrain_creases_stays_above_ground_without_losing_area() {
         let mut sim = SimState::new(genesis_sim_core::config::SimConfig {

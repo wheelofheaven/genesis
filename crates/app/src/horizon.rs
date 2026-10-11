@@ -56,22 +56,17 @@ impl Cache {
                         height(x, z - 0.5) - height(x, z + 0.5),
                     )
                     .normalize();
-                    let shade =
-                        0.48 + 0.52 * normal.dot(Vec3::new(-0.5, 0.75, 0.3).normalize()).max(0.);
-                    let color = Vec3::new(0.55, 0.48, 0.34)
-                        .lerp(
-                            Vec3::new(0.25, 0.315, 0.13),
-                            ((y - 0.07) / 0.6).clamp(0., 1.),
-                        )
-                        .lerp(
-                            Vec3::new(0.39, 0.37, 0.30),
-                            ((y - 18.) / 26.).clamp(0., 1.).max((1. - normal.y) * 2.5),
-                        )
-                        * shade;
-                    vertices.push(Vertex {
-                        position: [x - w as f32 * 0.5, y, z - h as f32 * 0.5],
-                        color: [color.x, color.y, color.z, 2.],
-                    });
+                    // Continue the edge's environmental palette into the visual
+                    // context. Bounded fields clamp at the region edge; this is
+                    // extrapolated scenery, not simulated off-map ecology.
+                    vertices.push(crate::terrain::colored_vertex(
+                        sim,
+                        Position::new(x, z),
+                        Vec3::new(x - w as f32 * 0.5, y, z - h as f32 * 0.5),
+                        normal,
+                        0.,
+                        Default::default(),
+                    ));
                 }
             }
             for row in 0..rows - 1 {

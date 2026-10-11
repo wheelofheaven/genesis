@@ -4,7 +4,13 @@ use genesis_renderer::geometry::Vertex;
 use genesis_sim_core::{settlement::Building, spatial::Position, units::metres};
 use glam::Vec3;
 
-pub fn object(session: &Session, out: &mut Vec<Vertex>, object: Object, selected: bool) {
+pub fn object(
+    session: &Session,
+    cache: Option<&terrain::Cache>,
+    out: &mut Vec<Vertex>,
+    object: Object,
+    selected: bool,
+) {
     let sim = &session.sim;
     let color = if selected {
         [0.08, 0.82, 0.92]
@@ -29,12 +35,14 @@ pub fn object(session: &Session, out: &mut Vec<Vertex>, object: Object, selected
             }
             let mut corners = b.footprint().to_vec();
             corners.push(corners[0]);
-            scene::ribbon(
+            scene::highlight(
                 sim,
+                cache,
                 out,
                 &corners,
                 metres(if selected { 0.18 } else { 0.10 }),
                 color,
+                session.survey.seafloor,
             );
             // Roof perimeter remains readable when the foundation is behind a wall.
             let high = b
@@ -56,21 +64,20 @@ pub fn object(session: &Session, out: &mut Vec<Vertex>, object: Object, selected
         }
         Object::Path(i) => {
             if let Some(path) = sim.paths.get(i) {
-                let start = out.len();
-                scene::ribbon(
+                scene::highlight(
                     sim,
+                    cache,
                     out,
                     &genesis_sim_core::paths::samples(path),
                     path.width + metres(0.16),
                     color,
+                    session.survey.seafloor,
                 );
-                for v in &mut out[start..] {
-                    v.position[1] += metres(0.035);
-                }
                 // Keep the path surface legible inside a narrow luminous edge.
                 let start = out.len();
-                scene::ribbon(
+                scene::highlight(
                     sim,
+                    cache,
                     out,
                     &genesis_sim_core::paths::samples(path),
                     (path.width - metres(0.12)).max(metres(0.4)),
@@ -79,18 +86,20 @@ pub fn object(session: &Session, out: &mut Vec<Vertex>, object: Object, selected
                     } else {
                         [0.55, 0.61, 0.46]
                     },
+                    session.survey.seafloor,
                 );
                 for v in &mut out[start..] {
-                    v.position[1] += metres(0.045);
+                    v.position[1] += metres(0.008);
                 }
             }
         }
     }
 }
-pub fn draft(session: &Session, out: &mut Vec<Vertex>) {
+pub fn draft(session: &Session, cache: Option<&terrain::Cache>, out: &mut Vec<Vertex>) {
     if let Some((path, valid)) = session.path_preview() {
-        scene::ribbon(
+        scene::highlight(
             &session.sim,
+            cache,
             out,
             &genesis_sim_core::paths::samples(&path),
             path.width,
@@ -99,6 +108,7 @@ pub fn draft(session: &Session, out: &mut Vec<Vertex>) {
             } else {
                 [0.95, 0.22, 0.13]
             },
+            session.survey.seafloor,
         );
     }
     for (i, p) in session.path.points.iter().enumerate() {
@@ -108,8 +118,9 @@ pub fn draft(session: &Session, out: &mut Vec<Vertex>) {
                 Position::new(p.x + a.cos() * metres(0.65), p.z + a.sin() * metres(0.65))
             })
             .collect();
-        scene::ribbon(
+        scene::highlight(
             &session.sim,
+            cache,
             out,
             &points,
             metres(0.12),
@@ -118,6 +129,7 @@ pub fn draft(session: &Session, out: &mut Vec<Vertex>) {
             } else {
                 [0.12, 0.8, 0.9]
             },
+            session.survey.seafloor,
         );
     }
 }

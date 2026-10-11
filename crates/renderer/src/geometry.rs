@@ -4,10 +4,15 @@ use bytemuck::{Pod, Zeroable};
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
-    /// RGB is linear colour. W packs material: 1 solid, 2 terrain,
-    /// 3 weathered building, 4 seafloor with depth contours;
+    /// RGB is linear colour. W packs material: 1 solid, 2..2.4 terrain
+    /// (fractional part / 0.4 is exposed rock coverage),
+    /// 3 plaster, 3.1 stonework, 3.2 timber, 3.3 roof earth;
+    /// 4 seafloor with depth contours;
+    /// 14..15 ground-conforming path with fractional edge coverage (not a caster);
     /// negative values encode water depth in metres as -(1 + depth).
-    /// These are opaque materials; W is not transparency.
+    /// River RGB stores (bed tag, longitudinal metres, transverse metres).
+    /// Bed tags: -1 limestone, -2 sandstone, -3 basalt; transitions interpolate.
+    /// W is a material tag and payload, not a conventional alpha channel.
     pub color: [f32; 4],
 }
 

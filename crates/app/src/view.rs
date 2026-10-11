@@ -1,6 +1,9 @@
 //! Window/GPU lifecycle and UI composition. No simulation rules.
 use crate::{scene, session::Session, terrain, ui};
-use genesis_renderer::{camera::Camera, gpu::Gpu};
+use genesis_renderer::{
+    camera::Camera,
+    gpu::{Gpu, WorldTarget},
+};
 use std::{
     error::Error,
     path::Path,
@@ -17,6 +20,7 @@ pub struct View {
     config: wgpu::SurfaceConfiguration,
     gpu: Gpu,
     depth: wgpu::Texture,
+    tone_map: genesis_renderer::tonemap::ToneMap,
     glass: genesis_renderer::glass::Glass,
     gui_state: egui_winit::State,
     gui_renderer: egui_wgpu::Renderer,
@@ -35,7 +39,7 @@ pub struct View {
     foliage_batches: Vec<usize>,
     scenery: Option<crate::landscape::Scenery>,
     scenery_camera: Option<glam::Mat4>,
-    ground_batch: usize,
+    ground_batches: [usize; terrain::ground_cover::BATCHES],
     occupied: Vec<egui::Rect>,
     path_tool_active: bool,
 }
@@ -64,13 +68,18 @@ impl View {
         // egui supplies gamma-space premultiplied colors. Blend UI through an
         // UNORM view; keep the world's lighting and frosting in linear light.
         config.view_formats = vec![config.format.remove_srgb_suffix()];
-        let mut gpu = Gpu::new(&adapter, config.format).await?;
+        let mut gpu = Gpu::new(&adapter).await?;
         surface.configure(&gpu.device, &config);
-        let depth = gpu.texture(
+        let tone_map = genesis_renderer::tonemap::ToneMap::new(
+            &gpu,
+            config.width,
+            config.height,
+            config.format,
+        );
+        let depth = gpu.multisample_texture(
             config.width,
             config.height,
             wgpu::TextureFormat::Depth32Float,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
         );
         let context = egui::Context::default();
         ui::theme::install(&context);
@@ -93,11 +102,10 @@ impl View {
             .iter()
             .map(|mesh| gpu.instances.add_scenery(&gpu.device, mesh))
             .collect();
-        let ground_batch = gpu
-            .instances
-            .add_mesh(&gpu.device, &terrain::ground_cover::mesh());
+        let ground_batches = terrain::ground_cover::meshes()
+            .map(|mesh| gpu.instances.add_scenery(&gpu.device, &mesh));
         Ok(Self {
-            ground_batch,
+            ground_batches,
             foliage_batches,
             scenery: None,
             scenery_camera: None,
@@ -116,6 +124,7 @@ impl View {
             config,
             gpu,
             depth,
+            tone_map,
             gui_state,
             gui_renderer,
             drawable: size.width > 0 && size.height > 0,
@@ -132,12 +141,10 @@ impl View {
         self.surface.configure(&self.gpu.device, &self.config);
         self.glass
             .resize(&self.gpu, width, height, self.config.format);
-        self.depth = self.gpu.texture(
-            width,
-            height,
-            wgpu::TextureFormat::Depth32Float,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-        );
+        self.tone_map.resize(&self.gpu, width, height);
+        self.depth = self
+            .gpu
+            .multisample_texture(width, height, wgpu::TextureFormat::Depth32Float);
     }
 
     pub fn input(&mut self, event: &WindowEvent, playing: bool) -> bool {
@@ -309,15 +316,18 @@ impl View {
             self.ensure_terrain(session, camera);
             if self.terrain_changed {
                 if let Some((_, cache)) = &self.terrain_cache {
-                    self.gpu.instances.upload(
-                        &self.gpu.device,
-                        &self.gpu.queue,
-                        self.ground_batch,
-                        &cache.ground_cover,
-                    );
+                    for (batch, placements) in self.ground_batches.iter().zip(&cache.ground_cover) {
+                        self.gpu.instances.upload(
+                            &self.gpu.device,
+                            &self.gpu.queue,
+                            *batch,
+                            placements,
+                        );
+                    }
                 }
                 session.dirty = true;
                 session.urgent_redraw = true;
+                session.overlay_dirty = true;
                 self.terrain_changed = false;
             }
         }
@@ -348,23 +358,31 @@ impl View {
         let matrix = camera.view_projection(aspect);
         if front.surface_backdrop() && self.scenery_camera != Some(matrix) {
             if let Some(scenery) = &self.scenery {
-                for (&batch, placements) in self
-                    .foliage_batches
-                    .iter()
-                    .zip(scenery.visible(camera, aspect))
+                let visible = scenery.visible(camera, aspect);
+                for (i, (&batch, placements)) in
+                    self.foliage_batches.iter().zip(&visible.main).enumerate()
                 {
-                    self.gpu.instances.upload(
-                        &self.gpu.device,
-                        &self.gpu.queue,
-                        batch,
-                        &placements,
-                    );
+                    self.gpu
+                        .instances
+                        .upload(&self.gpu.device, &self.gpu.queue, batch, placements);
+                    for (cascade, shadows) in visible.shadows.iter().enumerate() {
+                        self.gpu.instances.upload_shadows(
+                            &self.gpu.device,
+                            &self.gpu.queue,
+                            batch,
+                            cascade,
+                            &shadows[i],
+                        );
+                    }
                 }
             }
             self.scenery_camera = Some(matrix);
         }
         if session.overlay_dirty {
-            self.gpu.upload_overlay(&scene::overlay(session));
+            self.gpu.upload_overlay(&scene::overlay(
+                session,
+                self.terrain_cache.as_ref().map(|(_, cache)| cache),
+            ));
             session.overlay_dirty = false;
         }
         let panels = if front.surface_backdrop() {
@@ -397,20 +415,36 @@ impl View {
                 ..Default::default()
             });
         let mut encoder = self.gpu.encode(
-            if panels.is_empty() {
-                &target
-            } else {
-                &self.glass.scene
+            WorldTarget {
+                color: &self.tone_map.multisample,
+                resolve: &self.tone_map.resolve,
+                depth: &self.depth.create_view(&Default::default()),
             },
-            &self.depth.create_view(&Default::default()),
-            camera.view_projection(self.config.width as f32 / self.config.height as f32),
-            camera.direction(),
+            camera,
+            self.config.width as f32 / self.config.height as f32,
             if capture.is_some() {
                 1.
             } else {
                 self.started.elapsed().as_secs_f32()
             },
-            camera.focus,
+            genesis_renderer::atmosphere::Atmosphere {
+                sea_level: session.sim.sea_level,
+                survey: session.survey.active(),
+                // Survey colours carry data; keep them free of aerial tint.
+                density: if session.survey.active() { 0. } else { 0.00009 },
+                ..Default::default()
+            },
+            capture.is_some(),
+        );
+        self.tone_map.composite(
+            &self.gpu,
+            &mut encoder,
+            if panels.is_empty() {
+                &target
+            } else {
+                &self.glass.scene
+            },
+            session.survey.active(),
         );
         if !panels.is_empty() {
             self.glass
@@ -454,6 +488,36 @@ impl View {
         }
         if let (Some(texture), Some(path)) = (capture_texture.as_ref(), capture) {
             self.gpu.capture(texture, path)?;
+            if let Some(timings) = self.gpu.capture_timings()? {
+                let [near, far, world] = timings.map(|t| {
+                    t.map_or_else(|| "unavailable".to_string(), |ms| format!("{ms:.3} ms"))
+                });
+                eprintln!(
+                    "GPU capture passes: near shadows {near}; wide shadows {far}; world {world} (excludes display/glass/UI)"
+                );
+            }
+            let camera_volume =
+                genesis_renderer::visibility::Frustum::new(camera.view_projection(aspect));
+            let sun = std::array::from_fn::<_, { genesis_renderer::shadows::CASCADES }, _>(|i| {
+                self.gpu.world.stats(
+                    &genesis_renderer::visibility::Frustum::new(
+                        genesis_renderer::shadows::Shadows::cascade_matrix(camera.focus, i),
+                    ),
+                    true,
+                )
+            });
+            eprintln!(
+                "world chunks: upload {:?}; camera {:?}; sun {:?}",
+                self.gpu.world.last_upload,
+                self.gpu.world.stats(&camera_volume, false),
+                sun
+            );
+            eprintln!(
+                "shadow scenery: {:?}",
+                std::array::from_fn::<_, { genesis_renderer::shadows::CASCADES }, _>(|i| {
+                    self.gpu.instances.shadow_stats(i)
+                })
+            );
         }
         frame.present();
         Ok(true)

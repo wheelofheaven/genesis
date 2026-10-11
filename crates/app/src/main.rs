@@ -9,6 +9,8 @@ mod interaction_smoke;
 mod landscape;
 mod menu_smoke;
 mod path_tool;
+#[cfg(test)]
+mod render_tests;
 mod scene;
 mod selection;
 mod session;
@@ -330,6 +332,7 @@ impl ApplicationHandler for App {
                 event_loop.create_window(
                     Window::default_attributes()
                         .with_title("Genesis")
+                        .with_active(self.capture.is_none())
                         .with_min_inner_size(winit::dpi::LogicalSize::new(
                             if self.survey_smoke { 1100 } else { 760 },
                             if self.survey_smoke { 800 } else { 540 },
@@ -361,6 +364,20 @@ impl ApplicationHandler for App {
             return;
         };
         if id != view.window.id() {
+            return;
+        }
+        // Native captures must be repeatable even while the user works in another
+        // window. Scripted smoke checks inject their own input below this boundary.
+        if self.capture.is_some()
+            && matches!(
+                event,
+                WindowEvent::KeyboardInput { .. }
+                    | WindowEvent::MouseInput { .. }
+                    | WindowEvent::MouseWheel { .. }
+                    | WindowEvent::CursorMoved { .. }
+                    | WindowEvent::ModifiersChanged(_)
+            )
+        {
             return;
         }
         let playing = self.front.playing();
@@ -537,6 +554,17 @@ fn main() -> Result<()> {
     let explicit_region = args.iter().any(|arg| arg == "--region");
     let mut seed = genesis_sim_core::worldgen::DEFAULT_SEED;
     let mut region = genesis_sim_core::worldgen::Region::LevantCoast;
+    let mut capture_tree = None;
+    if let Some(index) = args.iter().position(|arg| arg == "--tree") {
+        use genesis_sim_core::ecology::CoverKind;
+        capture_tree = Some(match args.get(index + 1).map(String::as_str) {
+            Some("broadleaf") => CoverKind::Broadleaf,
+            Some("pine") => CoverKind::Pine,
+            Some("riparian") => CoverKind::Riparian,
+            _ => return Err("--tree must be broadleaf, pine, or riparian".into()),
+        });
+        args.drain(index..=index + 1);
+    }
     if let Some(index) = args.iter().position(|arg| arg == "--seed") {
         seed = args
             .get(index + 1)
@@ -556,14 +584,27 @@ fn main() -> Result<()> {
     if explicit_seed || explicit_region {
         app.session = Session::from_sim(genesis_sim_core::worldgen::generate_region(seed, region));
     }
+    if capture_tree.is_some()
+        && !args.first().is_some_and(|f| {
+            f == "--ecology-capture"
+                || f == "--ecology-ground-capture"
+                || f == "--understorey-capture"
+        })
+    {
+        return Err("--tree requires an ecology or understorey capture".into());
+    }
     match args.as_slice() {
         [] => {}
         [flag, path]
             if flag == "--capture"
                 || flag == "--settlement-capture"
                 || flag == "--ground-capture"
+                || flag == "--house-capture"
+                || flag == "--river-capture"
+                || flag == "--river-ground-capture"
                 || flag == "--ecology-capture"
                 || flag == "--ecology-ground-capture"
+                || flag == "--understorey-capture"
                 || flag == "--landscape-capture"
                 || flag == "--seafloor-capture"
                 || flag == "--smoke-test"
@@ -584,7 +625,7 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --house-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
@@ -627,10 +668,11 @@ fn main() -> Result<()> {
                 4.5
             });
     }
-    if args
-        .first()
-        .is_some_and(|flag| flag == "--ecology-capture" || flag == "--ecology-ground-capture")
-    {
+    if args.first().is_some_and(|flag| {
+        flag == "--ecology-capture"
+            || flag == "--ecology-ground-capture"
+            || flag == "--understorey-capture"
+    }) {
         let anchor = app.session.position;
         let plant = app
             .session
@@ -638,12 +680,13 @@ fn main() -> Result<()> {
             .geography
             .cover
             .iter()
-            .filter(|c| c.kind.tree())
+            .filter(|c| c.kind.tree() && capture_tree.is_none_or(|kind| c.kind == kind))
             .min_by(|a, b| {
                 genesis_sim_core::paths::distance(a.position, anchor)
                     .total_cmp(&genesis_sim_core::paths::distance(b.position, anchor))
             })
-            .ok_or("region has no trees to inspect")?;
+            .ok_or("region has no matching trees to inspect")?;
+        eprintln!("vegetation inspection: {}", plant.kind.name());
         let p = plant.position;
         app.session.select(p);
         app.session.clock.paused = true;
@@ -652,6 +695,21 @@ fn main() -> Result<()> {
                 + glam::Vec3::Y * genesis_sim_core::units::metres(3.),
         );
         app.camera.set_visible_height(2.2);
+        if args[0] == "--understorey-capture" {
+            use genesis_sim_core::{spatial::Position, surface::walking, units::metres};
+            let sim = &app.session.sim;
+            let stand = (0..64)
+                .map(|i| {
+                    let a = i as f32 * 2.399963;
+                    Position::new(p.x + a.cos() * metres(2.5), p.z + a.sin() * metres(2.5))
+                })
+                .find(|q| walking::standable(sim, *q))
+                .ok_or("no accessible ground beneath the selected tree")?;
+            app.camera
+                .enter_ground(terrain::point(sim, stand), metres(1.7));
+            let target = Position::new(p.x * 0.55 + stand.x * 0.45, p.z * 0.55 + stand.z * 0.45);
+            app.camera.look_at_ground(terrain::point(sim, target));
+        }
         if args[0] == "--ecology-ground-capture" {
             ground::toggle(&app.session.sim, p, &mut app.camera);
             app.camera.look_at_ground(
@@ -660,8 +718,77 @@ fn main() -> Result<()> {
             );
         }
     }
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--river-capture" || flag == "--river-ground-capture")
+    {
+        let sim = &app.session.sim;
+        let p =
+            sim.geography
+                .rivers
+                .iter()
+                .flat_map(|river| {
+                    river.points.iter().enumerate().map(move |(i, &p)| {
+                        (p, river.widths.get(i).copied().unwrap_or(river.width))
+                    })
+                })
+                .filter(|(p, _)| {
+                    p.x > 5.
+                        && p.z > 5.
+                        && p.x < sim.grid.width as f32 - 5.
+                        && p.z < sim.grid.height as f32 - 5.
+                        && genesis_sim_core::surface::channels::level(sim, *p)
+                            > sim.sea_level + genesis_sim_core::units::metres(4.)
+                })
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(p, _)| p)
+                .ok_or("region has no inland river to inspect")?;
+        eprintln!(
+            "river inspection: ({:.3}, {:.3}), bed {:.3}, water {:.3}",
+            p.x,
+            p.z,
+            genesis_sim_core::surface::elevation(sim, p),
+            genesis_sim_core::surface::channels::level(sim, p)
+        );
+        app.camera.center(terrain::point(sim, p));
+        app.camera.set_visible_height(2.2);
+        if args[0] == "--river-ground-capture" {
+            ground::toggle(sim, p, &mut app.camera);
+            if !app.camera.is_ground() {
+                return Err("no accessible riverbank for inspection".into());
+            }
+            app.camera.look_at_ground(
+                terrain::point(sim, p) + glam::Vec3::Y * genesis_sim_core::units::metres(0.8),
+            );
+        }
+        app.session.select(p);
+        app.session.clock.paused = true;
+    }
     if args.first().is_some_and(|flag| flag == "--ground-capture") {
         ground::toggle(&app.session.sim, app.session.position, &mut app.camera);
+        app.session.clock.paused = true;
+    }
+    if args.first().is_some_and(|flag| flag == "--house-capture") {
+        let sim = &app.session.sim;
+        let b = sim.buildings.first().ok_or("no dwelling to inspect")?;
+        let (s, c) = b.rotation.sin_cos();
+        let distance = genesis_sim_core::settlement::Building::HALF_DEPTH
+            + genesis_sim_core::units::metres(6.);
+        let side = genesis_sim_core::units::metres(2.);
+        let p = genesis_sim_core::spatial::Position::new(
+            b.position.x - s * distance + c * side,
+            b.position.z + c * distance + s * side,
+        );
+        app.camera
+            .enter_ground(terrain::point(sim, p), genesis_sim_core::units::metres(1.7));
+        let high = b
+            .footprint()
+            .map(|p| terrain::point(sim, p).y)
+            .into_iter()
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mut target = terrain::point(sim, b.position);
+        target.y = high + genesis_sim_core::units::metres(1.45);
+        app.camera.look_at_ground(target);
         app.session.clock.paused = true;
     }
     if args

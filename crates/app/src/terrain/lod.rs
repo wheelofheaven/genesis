@@ -6,6 +6,22 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key(pub [i32; 3]);
+
+/// Filter sub-metre channel detail before it aliases into coarse regional cells.
+/// Shared by terrain height, bank colour and the distant water approximation.
+pub fn channel_simplification(sim: &SimState, eye: Vec3, p: Position) -> f32 {
+    let x = eye.x + sim.grid.width as f32 * 0.5;
+    let z = eye.z + sim.grid.height as f32 * 0.5;
+    let base = sim.grid.get(p.x as i32, p.z as i32).elevation;
+    let distance = ((p.x - x).powi(2) + (p.z - z).powi(2) + (base - eye.y).powi(2)).sqrt();
+    let t = ((distance - 8.) / 3.).clamp(0., 1.);
+    let edge =
+        p.x.min(p.z)
+            .min(sim.grid.width as f32 - p.x)
+            .min(sim.grid.height as f32 - p.z)
+            .clamp(0., 1.);
+    (t * t * (3. - 2. * t)).max(1. - edge)
+}
 impl Key {
     pub fn at(eye: Vec3) -> Self {
         // 20 m horizontal buckets keep topology stable during small movements.
@@ -31,7 +47,7 @@ struct Leaf {
     size: u32,
 }
 
-fn split(leaf: Leaf, eye: Vec3, base: f32, leaves: &mut Vec<Leaf>) {
+fn split(leaf: Leaf, eye: Vec3, base: f32, channel: bool, leaves: &mut Vec<Leaf>) {
     let d = SUBDIVISIONS as f32;
     let dx = (leaf.x as f32 / d - eye.x)
         .max(eye.x - (leaf.x + leaf.size) as f32 / d)
@@ -40,7 +56,10 @@ fn split(leaf: Leaf, eye: Vec3, base: f32, leaves: &mut Vec<Leaf>) {
         .max(eye.z - (leaf.z + leaf.size) as f32 / d)
         .max(0.);
     let distance = dx * dx + dz * dz + (eye.y - base).powi(2);
-    if leaf.size > 1 && distance < (leaf.size as f32 / d * 60.).powi(2) {
+    if leaf.size > 1
+        && (distance < (leaf.size as f32 / d * 60.).powi(2)
+            || (channel && leaf.size > 2 && distance < 12_f32.powi(2)))
+    {
         let size = leaf.size / 2;
         for (x, z) in [(0, 0), (size, 0), (0, size), (size, size)] {
             split(
@@ -51,6 +70,7 @@ fn split(leaf: Leaf, eye: Vec3, base: f32, leaves: &mut Vec<Leaf>) {
                 },
                 eye,
                 base,
+                channel,
                 leaves,
             );
         }
@@ -94,7 +114,11 @@ pub fn topology(sim: &SimState, key: Key) -> (Vec<Position>, Vec<[usize; 3]>, Pa
                     .grid
                     .get((x / SUBDIVISIONS) as i32, (z / SUBDIVISIONS) as i32)
                     .elevation;
-                split(leaf, eye, base, &mut leaves);
+                let channel = sim.geography.channels.contains(Position::new(
+                    x as f32 / step as f32,
+                    z as f32 / step as f32,
+                ));
+                split(leaf, eye, base, channel, &mut leaves);
             }
         }
     }

@@ -1,5 +1,5 @@
-//! Repeated scenery shares geometry; each placement uploads only 32 bytes.
-use crate::geometry::Vertex;
+//! Repeated scenery shares geometry, with complementary coverage for LOD fades.
+use crate::{geometry::Vertex, shadows::CASCADES};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -7,6 +7,10 @@ use wgpu::util::DeviceExt;
 pub struct Instance {
     pub position_scale: [f32; 4],
     pub tint_rotation: [f32; 4],
+    /// Half-open dither interval [low, high); full coverage is [0, 1].
+    /// Material 12 (ground litter) instead stores world-space ground slopes
+    /// (dh/dx, dh/dz); its vertex shader restores full coverage before fading.
+    pub coverage: [f32; 2],
 }
 /// Scenery alone carries normals and leaf coordinates; regional terrain stays compact.
 #[repr(C)]
@@ -17,11 +21,19 @@ pub struct SceneryVertex {
     pub normal: [f32; 3],
     pub uv: [f32; 2],
 }
+#[derive(Default, Debug)]
+pub struct ShadowStats {
+    pub batches: usize,
+    pub instances: u64,
+    pub vertices: u64,
+}
 struct Batch {
     mesh: wgpu::Buffer,
     vertices: u32,
     instances: wgpu::Buffer,
     count: u32,
+    shadow_instances: [wgpu::Buffer; CASCADES],
+    shadow_count: [Option<u32>; CASCADES],
 }
 pub struct Instances {
     pipeline: wgpu::RenderPipeline,
@@ -52,7 +64,7 @@ impl Instances {
                     wgpu::VertexBufferLayout {
                         array_stride: size_of::<Instance>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![2 => Float32x4, 3 => Float32x4],
+                        attributes: &wgpu::vertex_attr_array![2 => Float32x4, 3 => Float32x4, 6 => Float32x2],
                     },
                 ],
             },
@@ -77,7 +89,11 @@ impl Instances {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: Default::default(),
+            multisample: wgpu::MultisampleState {
+                count: crate::gpu::SAMPLE_COUNT,
+                alpha_to_coverage_enabled: true,
+                ..Default::default()
+            },
             multiview: None,
             cache: None,
         });
@@ -97,7 +113,7 @@ impl Instances {
                     wgpu::VertexBufferLayout {
                         array_stride: size_of::<Instance>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![2 => Float32x4, 3 => Float32x4],
+                        attributes: &wgpu::vertex_attr_array![2 => Float32x4, 3 => Float32x4, 6 => Float32x2],
                     },
                 ],
             },
@@ -151,11 +167,20 @@ impl Instances {
             vertices: vertices.len() as u32,
             instances: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("scenery placements"),
-                size: 32,
+                size: size_of::<Instance>() as u64,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
             count: 0,
+            shadow_instances: std::array::from_fn(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("shadow placements"),
+                    size: size_of::<Instance>() as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            }),
+            shadow_count: [None; CASCADES],
         });
         index
     }
@@ -181,9 +206,62 @@ impl Instances {
         }
         batch.count = instances.len() as u32;
     }
-    pub fn render_shadow(&self, pass: &mut wgpu::RenderPass<'_>) {
+    pub fn render_shadow(&self, pass: &mut wgpu::RenderPass<'_>, cascade: usize) {
         pass.set_pipeline(&self.shadow_pipeline);
-        self.draw_batches(pass);
+        for batch in &self.batches {
+            let count =
+                batch.shadow_count[cascade].unwrap_or(if cascade == 0 { batch.count } else { 0 });
+            if count == 0 {
+                continue;
+            }
+            pass.set_vertex_buffer(0, batch.mesh.slice(..));
+            pass.set_vertex_buffer(
+                1,
+                if batch.shadow_count[cascade].is_some() {
+                    batch.shadow_instances[cascade].slice(..)
+                } else {
+                    batch.instances.slice(..)
+                },
+            );
+            pass.draw(0..batch.vertices, 0..count);
+        }
+    }
+    pub fn shadow_stats(&self, cascade: usize) -> ShadowStats {
+        let mut stats = ShadowStats::default();
+        for batch in &self.batches {
+            let count =
+                batch.shadow_count[cascade].unwrap_or(if cascade == 0 { batch.count } else { 0 })
+                    as u64;
+            if count > 0 {
+                stats.batches += 1;
+                stats.instances += count;
+                stats.vertices += count * batch.vertices as u64;
+            }
+        }
+        stats
+    }
+    pub fn upload_shadows(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        index: usize,
+        cascade: usize,
+        instances: &[Instance],
+    ) {
+        let batch = &mut self.batches[index];
+        let bytes = bytemuck::cast_slice(instances);
+        if bytes.len() as u64 > batch.shadow_instances[cascade].size() {
+            batch.shadow_instances[cascade] = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("shadow placements"),
+                size: (bytes.len() as u64).next_power_of_two(),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !bytes.is_empty() {
+            queue.write_buffer(&batch.shadow_instances[cascade], 0, bytes);
+        }
+        batch.shadow_count[cascade] = Some(instances.len() as u32);
     }
     pub fn render(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);

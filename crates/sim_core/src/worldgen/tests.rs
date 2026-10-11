@@ -21,8 +21,12 @@ fn seeded_regions_are_repeatable_and_different_seeds_change_all_layers() {
 #[test]
 fn drainage_is_acyclic_downhill_and_conserves_catchment_rainfall() {
     let sim = generate(DEFAULT_SEED);
+    assert_valid_drainage(&sim);
+}
+
+fn assert_valid_drainage(sim: &SimState) {
     let mut grid = sim.grid.clone();
-    let flow = drainage::route(&mut grid, 0.);
+    let flow = drainage::route(&mut grid, sim.sea_level);
     let mut rank = vec![0; grid.cells().len()];
     for (order, &i) in flow.order.iter().enumerate() {
         rank[i] = order;
@@ -30,7 +34,7 @@ fn drainage_is_acyclic_downhill_and_conserves_catchment_rainfall() {
     let mut outlets = 0.;
     let mut rainfall = 0.;
     for (i, c) in grid.cells().iter().enumerate() {
-        if c.elevation > 0. {
+        if c.elevation > sim.sea_level {
             rainfall += c.rainfall as f64;
         }
         if let Some(j) = flow.receivers[i] {
@@ -41,7 +45,15 @@ fn drainage_is_acyclic_downhill_and_conserves_catchment_rainfall() {
             outlets += flow.accumulation[i] as f64;
         }
     }
-    assert!((rainfall - outlets).abs() < 0.01);
+    // Accumulation uses f32; inland catchments combine rainfall from almost the
+    // entire field. Permit one part per million of rounding error, still less
+    // than a single cell's rainfall in these fixtures.
+    let tolerance = (rainfall * 1e-6).max(0.01);
+    assert!(
+        (rainfall - outlets).abs() < tolerance,
+        "rainfall {rainfall}, outlets {outlets}, difference {}",
+        (rainfall - outlets).abs()
+    );
 }
 
 #[test]
@@ -176,5 +188,72 @@ fn uninhabited_scenario_keeps_the_same_terrain_without_settlement() {
     assert_eq!(populated.geography.rivers, empty.geography.rivers);
     for (a, b) in populated.grid.cells().iter().zip(empty.grid.cells()) {
         assert_eq!(a.elevation, b.elevation);
+    }
+}
+
+fn longest_major_straight_reach(rivers: &[River]) -> f32 {
+    let mut longest: f32 = 0.;
+    for river in rivers {
+        let mut direction = (0., 0.);
+        let mut run = 0.;
+        for (index, pair) in river.points.windows(2).enumerate() {
+            if river.widths[index] < crate::units::metres(4.) {
+                run = 0.;
+                direction = (0., 0.);
+                continue;
+            }
+            let dx = pair[1].x - pair[0].x;
+            let dz = pair[1].z - pair[0].z;
+            let length = dx.hypot(dz);
+            if length < 1e-6 {
+                continue;
+            }
+            let next = (dx / length, dz / length);
+            if next.0 * direction.0 + next.1 * direction.1 < 0.99999 {
+                run = 0.;
+            }
+            run += length;
+            longest = longest.max(run);
+            direction = next;
+        }
+    }
+    longest * crate::units::METRES_PER_UNIT
+}
+
+#[test]
+fn highland_valleys_preserve_drainage_and_settlement_invariants() {
+    for seed in [0, 42, DEFAULT_SEED] {
+        let sim = generate_region(seed, Region::LevantHighlands);
+        assert_valid_drainage(&sim);
+        assert_eq!(sim.buildings.len(), 6, "seed {seed}: settlement");
+        for building in &sim.buildings {
+            let mut empty = sim.clone();
+            empty.buildings.retain(|b| b.id != building.id);
+            assert!(empty.validate_building(building).is_ok(), "seed {seed}");
+        }
+        assert!(sim.grid.cells().iter().all(|c| c.elevation.is_finite()
+            && c.elevation > sim.sea_level
+            && c.elevation < crate::units::MAX_ELEVATION));
+        assert!(!sim.geography.rivers.is_empty());
+        for river in &sim.geography.rivers {
+            assert_eq!(river.points.len(), river.widths.len());
+            assert!(river.widths.iter().all(|w| w.is_finite()
+                && (crate::units::metres(0.8)..=crate::units::metres(12.)).contains(w)));
+            assert!(river.widths.windows(2).all(|w| w[1] + 1e-6 >= w[0]));
+        }
+        if seed == DEFAULT_SEED {
+            // Visual regression for the default inland valley: the old recipe
+            // produced a kilometre-long ruler-straight trunk. This is an art
+            // constraint for this fixture, not a hydrological law for all seeds.
+            let straight = longest_major_straight_reach(&sim.geography.rivers);
+            assert!(straight < 600., "default valley: {straight} m straight");
+            let repeated = generate_region(seed, Region::LevantHighlands);
+            assert_eq!(sim.geography, repeated.geography);
+            assert_eq!(sim.buildings, repeated.buildings);
+            for (a, b) in sim.grid.cells().iter().zip(repeated.grid.cells()) {
+                assert_eq!(a.elevation, b.elevation);
+                assert_eq!(a.drainage, b.drainage);
+            }
+        }
     }
 }
