@@ -32,19 +32,23 @@ pub(super) fn build(out: &mut Mesh, kind: CoverKind, seed: u64, variant: usize, 
             sides,
         );
     }
+    let mut crowns = Vec::new();
     if kind == CoverKind::Pine {
-        pine(out, height, seed, lod, stem);
-        for v in out.iter_mut() {
-            if v.color[3] == 5. {
-                v.color[3] = 5.3;
-            }
-        }
+        pine(out, height, seed, lod, stem, &mut crowns);
     } else {
-        deciduous(out, height, kind, seed, lod, stem);
+        deciduous(out, height, kind, seed, lod, stem, &mut crowns);
     }
+    super::foliage::emit(&crowns, out, lod, kind == CoverKind::Pine);
 }
 
-fn pine(out: &mut Mesh, height: f32, seed: u64, lod: usize, stem: impl Fn(f32) -> Vec3) {
+fn pine(
+    out: &mut Mesh,
+    height: f32,
+    seed: u64,
+    lod: usize,
+    stem: impl Fn(f32) -> Vec3,
+    crowns: &mut Vec<(Crown, u64)>,
+) {
     // Four asymmetric limbs around each tier make a complete tapered crown.
     for tier in 0..6 {
         let t = tier as f32 / 5.;
@@ -61,24 +65,28 @@ fn pine(out: &mut Mesh, height: f32, seed: u64, lod: usize, stem: impl Fn(f32) -
             if lod < 2 {
                 branch(out, elbow, tip, radius * 0.50, 0.008, [5, 3][lod]);
             }
-            Crown {
-                center: elbow.lerp(tip, 0.55),
-                extent: Vec3::new(reach * 0.60 + 0.18, 0.65 - t * 0.22, reach * 0.60 + 0.18),
-                color: Vec3::new(0.12, 0.20, 0.085),
-                spray_size: 0.28 - t * 0.10,
-                counts: [90, 24, 5],
-            }
-            .emit(out, seed + id * 73, lod);
+            crowns.push((
+                Crown {
+                    center: elbow.lerp(tip, 0.55),
+                    extent: Vec3::new(reach * 0.60 + 0.18, 0.65 - t * 0.22, reach * 0.60 + 0.18),
+                    color: Vec3::new(0.12, 0.20, 0.085),
+                    spray_size: 0.28 - t * 0.10,
+                    counts: [90, 24, 5],
+                },
+                seed + id * 73,
+            ));
         }
     }
-    Crown {
-        center: stem(0.96),
-        extent: Vec3::new(0.40, 0.70, 0.40),
-        color: Vec3::new(0.15, 0.23, 0.10),
-        spray_size: 0.20,
-        counts: [90, 24, 5],
-    }
-    .emit(out, seed ^ 812, lod);
+    crowns.push((
+        Crown {
+            center: stem(0.96),
+            extent: Vec3::new(0.40, 0.70, 0.40),
+            color: Vec3::new(0.15, 0.23, 0.10),
+            spray_size: 0.20,
+            counts: [90, 24, 5],
+        },
+        seed ^ 812,
+    ));
 }
 
 fn deciduous(
@@ -88,6 +96,7 @@ fn deciduous(
     seed: u64,
     lod: usize,
     stem: impl Fn(f32) -> Vec3,
+    crowns: &mut Vec<(Crown, u64)>,
 ) {
     let riparian = kind == CoverKind::Riparian;
     for limb in 0..7 {
@@ -120,22 +129,24 @@ fn deciduous(
             if lod < 2 {
                 branch(out, elbow.lerp(end, 0.75), tip, 0.030, 0.005, [4, 3][lod]);
             }
-            Crown {
-                center: tip,
-                extent: if riparian {
-                    Vec3::new(0.90, 1.45, 0.90)
-                } else {
-                    Vec3::new(1.15, 0.95, 1.15)
+            crowns.push((
+                Crown {
+                    center: tip,
+                    extent: if riparian {
+                        Vec3::new(0.90, 1.45, 0.90)
+                    } else {
+                        Vec3::new(1.15, 0.95, 1.15)
+                    },
+                    color: if riparian {
+                        Vec3::new(0.18, 0.29, 0.105)
+                    } else {
+                        Vec3::new(0.14, 0.23, 0.09)
+                    },
+                    spray_size: if riparian { 0.26 } else { 0.29 },
+                    counts: [90, 24, 5],
                 },
-                color: if riparian {
-                    Vec3::new(0.18, 0.29, 0.105)
-                } else {
-                    Vec3::new(0.14, 0.23, 0.09)
-                },
-                spray_size: if riparian { 0.26 } else { 0.29 },
-                counts: [90, 24, 5],
-            }
-            .emit(out, seed + k * 73, lod);
+                seed + k * 73,
+            ));
         }
     }
     // Upright leaders close the canopy above the fork; radial limbs alone leave
@@ -146,21 +157,23 @@ fn deciduous(
         let tip = stem(if riparian { 0.95 } else { 0.82 })
             + Vec3::new(a.cos(), 0., a.sin()) * if riparian { 0.15 } else { 0.65 };
         branch(out, root, tip, 0.055, 0.008, [6, 4, 3][lod]);
-        Crown {
-            center: tip,
-            extent: if riparian {
-                Vec3::new(0.90, 1.25, 0.90)
-            } else {
-                Vec3::new(1.15, 1.0, 1.15)
+        crowns.push((
+            Crown {
+                center: tip,
+                extent: if riparian {
+                    Vec3::new(0.90, 1.25, 0.90)
+                } else {
+                    Vec3::new(1.15, 1.0, 1.15)
+                },
+                color: if riparian {
+                    Vec3::new(0.18, 0.29, 0.105)
+                } else {
+                    Vec3::new(0.14, 0.23, 0.09)
+                },
+                spray_size: if riparian { 0.26 } else { 0.29 },
+                counts: [90, 24, 5],
             },
-            color: if riparian {
-                Vec3::new(0.18, 0.29, 0.105)
-            } else {
-                Vec3::new(0.14, 0.23, 0.09)
-            },
-            spray_size: if riparian { 0.26 } else { 0.29 },
-            counts: [90, 24, 5],
-        }
-        .emit(out, seed + 853 + leader as u64 * 73, lod);
+            seed + 853 + leader as u64 * 73,
+        ));
     }
 }

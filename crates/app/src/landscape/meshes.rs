@@ -1,5 +1,7 @@
 //! Shared metric mesh primitives, shrubs and fractured lithologies.
+mod canopy;
 mod foliage;
+mod rocks;
 mod trees;
 use genesis_renderer::instances::SceneryVertex as Vertex;
 use genesis_sim_core::{ecology::CoverKind, worldgen::noise::unit};
@@ -41,62 +43,11 @@ fn branch(out: &mut Mesh, a: Vec3, b: Vec3, r0: f32, r1: f32, sides: usize) {
         }
     }
 }
-fn solid(
-    out: &mut Mesh,
-    center: Vec3,
-    extent: Vec3,
-    seed: u64,
-    material: f32,
-    color: Vec3,
-    detail: (usize, usize),
-) {
-    let (rings, sides) = detail;
-    let point = |r: usize, s: usize| {
-        let a = s as f32 * TAU / sides as f32;
-        let t = r as f32 * std::f32::consts::PI / rings as f32;
-        let n = Vec3::new(t.sin() * a.cos(), t.cos(), t.sin() * a.sin());
-        let irregular = 0.80 + unit(seed, (r * sides + s % sides) as u64) * 0.35;
-        center + n * extent * irregular
-    };
-    for r in 0..rings {
-        for s in 0..sides {
-            let ps = [
-                point(r, s),
-                point(r, s + 1),
-                point(r + 1, s),
-                point(r + 1, s + 1),
-            ];
-            for ids in [[0, 2, 1], [1, 2, 3]] {
-                let tri = ids.map(|i| ps[i]);
-                let mut n = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalize_or_zero();
-                if n.dot(tri[0] - center) < 0. {
-                    n = -n;
-                }
-                for p in tri {
-                    out.push(vertex(p, n, color, material, [0.5, 0.5]));
-                }
-            }
-        }
-    }
-}
 pub fn build(kind: CoverKind, variant: usize, lod: usize) -> Mesh {
     let mut out = Vec::new();
     let seed = 271 + variant as u64 * 113 + kind.index() as u64 * 47;
     if kind.rock() {
-        let (color, material, extent) = match kind {
-            CoverKind::Limestone => (Vec3::new(0.55, 0.51, 0.42), 7., Vec3::new(1.45, 0.80, 1.05)),
-            CoverKind::Sandstone => (Vec3::new(0.48, 0.32, 0.19), 8., Vec3::new(1.40, 0.65, 1.0)),
-            _ => (Vec3::new(0.16, 0.17, 0.16), 9., Vec3::new(1.15, 1.0, 0.95)),
-        };
-        solid(
-            &mut out,
-            Vec3::Y * extent.y * 0.25,
-            extent,
-            seed,
-            material,
-            color,
-            if lod == 0 { (7, 11) } else { (4, 7) },
-        );
+        rocks::build(&mut out, kind, seed, lod);
         return out;
     }
     if kind.tree() {
@@ -122,18 +73,22 @@ pub fn build(kind: CoverKind, variant: usize, lod: usize) -> Mesh {
         0.016,
         [7, 5, 4][lod],
     );
+    let mut crowns = Vec::new();
     for i in 0..5 {
         let a = i as f32 * 2.399963 + variant as f32;
         let tip = Vec3::new(a.cos() * 0.52, 0.64 + unit(seed, i) * 0.19, a.sin() * 0.52) * height;
         branch(&mut out, root, tip, 0.013, 0.005, [5, 4, 3][lod]);
-        foliage::Crown {
-            center: tip,
-            extent: Vec3::new(0.36, 0.32, 0.36) * height,
-            color,
-            spray_size: (height * 0.09).clamp(0.055, 0.14),
-            counts: [130, 40, 12],
-        }
-        .emit(&mut out, seed + i * 73, lod);
+        crowns.push((
+            foliage::Crown {
+                center: tip,
+                extent: Vec3::new(0.36, 0.32, 0.36) * height,
+                color,
+                spray_size: (height * 0.09).clamp(0.055, 0.14),
+                counts: [130, 40, 12],
+            },
+            seed + i * 73,
+        ));
     }
+    foliage::emit(&crowns, &mut out, lod, false);
     out
 }

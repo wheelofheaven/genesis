@@ -95,13 +95,15 @@ impl Gpu {
             label: Some("world and atmosphere"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                     include_str!("scene.wgsl"),
                     include_str!("atmosphere.wgsl"),
                     include_str!("terrain.wgsl"),
                     include_str!("water.wgsl"),
                     include_str!("clouds.wgsl"),
-                    include_str!("building.wgsl")
+                    include_str!("building.wgsl"),
+                    include_str!("stone.wgsl"),
+                    include_str!("foliage.wgsl")
                 )
                 .into(),
             ),

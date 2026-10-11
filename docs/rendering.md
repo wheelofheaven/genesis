@@ -695,6 +695,46 @@ jumps within individual bends. The shared-slope/world-phase pass described above
 also avoids per-ribbon phase resets at confluences. Procedural material noise uses
 an integer hash instead of a large-coordinate floating-point sine hash.
 
+## Weathered rock surfaces
+
+Limestone, sandstone and basalt meshes now sample a seeded continuous radial
+surface rather than jittering individual latitude/longitude vertices. Rounded
+blocks are cut by four seeded fracture planes, with softened junctions, low-frequency
+erosion and a slight tilt. Limestone keeps a broad profile, sandstone a flatter
+slab and basalt a taller block. These are procedural visual forms, not a geological
+fracture or erosion simulation. Placement, geological classification, collisions
+and save data are unchanged.
+
+Cube-face grids avoid degenerate poles and share exact positions and normals
+between detail levels. Normals come from the continuous surface, independently
+of mesh density. The far proxy includes face centres so rounded forms do not
+collapse to their eight corners. Coarse triangles still approximate the silhouette;
+existing dither crossfades remain, rather than a guarantee of identical outlines.
+
+Each rock uses 576 / 144 / 72 vertices at close / medium / far detail, replacing
+462 / 168 / 168. The six kind/variant combinations together occupy 228,096 bytes
+of shared vertex data, down from 229,824. Close submissions cost more geometry;
+medium and far submissions cost less. No world-vertex or instance format,
+render pass, texture or batch is added. These counts are not frame-rate claims.
+
+The stone shader projects metre-scale colour variation, grain and analytic noise
+gradients across three axes, avoiding stretched horizontal-coordinate texture on
+vertical faces. Shallow normal relief and grain fade with pixel footprint.
+Sedimentary layers have a quiet warped response; basalt has sparse dark pores.
+Texture coordinates are world-anchored, varying individual static instances;
+future movable rocks would need object-space material coordinates. The shader
+adds per-pixel arithmetic, while filtering skips unresolved detail at distance.
+
+Tests cover all six forms at each level: closed seams, outward winding,
+nondegenerate triangles, unit normals, shared LOD samples, and the existing
+1.7 m horizontal collision / 2.5 m culling bounds before instance scale.
+Native inspection uses `--rock-capture output.png --rock limestone|sandstone|basalt`;
+it selects an exposed existing placement and stands the camera on accessible ground.
+Add `--region island` for the basalt inspection: the Levant recipes intentionally
+use limestone and sandstone only. Native captures were reviewed for all three materials.
+Default seed limestone captures retain 82,121,844 bytes in 924 world chunks,
+unchanged from the preceding dwelling pass; the scenery buffers are separate.
+
 ## Tree canopy structure
 
 Tree meshes now use several tapered trunk segments with a buried base flare.
@@ -720,3 +760,32 @@ shadow silhouettes still need richer authored assets and temporal filtering.
 For repeatable native inspection, add `--tree broadleaf|pine|riparian` to either
 `--ecology-capture output.png` or `--ecology-ground-capture output.png`. The selector
 uses an existing matching tree near the settlement and does not alter generation.
+
+## Canopy lighting
+
+Each leaf spray now stores approximate sky access from its surrounding crowns.
+During shared prototype generation, twelve cosine-weighted hemisphere rays measure
+their path through the tree or shrub's crown ellipsoids, up to 8 m. Exponential
+attenuation with density 0.45 per metre gives darker interiors and more exposed
+tops. Overlapping crowns accumulate density. This is a static local approximation;
+it does not account for neighbouring trees, moving leaves or indirect light transport.
+The bake runs when shared meshes are created, not during per-frame placement updates.
+
+Lighting normals blend the card normal toward the crown's ellipsoid normal.
+Leaf positions, cutouts, wind, LOD area compensation and shadow geometry remain
+unchanged. Sky access occupies the fractional material tag: broadleaf uses
+5–5.15 and pine uses 5.3–5.45, retaining the existing leaf-kind routing and vertex
+format. Shared sprays have identical lighting data across detail levels.
+
+The foliage shader combines this sky access with wrapped diffuse lighting and
+a view-dependent thin-leaf transmission term. Cast shadows and cloud attenuation
+gate transmission; pine receives less transmission than broadleaf. Survey colours
+retain their existing presentation. No textures, buffers, batches or render passes
+are added; the shader does add fragment arithmetic and the bake adds startup work.
+
+Tests check bounded sky access, crown depth ordering, ray direction and reach,
+unit shading normals, and stable lighting data across LODs. The app and renderer
+suites pass 77 tests, with six existing ignored tests. Native Metal captures were
+reviewed at eye height and overhead for broadleaf and pine. Matching eye-height
+captures retain identical geometry counts and world-buffer bytes. Full world-pass
+GPU timing was unavailable; these captures do not establish frame-time parity.

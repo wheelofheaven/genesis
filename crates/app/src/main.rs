@@ -12,6 +12,7 @@ mod path_tool;
 #[cfg(test)]
 mod render_tests;
 mod scene;
+mod scenery_capture;
 mod selection;
 mod session;
 mod survey;
@@ -555,6 +556,17 @@ fn main() -> Result<()> {
     let mut seed = genesis_sim_core::worldgen::DEFAULT_SEED;
     let mut region = genesis_sim_core::worldgen::Region::LevantCoast;
     let mut capture_tree = None;
+    let mut capture_rock = None;
+    if let Some(index) = args.iter().position(|arg| arg == "--rock") {
+        use genesis_sim_core::ecology::CoverKind;
+        capture_rock = Some(match args.get(index + 1).map(String::as_str) {
+            Some("limestone") => CoverKind::Limestone,
+            Some("sandstone") => CoverKind::Sandstone,
+            Some("basalt") => CoverKind::Basalt,
+            _ => return Err("--rock must be limestone, sandstone, or basalt".into()),
+        });
+        args.drain(index..=index + 1);
+    }
     if let Some(index) = args.iter().position(|arg| arg == "--tree") {
         use genesis_sim_core::ecology::CoverKind;
         capture_tree = Some(match args.get(index + 1).map(String::as_str) {
@@ -593,6 +605,9 @@ fn main() -> Result<()> {
     {
         return Err("--tree requires an ecology or understorey capture".into());
     }
+    if capture_rock.is_some() && args.first().is_none_or(|f| f != "--rock-capture") {
+        return Err("--rock requires --rock-capture".into());
+    }
     match args.as_slice() {
         [] => {}
         [flag, path]
@@ -600,6 +615,7 @@ fn main() -> Result<()> {
                 || flag == "--settlement-capture"
                 || flag == "--ground-capture"
                 || flag == "--house-capture"
+                || flag == "--rock-capture"
                 || flag == "--river-capture"
                 || flag == "--river-ground-capture"
                 || flag == "--ecology-capture"
@@ -625,7 +641,7 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --house-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
@@ -763,6 +779,9 @@ fn main() -> Result<()> {
         }
         app.session.select(p);
         app.session.clock.paused = true;
+    }
+    if args.first().is_some_and(|flag| flag == "--rock-capture") {
+        scenery_capture::rock(&mut app.session, &mut app.camera, capture_rock)?;
     }
     if args.first().is_some_and(|flag| flag == "--ground-capture") {
         ground::toggle(&app.session.sim, app.session.position, &mut app.camera);

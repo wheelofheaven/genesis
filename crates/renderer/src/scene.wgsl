@@ -210,6 +210,7 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
     if !coverage_visible(in) { discard; }
     var alpha = 1.0;
     var color = in.color.rgb;
+    var transmission = vec3<f32>(0.0);
     if in.color.a >= 14.0 {
         // Coverage is resolved against the underlying terrain by world MSAA.
         // World anchoring keeps intersecting paths on the same material pattern.
@@ -244,15 +245,11 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
         let local = in.local;
         if in.color.a < 6.0 {
             // Actual leaf silhouettes and veins; opaque cutouts write depth normally.
-            let q = (in.uv - vec2<f32>(0.5)) * 2.0;
             alpha = leaf_coverage;
             if alpha <= 0.0 { discard; }
-            let vein = 1.0-smoothstep(0.015,0.07,abs(q.y));
-            let detail = 1.0-smoothstep(0.015,0.12,local_pixel);
-            color *= 0.915 + (noise(local.xz*16.0)-0.5)*0.17*detail + vein*0.07*detail;
-            color *= 0.56 + 0.34*abs(dot(n,light)) + 0.10*max(n.y,0.0);
-            // Thin foliage receives a little transmitted light on its reverse side.
-            color += in.color.rgb*0.12*max(dot(-n,light),0.0);
+            let foliage = foliage_material(in, local_pixel);
+            color = foliage.diffuse;
+            transmission = foliage.transmission;
         } else if in.color.a < 7.0 {
             let bark = noise(vec2<f32>(atan2(local.z,local.x)*22.0,local.y*0.7));
             let cracks = smoothstep(0.28,0.40,bark);
@@ -260,17 +257,7 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
             color *= mix(0.90, 0.58 + cracks*0.46 + noise(local.xz*30.0)*0.12, detail);
             color *= 0.40+0.60*max(dot(n,light),0.0);
         } else {
-            let coarse = noise(local.xz*1.9 + local.y*0.7);
-            let fine = noise(local.xz*35.0+local.y*17.0);
-            let fine_weight = 1.0-smoothstep(0.03,0.35,pixel);
-            color *= 0.76 + coarse*0.35 + (fine-0.5)*0.22*fine_weight;
-            if in.color.a < 9.0 {
-                let band = sin(local.y*22.0 + noise(local.xz*0.8)*3.0);
-                let detail = 1.0-smoothstep(0.04,0.3,local_pixel);
-                color *= 0.96 + (smoothstep(-0.5,0.4,band)-0.5)*0.08*detail;
-            }
-            color *= 0.38+0.62*max(dot(n,light),0.0);
-            color *= 0.80+0.20*smoothstep(-0.2,0.65,local.y);
+            color = stone_material(color, in.world * 20.0, n, local.y, in.color.a, pixel);
         }
     } else if in.color.a < 0.0 {
         color = water_material(in, pixel);
@@ -301,6 +288,7 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
             // response; this separates cast-shadow colour without claiming GI.
             let direct = clamp((shadow - 0.58) / 0.42, 0.0, 1.0) * cloud_sunlight(in.world * 20.0, pixel);
             color *= mix(vec3<f32>(0.40, 0.49, 0.62), vec3<f32>(1.08, 1.035, 0.95), direct);
+            color += transmission * direct * vec3<f32>(1.08, 1.035, 0.95);
         }
     }
     // Selection markings remain legible. Surface, scenery and water share haze.

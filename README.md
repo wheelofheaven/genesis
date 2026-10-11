@@ -481,10 +481,19 @@ Rendering uses branching trunks, cutout leaf/needle sprays, two variants per typ
 three mesh detail levels, frustum culling and bounded shrub visibility. Scenery
 alone carries normals and leaf coordinates, leaving the terrain vertex budget
 unchanged. Bark, leaves and rocks have separate procedural material treatments.
+Rock meshes now sample one seeded weathered form across all detail levels, with
+rounded fracture edges, tilted faces and smooth surface normals. Limestone,
+sandstone and basalt retain distinct proportions and material responses; filtered
+triplanar grain and shallow relief avoid stretched detail on vertical faces.
+Use `--rock-capture /tmp/genesis-rock.png --rock limestone` (or `sandstone` / `basalt`)
+for a repeatable eye-height inspection of an exposed rock in the current region.
+Use `--region island` for basalt; the current Levant recipes contain limestone and sandstone.
 Pines have asymmetric branch tiers around a tapered stem; broadleaf trees fork
 lower and carry smaller branching crowns plus upright leaders. Riparian forms
 retain a taller, narrower crown. Mixed leaf angles give foliage volume from both
-eye height and overhead. Close tree meshes stay below 18,000 vertices, and distant
+eye height and overhead. Crown occlusion shades the interior, curved lighting
+normals soften the leaf cards, and sun-facing backlighting adds subtle translucency.
+This reuses the existing geometry and rendering passes. Close tree meshes stay below 18,000 vertices, and distant
 meshes below 1,500; these are geometry budgets, not frame-rate measurements.
 Two 2048² sun-shadow maps cover 320 m and 1.28 km across around the camera focus,
 with filtered comparison samples and a blended transition. Foliage sway affects

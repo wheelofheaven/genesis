@@ -17,6 +17,8 @@ pub struct Instance {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SceneryVertex {
     pub position: [f32; 3],
+    /// RGB tint and material tag. Leaves encode crown occlusion in the fraction:
+    /// broadleaf 5..=5.15, needles 5.3..=5.45 (larger means less sky access).
     pub color: [f32; 4],
     pub normal: [f32; 3],
     pub uv: [f32; 2],

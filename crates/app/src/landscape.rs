@@ -160,6 +160,11 @@ mod tests {
                                 .all(|v| v.is_finite())
                         );
                         let p = Vec3::from_array(v.position);
+                        if (5. ..6.).contains(&v.color[3]) {
+                            let base = if kind == CoverKind::Pine { 5.3 } else { 5. };
+                            assert!((base..=base + 0.15001).contains(&v.color[3]));
+                            assert!((Vec3::from_array(v.normal).length() - 1.).abs() < 1e-5);
+                        }
                         assert!(p.length() < metres(20.), "{}: {p:?}", kind.name());
                         if kind.tree() {
                             // Match the conservative sphere used by scenery culling,
