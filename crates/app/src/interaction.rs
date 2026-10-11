@@ -26,7 +26,7 @@ pub fn pick(sim: &SimState, origin: Vec3, dir: Vec3, ground: Option<Vec3>) -> Op
             continue;
         }
         mesh.clear();
-        crate::scene::house(sim, &mut mesh, b);
+        crate::scene::house_picking_mesh(sim, &mut mesh, b);
         for tri in mesh.chunks_exact(3) {
             if let Some(t) = crate::terrain::intersect(
                 origin,
@@ -112,7 +112,7 @@ mod tests {
         for rotation in [0., 0.7, 1.57, 3.2] {
             b.rotation = rotation;
             let mut mesh = Vec::new();
-            crate::scene::house(&sim, &mut mesh, &b);
+            crate::scene::house_picking_mesh(&sim, &mut mesh, &b);
             let center = crate::terrain::point(&sim, b.position);
             for i in 0..16 {
                 let a = i as f32 * std::f32::consts::TAU / 16.;

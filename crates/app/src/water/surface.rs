@@ -1,10 +1,11 @@
 //! Split water at terrain triangle edges so narrow channels cannot disappear
 //! below creases. A finer strip alone cannot guarantee this at every crossing.
+#[cfg(test)]
 use crate::terrain;
 use genesis_renderer::geometry::Vertex;
 use genesis_sim_core::{SimState, spatial::Position, units::metres};
 
-fn clip(polygon: &[Vertex], distance: impl Fn(&Vertex) -> f32) -> Vec<Vertex> {
+pub(super) fn clip(polygon: &[Vertex], distance: impl Fn(&Vertex) -> f32) -> Vec<Vertex> {
     let mut result = Vec::new();
     let Some(mut a) = polygon.last().copied() else {
         return result;
@@ -66,77 +67,7 @@ pub(super) fn intersect_water(
     );
 }
 
-/// Clip to the actual adaptive triangles, including transition fans. The distant
-/// surface stays above simplified ground while retaining the channel's optical
-/// depth; the centimetre display offset is not a physical water-depth measurement.
-pub(super) fn intersect_cached(
-    sim: &SimState,
-    cache: &terrain::Cache,
-    triangle: [Vertex; 3],
-    out: &mut Vec<Vertex>,
-    simplification: impl Fn(Position) -> f32,
-) {
-    use glam::Vec3;
-    let position = |v: &Vertex| {
-        Position::new(
-            v.position[0] + sim.grid.width as f32 * 0.5,
-            v.position[2] + sim.grid.height as f32 * 0.5,
-        )
-    };
-    let points = triangle.map(|v| position(&v));
-    let min = Position::new(
-        points.iter().map(|p| p.x).fold(f32::INFINITY, f32::min),
-        points.iter().map(|p| p.z).fold(f32::INFINITY, f32::min),
-    );
-    let max = Position::new(
-        points.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max),
-        points.iter().map(|p| p.z).fold(f32::NEG_INFINITY, f32::max),
-    );
-    cache.triangles_in(min, max, |ground| {
-        let mut face = triangle.to_vec();
-        for i in 0..3 {
-            let a = ground[i];
-            let b = ground[(i + 1) % 3];
-            face = clip(&face, |v| {
-                (b.z - a.z) * (v.position[0] - a.x) - (b.x - a.x) * (v.position[2] - a.z)
-            });
-            if face.len() < 3 {
-                return;
-            }
-        }
-        let n = (ground[1] - ground[0]).cross(ground[2] - ground[0]);
-        if n.y <= 1e-12 {
-            return;
-        }
-        for v in &mut face {
-            let bed = ground[0].y
-                - (n.x * (v.position[0] - ground[0].x) + n.z * (v.position[2] - ground[0].z)) / n.y;
-            let simplify = simplification(position(v));
-            v.position[1] += (bed + metres(0.04) - v.position[1]).max(0.) * simplify;
-            v.color[3] = -(1. + (v.position[1] - bed) * 20.);
-        }
-        // Clip with geometric depth before replacing its distant optical proxy.
-        face = clip(&face, |v| -v.color[3] - 1.);
-        for v in &mut face {
-            let p = position(v);
-            let simplify = simplification(p);
-            if simplify > 0. {
-                let depth = (-v.color[3] - 1.) / 20.;
-                v.color[3] =
-                    -(1. + (depth + (channel_depth(sim, p) - depth) * simplify).max(0.) * 20.);
-            }
-        }
-        for i in 1..face.len().saturating_sub(1) {
-            let tri = [face[0], face[i], face[i + 1]];
-            let [a, b, c] = tri.map(|v| Vec3::from_array(v.position));
-            if (b - a).cross(c - a).y > 1e-12 {
-                out.extend(tri);
-            }
-        }
-    });
-}
-
-fn channel_depth(sim: &SimState, p: Position) -> f32 {
+pub(super) fn channel_depth(sim: &SimState, p: Position) -> f32 {
     use genesis_sim_core::surface::channels;
     let Some(section) = channels::section(sim, p) else {
         return 0.;
@@ -244,7 +175,14 @@ mod tests {
         for eye in [Vec3::new(0., 2.1, 0.), Vec3::new(0., 100., 0.)] {
             let cache = terrain::Cache::at(&sim, terrain::lod::Key::at(eye));
             let mut mesh = Vec::new();
-            intersect_cached(&sim, &cache, triangle, &mut mesh, |_| 1.);
+            let mut sheet = super::super::sheet::Sheet::default();
+            sheet.add(&sim, &cache, triangle);
+            sheet.finish(
+                &sim,
+                &super::super::slopes::Slopes::new(&sim),
+                &mut mesh,
+                |_| 1.,
+            );
             assert!(!mesh.is_empty() && mesh.len() < 200_000);
             assert!((mesh.chunks_exact(3).map(area).sum::<f32>() - area(&triangle)).abs() < 1e-4);
             for tri in mesh.chunks_exact(3) {

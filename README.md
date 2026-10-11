@@ -171,7 +171,10 @@ and the camera can move close enough to inspect individual homes.
 Dwellings now have 30 cm wall shells with recessed plank doors and shutters,
 timber lintels, stone sills, and individual foundation stones. Plaster, masonry,
 timber and roof earth have separate filtered material responses; face lighting
-follows the building's rotation. These remain procedural stand-ins with closed
+follows the building's rotation. Cached ambient visibility adds contact depth
+around reveals, sills, beams and parapets, while preserving direct sunlight.
+Adaptive mesh subdivisions carry this detail without a new rendering pass;
+mouse picking retains the original simpler geometry. These remain procedural stand-ins with closed
 doors and no playable interiors. `--house-capture /tmp/genesis-house.png` gives a
 repeatable eye-height view of the first dwelling's front.
 
@@ -264,12 +267,16 @@ Water is shaded using shelf depth, shallow bed colour, sky reflection, subtle
 animated waves, sun glints, and a moving shoreline wash. Close river surfaces sit
 above incised beds, intersect the banks, and encode actual visible depth. Damp
 alluvial banks, geology-tinted shallows and irregular downstream ripples distinguish
-streams from the sea. Ripples follow channel orientation and fade below pixel
-resolution; reflections soften at the bank contact. Beyond 160–220 m, water
+streams from the sea. A shared slope field smooths reflections across bends and
+confluences. World-anchored ripples drift along the local downhill slope, using
+overlapping animation cycles to avoid phase resets at ribbon boundaries; they fade
+below pixel resolution. Reflections soften at the bank contact. Beyond 160–220 m, water
 gradually conforms to the coarser terrain while retaining channel depth for its
-shading, rather than treating the display offset as shallow water. River geometry
-follows the actual terrain triangles and its shallow bank edges use the existing
-MSAA coverage. That distant representation does not change the physical bed. These are
+shading, rather than treating the display offset as shallow water. River footprints
+are combined into a single surface on the actual terrain triangles, so branches
+share rendered heights and materials instead of overlapping at junctions. A filtered
+presentation level smooths those joins; the physical bed and drainage stay unchanged.
+Shallow bank edges use the existing MSAA coverage. These are
 presentation effects, not simulated waves or a river flow solver; water animation
 continues while the simulation is paused. Screenshot captures use a fixed phase.
 Ground uses filtered, world-space soil and gravel detail; trees use irregular,

@@ -5,6 +5,7 @@ pub(crate) use clearance::Clearance;
 mod paths;
 use crate::{session::Session, terrain};
 pub(crate) use buildings::house;
+pub(crate) use buildings::picking_mesh as house_picking_mesh;
 use genesis_renderer::geometry::{Vertex, cuboid};
 use genesis_sim_core::{SimState, settlement::Building, spatial::Position, units::metres};
 mod markings;

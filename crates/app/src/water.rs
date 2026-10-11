@@ -3,17 +3,19 @@ use crate::terrain;
 use genesis_renderer::geometry::Vertex;
 use genesis_sim_core::{SimState, spatial::Position, surface::channels, units::metres};
 use glam::Vec2;
+mod sheet;
+mod slopes;
 mod surface;
 
 pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
     let incised = sim.geography.version >= 8;
+    let slopes = slopes::Slopes::new(sim);
+    let mut sheet = sheet::Sheet::default();
     // Water, bed geometry and bank shading use the same distant approximation.
     let simplification = |p| terrain::lod::channel_simplification(sim, cache.key.eye(), p);
     for river in &sim.geography.rivers {
         let mut points = Vec::new();
         let mut widths = Vec::new();
-        let mut phases = Vec::new();
-        let mut along = 0.;
         for (segment, pair) in river.points.windows(2).enumerate() {
             let a = Vec2::new(pair[0].x, pair[0].z);
             let b = Vec2::new(pair[1].x, pair[1].z);
@@ -22,7 +24,6 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
             for i in 0..steps {
                 let t = i as f32 / steps as f32;
                 points.push(a.lerp(b, t));
-                phases.push(along + a.distance(b) * t * 20.);
                 let start = river.widths.get(segment).copied().unwrap_or(river.width);
                 let end = river
                     .widths
@@ -31,12 +32,10 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
                     .unwrap_or(river.width);
                 widths.push(start + (end - start) * t);
             }
-            along += a.distance(b) * 20.;
         }
         if let Some(p) = river.points.last() {
             points.push(Vec2::new(p.x, p.z));
             widths.push(river.widths.last().copied().unwrap_or(river.width));
-            phases.push(along);
         }
         let mut previous: Option<[Vertex; 3]> = None;
         for (i, &p) in points.iter().enumerate() {
@@ -60,6 +59,7 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
             let row = std::array::from_fn(|j| {
                 let side = j as f32 / 2. - 0.5;
                 let q = p + lateral * span * side;
+                let slope = if incised { Vec2::ZERO } else { slopes.at(q) };
                 let height = if incised {
                     level
                 } else {
@@ -73,8 +73,8 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
                     ],
                     color: [
                         bed_material,
-                        phases[i],
-                        side * span * 20.,
+                        slope.x,
+                        slope.y,
                         -(1.9 + (1. - side.abs() * 2.) * 0.8),
                     ],
                 }
@@ -85,7 +85,7 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
                     for ids in [[0, 1, 2], [2, 1, 3]] {
                         let tri = ids.map(|id| ps[id]);
                         if incised {
-                            surface::intersect_cached(sim, cache, tri, out, simplification);
+                            sheet.add(sim, cache, tri);
                         } else {
                             let detail = tri
                                 .iter()
@@ -105,11 +105,89 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
             previous = Some(row);
         }
     }
+    if incised {
+        sheet.finish(sim, &slopes, out, simplification);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sloping_confluence_has_one_surface_and_is_independent_of_branch_order() {
+        use genesis_sim_core::{config::SimConfig, worldgen::River};
+        use glam::Vec3;
+        let mut sim = SimState::new(SimConfig {
+            width: 16,
+            height: 16,
+            ..Default::default()
+        });
+        sim.geography.version = 9;
+        for z in 0..16 {
+            for x in 0..16 {
+                sim.grid.get_mut(x, z).elevation = 2. + x as f32 * 0.03 + z as f32 * 0.07;
+            }
+        }
+        let river = |points| River {
+            points,
+            width: metres(6.),
+            widths: vec![],
+            bounds: None,
+        };
+        sim.geography.rivers = vec![
+            river(vec![
+                Position::new(4., 8.),
+                Position::new(8., 8.),
+                Position::new(12., 8.),
+            ]),
+            river(vec![Position::new(8., 4.), Position::new(8., 8.)]),
+        ];
+        let hits = |mesh: &[Vertex], p: Vec2| {
+            mesh.chunks_exact(3)
+                .filter_map(|tri| {
+                    crate::terrain::intersect(
+                        Vec3::new(p.x, 20., p.y),
+                        -Vec3::Y,
+                        [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position)),
+                    )
+                })
+                .map(|distance| 20. - distance)
+                .collect::<Vec<_>>()
+        };
+        for eye in [Vec3::new(0., 2.9, 0.), Vec3::new(0., 100., 0.)] {
+            sim.geography.channels = channels::Index::new(16, 16, &sim.geography.rivers);
+            let a = terrain::Cache::at(&sim, terrain::lod::Key::at(eye));
+            sim.geography.rivers.reverse();
+            sim.geography.channels = channels::Index::new(16, 16, &sim.geography.rivers);
+            let b = terrain::Cache::at(&sim, terrain::lod::Key::at(eye));
+            for i in 0..200 {
+                // Off-grid samples across the shared wet core, away from banks.
+                let p = Vec2::new(
+                    (i as f32 * 0.618034).fract() * 0.5 - 0.2497,
+                    (i as f32 * 0.414214).fract() * 0.08 - 0.0393,
+                );
+                let first = hits(&a.rivers, p);
+                let reversed = hits(&b.rivers, p);
+                assert!(
+                    !first.is_empty() && !reversed.is_empty(),
+                    "wet core hole at {p:?}"
+                );
+                // A shared triangle edge may be hit twice; it must have one height.
+                for &height in first.iter().chain(&reversed) {
+                    assert!(
+                        (height - first[0]).abs() < metres(0.002),
+                        "two water levels at {p:?}: {first:?} / {reversed:?}"
+                    );
+                }
+            }
+            for tri in a.rivers.chunks_exact(3) {
+                let [a, b, c] = [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position));
+                assert!(a.is_finite() && b.is_finite() && c.is_finite());
+                assert!((b - a).cross(c - a).y > 1e-12);
+            }
+        }
+    }
+
     #[test]
     fn close_channel_water_stays_above_the_rendered_bed_with_real_depth() {
         let mut sim = SimState::new(genesis_sim_core::config::SimConfig {
@@ -167,14 +245,13 @@ mod tests {
             .fold(0., f32::max);
         assert!((center_depth - 0.64).abs() < 0.02, "{center_depth}");
         assert!(far.rivers.iter().any(|v| -v.color[3] - 1. < 0.02));
-        let length = (2_f32.sqrt() + 1.25_f32.sqrt()) * 20.;
         for mesh in [&cache.rivers, &far.rivers] {
-            let first = mesh
-                .iter()
-                .map(|v| v.color[1])
-                .fold(f32::INFINITY, f32::min);
-            let last = mesh.iter().map(|v| v.color[1]).fold(0., f32::max);
-            assert!(first.abs() < 1e-4 && (last - length).abs() < 1e-4);
+            // A flat channel carries a vertical shading normal, independent of
+            // ribbon direction and camera detail. GB stores slopes, not UVs.
+            assert!(
+                mesh.iter()
+                    .all(|v| v.color[1].abs() < 1e-5 && v.color[2].abs() < 1e-5)
+            );
         }
     }
 }

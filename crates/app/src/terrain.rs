@@ -213,6 +213,15 @@ impl Cache {
         max: Position,
         mut visit: impl FnMut([Vec3; 3]),
     ) {
+        self.indexed_triangles_in(min, max, |_, triangle| visit(triangle));
+    }
+    /// Stable receiver IDs let overlapping surface decals share one partition.
+    pub(crate) fn indexed_triangles_in(
+        &self,
+        min: Position,
+        max: Position,
+        mut visit: impl FnMut(usize, [Vec3; 3]),
+    ) {
         let mut ranges = std::collections::BTreeMap::new();
         for z in (min.z * 32.).floor() as i32..=(max.z * 32.).floor() as i32 {
             for x in (min.x * 32.).floor() as i32..=(max.x * 32.).floor() as i32 {
@@ -226,7 +235,7 @@ impl Cache {
         }
         for (start, end) in ranges {
             for id in start..end {
-                visit(self.indices[id].map(|i| self.samples[i].1));
+                visit(id, self.indices[id].map(|i| self.samples[i].1));
             }
         }
     }

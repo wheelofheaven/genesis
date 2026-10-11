@@ -118,8 +118,9 @@ height. The front wall now has actual openings in a 30 cm shell, with recessed
 closed plank doors and shutters, narrow board joints, timber battens/lintels and
 stone sills. Foundation masonry uses separate small blocks over a continuous
 support. Detailed courses stop after the upper 1.4 m even when terraforming
-exposes a much deeper support, keeping geometry below the tested 16,000-vertex
-budget per dwelling. This is a procedural visual proxy, not a historical
+exposes a much deeper support. Including ambient-shading subdivisions, geometry
+stays below the tested 32,000-vertex budget per dwelling; the unchanged picking
+surface stays below 16,000 vertices. This is a procedural visual proxy, not a historical
 reconstruction, structural solver or traversable interior.
 
 Material tags 3.0/3.1/3.2/3.3 distinguish plaster, stone, timber and roof earth.
@@ -149,6 +150,55 @@ geometry, bounded cost after large terrain changes, and conservative picking
 against triangle hits at multiple angles. Native house captures and the
 selection/path smoke test check shader compilation and interaction composition.
 Use `--house-capture output.png` for the 1.7 m inspection camera at the first home.
+
+### Cached architectural contact shading
+
+The dwelling kit now bakes short-range ambient visibility into its reusable
+mesh. Thirty-two cosine-distributed hemisphere rays intersect the actual box
+parts over a 65 cm radius, with a quadratic distance falloff. Recessed shutters,
+door reveals, sill undersides, joist ends and roof/parapet junctions therefore
+retain depth below the directional shadow map's resolution. This is a static
+local visibility approximation, not screen-space AO, dynamic contact shadows or
+global illumination. It does not shade surrounding terrain or vegetation.
+
+The bake starts with samples at most 18 cm apart, then merges planar rectangles
+whose sample errors remain within 0.025 visibility and 0.004 linear colour.
+Unoccluded constant-colour planes keep their original two triangles. Weathering
+is evaluated before simplification, limiting earth stains to the lower 65 cm of
+plaster instead of stretching them across full-height wall quads. Subdivisions
+retain the original planar surfaces and winding; picking uses the original
+unsubdivided cuboids. Ray tests compare both surfaces after rotation.
+
+A process-wide `OnceLock` shares the bake between houses, scene refreshes,
+selection and previews. Terrain-dependent foundations remain separately bounded
+geometry; a shallow foundation proxy participates in the structure bake. Deep
+foundation masonry itself is not rebaked. The ordinary 10 cm foundation fixture
+has 23,970 vertices; both the 1.3 m and 25 m foundation fixtures have 30,882.
+New building shapes will need their own baked prototypes and larger settlements
+will need building LOD/instancing rather than indefinitely expanding world meshes.
+
+Visibility attenuates only the CPU lighting model's ambient term, with a 35%
+minimum fill; it preserves the direct sun contribution. Existing GPU cast-shadow
+and cloud modulation still apply afterward. Face normals are derived in local
+metres before rotation and translation, avoiding lighting seams from subtracting
+small edges at large world offsets. No shader, texture, vertex attribute or
+per-frame rendering pass is added by this bake; extra vertices still incur draw,
+shadow, upload and CPU transform costs.
+
+Tests cover unoccluded surfaces, finite bounded visibility, distance limits and
+axis-parallel rays, nondegenerate geometry, preserved direct lighting, rotated
+picking equivalence, and bounded geometry after deep terrain edits. Native
+eye-height and settlement captures check appearance and shader integration.
+
+On the default coast fixture, the manual `world_chunk_timing` audit reports
+2,931,903 vertices / 82,093,284 bytes across the same 924 chunks, compared with
+78,683,220 bytes before this bake (3.25 MiB / 4.3% more vertex storage). Initial
+scene colour/geometry preparation, including the one-time bake, measured 71.61 ms;
+partitioning measured 39.24 ms on this Apple M4 run. These remain background jobs
+for normal POV refreshes. The native close-up capture validated Metal rendering,
+but its world-pass timer was unavailable, so these numbers do not establish
+unchanged GPU frame time. The existing synchronous initial-load/explicit-edit
+limits also remain.
 
 ## HDR world and display transform
 
@@ -486,25 +536,56 @@ This is a geometric recipe, not a running hydrological or sediment model. In
 particular, the smoothed longitudinal profile can contain uphill reaches and
 confluences still need a network-wide water-level solution.
 
-Near rivers use a separate surface, level across each section, clipped against the
-actual adaptive terrain triangles, including transition fans. Depth then drives shallow
+Near rivers use a separate surface clipped against the actual adaptive terrain
+triangles, including transition fans. Depth then drives shallow
 bed colour. Vertex RGB carries a negative bed-material tag (limestone, sandstone
-or basalt) and longitudinal/transverse metres without increasing the vertex format.
-Transverse distance includes the bank margins, so ripple scale stays consistent
-across the full clipped ribbon. Damp bank colour comes from channel proximity.
+or basalt) and two world-space surface slopes without increasing the vertex format.
+Damp bank colour comes from channel proximity.
 Gravel under water is a material approximation, not refraction through a transparent pass.
 
-`water.wgsl` layers two irregular ripple fields in channel coordinates, drifting
-downstream. Analytic noise gradients supply surface slopes, with a rotated second
-layer to break up the first layer's lattice. Screen derivatives convert slopes to
-world space and filter each layer by its projected footprint. Compressed mappings
-at bends have bounded gain. The geometric water-plane normal supplies the base
-slope; ripples diminish at shallow contacts.
+`water/slopes.rs` bins river segments and blends longitudinal slopes using compact
+smooth weights, extending support beyond the banks. The same field supplies both
+branches of a confluence, instead of using each water triangle's flat normal. It
+also filters the presentation level for the joined surface described below.
+Physical banks and drainage are unchanged; this is not a hydraulic level solver.
+The two slope components replace the previous longitudinal/transverse coordinates
+in the existing 28-byte vertex. No GPU normal buffer or extra pass is needed.
+
+`water.wgsl` samples a rotated, world-anchored noise field. Two six-second advection
+cycles overlap with smooth weights; each cycle has zero weight at its reset. Drift
+follows the filtered downhill slope, with a small wind component on flat water.
+This bounds distortion and avoids restarting ripple phase on each river ribbon.
+Analytic noise gradients supply the small surface slopes, filtered by screen
+footprint, and ripples diminish at shallow contacts. Ocean normals retain their
+geometric base and independent swell treatment.
 Bed visibility depends on depth and viewing angle, while reflections fade at the
 bank contact instead of leaving a luminous outline. Ocean swell uses world-space
 coordinates and a broken shoreline wash; streams have no ocean foam curtain.
 These changes add no textures, render passes or vertex attributes. They are
 procedural shading, not hydraulic flow, scene refraction or object reflections.
+
+The shared normals remove bright diagonal reflection streaks, but the original
+ribbons still overlapped at different heights. `water/sheet.rs` now combines their
+projected footprints per terrain receiver. Convex subtraction retains disjoint
+pieces; an explicit positive-area intersection check prevents touching neighbours
+from being fragmented by extended clipping lines. Geometry calculations use f64,
+then return to the existing f32 vertex format. Shared terrain corners carry one
+filtered water level, reflection slope and bed material. Every piece on a receiver
+uses that same plane, including pieces contributed by different river branches.
+Depth is computed against the receiver plane and dry fragments are clipped out.
+This removes duplicate water coverage and the visible triangular joins in the
+reviewed highlands confluence. It does not evolve flow or change simulation heights.
+
+The highlands bank capture uses 79,767,240 world vertex bytes (924 chunks), down
+from 79,919,784 before joining. The coastal POV fixture uses 78,683,220 bytes, up
+23,268 bytes: combining overlaps can add vertices at their boundaries as well as
+remove covered geometry. Its CPU audit measured 517.52 ms terrain-cache preparation,
+59.87 ms scene preparation and 34.82 ms partitioning in one run. Routine preparation
+remains on the background worker; these samples are not an end-to-end FPS comparison.
+No textures, passes or vertex attributes were added. Tests cover union area, absence
+of overlap, bounded subdivision of touching pieces, one rendered level through a
+sloping confluence in either branch order, positive finite triangles, actual receiver
+height agreement, and the existing depth/detail and all-region geometry budgets.
 
 Rendering retains 1.25 m or finer river-cell spacing within 240 m, while the close
 canonical mesh remains 0.625 m. Over 160–220 m the water smoothly approaches a
@@ -552,9 +633,10 @@ to 600 m, without imposing it as a hydrological rule on every seed. Seeds 0, 42 
 7319 also check acyclic downhill grid drainage, rainfall conservation, bounded river
 widths and valid settlements; the default checks exact repeated generation.
 Native regional and 1.7 m riverbank captures validate the new terrain on Metal.
-Straight tributaries remain visible. The bank capture also exposes overlapping
-water surfaces and shading discontinuities at a confluence; a consistent network
-water-level and junction-mesh solution remains needed. The new highlands regional
+Straight tributaries remain visible. The original bank capture exposed overlapping
+water surfaces and shading discontinuities; the shared surface described above
+addresses that presentation problem. A physical network-wide water-level solution
+remains needed. The recipe-9 highlands regional
 capture uploaded 47,366,844 bytes of world geometry; this is a different landscape
 from the recipe-8 capture and is not a like-for-like performance comparison.
 
@@ -608,10 +690,10 @@ Native review: `--river-ground-capture output.png` places the 1.7 m inspection
 camera on an accessible bank. Tests check repeatability, overlap between shifted
 patches, construction/water exclusion, bounded instances and finite metric meshes.
 
-River ripple phase uses interpolated longitudinal distance rather than a dot
-product of world position with changing tangents. This removes the origin-dependent
-phase jumps that produced dense striping at bends. Procedural material noise also
-uses an integer hash instead of a large-coordinate floating-point sine hash.
+The earlier longitudinal-distance ripple mapping removed origin-dependent phase
+jumps within individual bends. The shared-slope/world-phase pass described above
+also avoids per-ribbon phase resets at confluences. Procedural material noise uses
+an integer hash instead of a large-coordinate floating-point sine hash.
 
 ## Tree canopy structure
 

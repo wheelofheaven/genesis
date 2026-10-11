@@ -4,6 +4,8 @@ use crate::terrain;
 use genesis_renderer::geometry::{Vertex, cuboid};
 use genesis_sim_core::{SimState, settlement::Building};
 use glam::Vec3;
+use std::sync::OnceLock;
+mod occlusion;
 
 const PLASTER: f32 = 3.0;
 const STONE: f32 = 3.1;
@@ -18,13 +20,6 @@ fn part(out: &mut Vec<Vertex>, center: [f32; 3], size: [f32; 3], color: [f32; 3]
     cuboid(out, center, size, color);
     for v in &mut out[start..] {
         v.color = [color[0], color[1], color[2], material];
-        if material == PLASTER {
-            // A slight earth stain near the foot of each wall, in building space.
-            let stain = (1.0 - v.position[1] / 0.65).clamp(0., 1.) * 0.16;
-            v.color[0] *= 1. - stain * 0.35;
-            v.color[1] *= 1. - stain * 0.7;
-            v.color[2] *= 1. - stain;
-        }
     }
 }
 
@@ -90,11 +85,9 @@ fn opening(out: &mut Vec<Vertex>, x: f32, bottom: f32, width: f32, height: f32, 
     }
 }
 
-fn local_mesh(out: &mut Vec<Vertex>, foundation_depth: f32) {
+fn foundation(out: &mut Vec<Vertex>, foundation_depth: f32) {
     let w = Building::HALF_WIDTH * 40.;
     let d = Building::HALF_DEPTH * 40.;
-    let h = Building::WALL_HEIGHT * 20.;
-    let t = 0.30;
     let front = d * 0.5;
     // A continuous foundation closes gaps behind the irregular stone courses.
     part(
@@ -159,6 +152,14 @@ fn local_mesh(out: &mut Vec<Vertex>, foundation_depth: f32) {
             }
         }
     }
+}
+
+fn structure(out: &mut Vec<Vertex>) {
+    let w = Building::HALF_WIDTH * 40.;
+    let d = Building::HALF_DEPTH * 40.;
+    let h = Building::WALL_HEIGHT * 20.;
+    let t = 0.30;
+    let front = d * 0.5;
     for side in [-1., 1.] {
         part(
             out,
@@ -261,18 +262,55 @@ fn local_mesh(out: &mut Vec<Vertex>, foundation_depth: f32) {
     );
 }
 
-fn rotate_and_light(mesh: &mut [Vertex], b: &Building, center: Vec3, high: f32) {
+fn prototype() -> &'static occlusion::Baked {
+    static PROTOTYPE: OnceLock<occlusion::Baked> = OnceLock::new();
+    PROTOTYPE.get_or_init(|| {
+        let mut mesh = Vec::new();
+        structure(&mut mesh);
+        let mut occluders = mesh.clone();
+        foundation(&mut occluders, 0.10);
+        occlusion::bake(&mesh, &occluders, |v| {
+            if v.color[3] == PLASTER {
+                // Resolved near the wall foot, rather than interpolated across
+                // the entire height of a large quad.
+                let stain = (1.0 - v.position[1] / 0.65).clamp(0., 1.) * 0.16;
+                v.color[0] *= 1. - stain * 0.35;
+                v.color[1] *= 1. - stain * 0.7;
+                v.color[2] *= 1. - stain;
+            }
+        })
+    })
+}
+
+fn local_mesh(out: &mut Vec<Vertex>, foundation_depth: f32) {
+    foundation(out, foundation_depth);
+    out.extend_from_slice(&prototype().vertices);
+}
+
+fn rotate_and_light(
+    mesh: &mut [Vertex],
+    b: &Building,
+    center: Vec3,
+    high: f32,
+    visibility: Option<&[f32]>,
+) {
+    debug_assert!(visibility.is_none_or(|v| v.len() == mesh.len()));
     let (s, c) = b.rotation.sin_cos();
-    for v in mesh.iter_mut() {
-        let [x, y, z] = v.position.map(|v| v / 20.);
-        v.position = [center.x + c * x - s * z, high + y, center.z + s * x + c * z];
-    }
     let sun = Vec3::new(-0.5, 0.75, 0.3).normalize();
-    for tri in mesh.chunks_exact_mut(3) {
-        let [a, b, c] = [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position));
-        let normal = (b - a).cross(c - a).normalize_or_zero();
-        let shade = 0.42 + 0.58 * normal.dot(sun).max(0.);
-        for v in tri {
+    for (index, tri) in mesh.chunks_exact_mut(3).enumerate() {
+        // Derive normals before adding kilometre-scale world offsets. Small
+        // subdivisions must not introduce quantized lighting seams on a plane.
+        let [a, b, d] = [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position));
+        let n = (b - a).cross(d - a).normalize_or_zero();
+        let normal = Vec3::new(c * n.x - s * n.z, n.y, s * n.x + c * n.z);
+        let direct = 0.58 * normal.dot(sun).max(0.);
+        for (corner, v) in tri.iter_mut().enumerate() {
+            let [x, y, z] = v.position.map(|v| v / 20.);
+            v.position = [center.x + c * x - s * z, high + y, center.z + s * x + c * z];
+            let ambient = visibility.map_or(1., |v| v[index * 3 + corner]);
+            // Short-range visibility affects sky fill. Direct sunlight still
+            // reaches exposed faces; directional shadows remain a GPU concern.
+            let shade = 0.42 * (0.35 + 0.65 * ambient) + direct;
             for channel in &mut v.color[..3] {
                 *channel *= shade;
             }
@@ -286,7 +324,34 @@ pub(crate) fn house(sim: &SimState, out: &mut Vec<Vertex>, b: &Building) {
     let low = heights.into_iter().fold(f32::INFINITY, f32::min);
     let start = out.len();
     local_mesh(out, (high - low) * 20. + 0.10);
-    rotate_and_light(&mut out[start..], b, terrain::point(sim, b.position), high);
+    let split = out.len() - prototype().vertices.len();
+    let center = terrain::point(sim, b.position);
+    rotate_and_light(&mut out[start..split], b, center, high, None);
+    rotate_and_light(
+        &mut out[split..],
+        b,
+        center,
+        high,
+        Some(&prototype().visibility),
+    );
+}
+
+/// Ambient-bake subdivisions do not change the surface. Keep picking on the
+/// original cuboids so pointer motion never pays for the extra shading vertices.
+pub(crate) fn picking_mesh(sim: &SimState, out: &mut Vec<Vertex>, b: &Building) {
+    let heights = b.footprint().map(|p| terrain::point(sim, p).y);
+    let high = heights.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let low = heights.into_iter().fold(f32::INFINITY, f32::min);
+    let start = out.len();
+    foundation(out, (high - low) * 20. + 0.10);
+    structure(out);
+    rotate_and_light(
+        &mut out[start..],
+        b,
+        terrain::point(sim, b.position),
+        high,
+        None,
+    );
 }
 
 #[cfg(test)]
@@ -297,7 +362,11 @@ mod tests {
         for foundation in [0.10, 1.30, 25.] {
             let mut mesh = Vec::new();
             local_mesh(&mut mesh, foundation);
-            assert!(mesh.len() < 16000);
+            eprintln!(
+                "dwelling at {foundation:.2} m foundation: {} vertices",
+                mesh.len()
+            );
+            assert!(mesh.len() < 32_000, "{} vertices", mesh.len());
             assert_eq!(mesh.len() % 3, 0);
             for tri in mesh.chunks_exact(3) {
                 let p = [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position));
@@ -343,9 +412,58 @@ mod tests {
         };
         let mut mesh = Vec::new();
         part(&mut mesh, [0., 1., 0.], [1., 1., 1.], [1.; 3], STONE);
-        rotate_and_light(&mut mesh, &b, Vec3::ZERO, 0.);
+        let mut occluded = mesh.clone();
+        let visibility = vec![0.; occluded.len()];
+        rotate_and_light(&mut occluded, &b, Vec3::ZERO, 0., Some(&visibility));
+        rotate_and_light(&mut mesh, &b, Vec3::ZERO, 0., None);
         // +Z face rotates to -X, which faces the sun; -Z rotates away from it.
         assert!(mesh[6].color[0] > mesh[0].color[0] + 0.20);
         assert!((mesh[0].color[0] - 0.42).abs() < 1e-5);
+        for (open, closed) in mesh.iter().zip(occluded) {
+            // Only the ambient contribution changes, regardless of face/sun angle.
+            assert!((open.color[0] - closed.color[0] - 0.42 * 0.65).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn shading_subdivision_preserves_the_picking_surface() {
+        let sim = genesis_sim_core::scenarios::coastal_outpost();
+        let mut b = sim.buildings[0].clone();
+        for angle in [0., 0.7] {
+            b.rotation = angle;
+            let mut visible = Vec::new();
+            let mut pick = Vec::new();
+            house(&sim, &mut visible, &b);
+            picking_mesh(&sim, &mut pick, &b);
+            assert!(pick.len() < 16_000);
+            let center = terrain::point(&sim, b.position);
+            for i in 0..24 {
+                let a = i as f32 * std::f32::consts::TAU / 24.;
+                let origin = center + Vec3::new(a.cos() * 0.5, 0.09, a.sin() * 0.5);
+                for offset in [
+                    Vec3::new(0., 0.075, 0.),
+                    Vec3::new(0.08, 0.09, 0.10),
+                    Vec3::new(0., 0.16, 0.),
+                ] {
+                    let direction = (center + offset - origin).normalize();
+                    let hit = |mesh: &[Vertex]| {
+                        mesh.chunks_exact(3)
+                            .filter_map(|tri| {
+                                terrain::intersect(
+                                    origin,
+                                    direction,
+                                    [tri[0], tri[1], tri[2]].map(|v| Vec3::from_array(v.position)),
+                                )
+                            })
+                            .min_by(f32::total_cmp)
+                    };
+                    match (hit(&visible), hit(&pick)) {
+                        (Some(a), Some(b)) => assert!((a - b).abs() < 1e-5),
+                        (None, None) => {}
+                        _ => panic!("shading changed the dwelling silhouette"),
+                    }
+                }
+            }
+        }
     }
 }
