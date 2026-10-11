@@ -15,7 +15,13 @@ fn frame(
             ..Default::default()
         },
         |ctx| {
-            occupied = show(ctx, session, &mut Camera::default(), front);
+            occupied = show(
+                ctx,
+                session,
+                &mut Camera::default(),
+                front,
+                &mut Default::default(),
+            );
         },
     );
     (output, occupied)

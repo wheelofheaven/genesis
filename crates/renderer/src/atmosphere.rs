@@ -1,6 +1,8 @@
 //! Regional atmospheric presentation. A scattering lookup and cloud volume share
 //! these parameters; simulation weather and planetary composition remain separate.
 use glam::{Vec2, Vec3};
+mod motion;
+pub(crate) use motion::CloudMotion;
 
 /// Presentation parameters, independent of any future climate model.
 #[derive(Clone, Copy)]
@@ -18,7 +20,7 @@ impl Default for CloudLayer {
         Self {
             height_metres: 1500.,
             cover: 0.46,
-            shadow_strength: 0.40,
+            shadow_strength: 1.0,
             thickness_metres: 1100.,
             extinction_per_metre: 0.008,
             wind_metres_per_second: Vec2::new(8., 4.),
@@ -76,7 +78,7 @@ impl Atmosphere {
                 atmosphere.clouds.height_metres = 900.;
                 atmosphere.clouds.thickness_metres = 1800.;
                 atmosphere.clouds.extinction_per_metre = 0.012;
-                atmosphere.clouds.shadow_strength = 0.72;
+                atmosphere.clouds.shadow_strength = 1.;
                 atmosphere.clouds.wind_metres_per_second = Vec2::new(12., 6.);
                 atmosphere.density = 0.00016;
                 atmosphere.aerosol = 2.;
@@ -110,6 +112,7 @@ impl FrameUniform {
         aspect: f32,
         time: f32,
         atmosphere: Atmosphere,
+        displacement: Vec2,
     ) -> Self {
         let matrix = camera.view_projection(aspect);
         Self {
@@ -158,11 +161,10 @@ impl FrameUniform {
                 finite(atmosphere.clouds.shadow_strength, 0.4).clamp(0., 1.),
                 crate::clouds::TILE_METRES,
             ],
-            // Wrap displacement, not time: arbitrary wind stays continuous across
-            // the periodic field. f64 multiplication avoids losing the fraction.
+            // The integrated offset is shared by sky, reflections and cloud shadows.
             cloud_motion: [
-                drift(time, atmosphere.clouds.wind_metres_per_second.x),
-                drift(time, atmosphere.clouds.wind_metres_per_second.y),
+                displacement.x,
+                displacement.y,
                 finite(atmosphere.clouds.thickness_metres, 1100.).clamp(100., 6000.),
                 finite(atmosphere.clouds.extinction_per_metre, 0.008).clamp(0., 0.05),
             ],
@@ -173,11 +175,6 @@ impl FrameUniform {
 fn finite(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
 }
-fn drift(time: f32, velocity: f32) -> f32 {
-    (f64::from(finite(time, 0.)) * f64::from(finite(velocity, 0.).clamp(-150., 150.)))
-        .rem_euclid(f64::from(crate::clouds::TILE_METRES)) as f32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,7 +183,7 @@ mod tests {
         assert_eq!(size_of::<FrameUniform>(), 384);
         let mut camera = crate::camera::Camera::default();
         camera.enter_ground(Vec3::new(100., 20., -120.), 0.085);
-        let frame = FrameUniform::new(&camera, 1.6, 1., Atmosphere::default());
+        let frame = FrameUniform::new(&camera, 1.6, 1., Atmosphere::default(), Vec2::ZERO);
         let inverse = glam::Mat4::from_cols_array(&frame.inverse_projection);
         let p = inverse * glam::Vec4::new(0., 0., 0., 1.);
         let ray = p.truncate().normalize();
@@ -206,22 +203,22 @@ mod tests {
             survey: true,
             ..Default::default()
         };
-        let frame = FrameUniform::new(&camera, 1., 4001., atmosphere);
+        let frame = FrameUniform::new(&camera, 1., 4001., atmosphere, Vec2::new(8., 4.));
         assert_eq!(frame.clouds[0], 1540.);
         assert_eq!(frame.clouds[1], 0.);
         assert_eq!(frame.cloud_motion, [8., 4., 1100., 0.008]);
         assert_eq!(
             frame.cloud_motion,
-            FrameUniform::new(&camera, 1., 1., atmosphere).cloud_motion
+            FrameUniform::new(&camera, 1., 1., atmosphere, Vec2::new(8., 4.)).cloud_motion
         );
     }
 
     #[test]
-    fn weather_inputs_stay_finite_and_arbitrary_wind_wraps_continuously() {
+    fn weather_inputs_stay_finite() {
         let camera = crate::camera::Camera::default();
         for profile in ["clear", "fair", "overcast"] {
             let atmosphere = Atmosphere::preview(profile).expect("known preview");
-            let frame = FrameUniform::new(&camera, 1.6, 31., atmosphere);
+            let frame = FrameUniform::new(&camera, 1.6, 31., atmosphere, Vec2::ZERO);
             assert!(
                 bytemuck::cast_slice::<_, f32>(&[frame])
                     .iter()
@@ -239,19 +236,12 @@ mod tests {
         atmosphere.clouds.thickness_metres = -1.;
         atmosphere.clouds.extinction_per_metre = f32::INFINITY;
         atmosphere.clouds.wind_metres_per_second = Vec2::new(f32::NAN, f32::INFINITY);
-        let frame = FrameUniform::new(&camera, 1.6, 0., atmosphere);
+        let frame = FrameUniform::new(&camera, 1.6, 0., atmosphere, Vec2::ZERO);
         assert!(
             bytemuck::cast_slice::<_, f32>(&[frame])
                 .iter()
                 .all(|v| v.is_finite())
         );
         assert_eq!(frame.cloud_motion[2], 100.);
-        for velocity in [-7.25_f32, 3.125, 12.75] {
-            let period = crate::clouds::TILE_METRES / velocity.abs();
-            let before = drift(period - 0.01, velocity);
-            let after = drift(period + 0.01, velocity);
-            let delta = (after - before + 8000.).rem_euclid(16000.) - 8000.;
-            assert!((delta - velocity * 0.02).abs() < 0.01);
-        }
     }
 }

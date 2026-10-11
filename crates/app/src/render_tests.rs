@@ -1,4 +1,5 @@
 //! Opt-in native GPU regression and representative CPU preparation audit.
+mod cloud_shadows;
 mod sky;
 use genesis_renderer::{
     geometry::Vertex,

@@ -2,6 +2,7 @@
 //! Cosmetic atmosphere only; it does not generate weather in the simulation.
 pub(crate) const SIZE: u32 = 512;
 pub(crate) const TILE_METRES: f32 = 16_000.;
+pub(crate) mod shadow;
 mod shape;
 
 pub(crate) struct Clouds {

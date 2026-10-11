@@ -1010,3 +1010,51 @@ need their own presentation and gameplay consequences. Sun motion, seasons and
 planet-specific atmospheric/condensate parameters should drive these systems.
 The broader scope is recorded in the product vision; none of those future effects
 are implied by the three current sky previews.
+
+
+## Wind continuity and volumetric ground shadows
+
+Cloud displacement now integrates the current layer wind over each presentation
+interval in double precision. Changing speed or direction preserves the existing
+cloud position; zero wind freezes the field. Sky, reflected clouds and surface
+shadows consume the same wrapped displacement. This fixes the earlier absolute
+`time * current_wind` calculation, which could teleport clouds on a wind edit.
+A backwards presentation clock resets the preview deterministically; invalid
+clock/wind inputs are bounded. Cosmetic motion still continues while simulation
+is paused. A future deterministic regional weather model should supply layer wind
+through this boundary, with separate altitude-dependent winds when layers arrive.
+
+Surface cloud shadows now use the actual coverage, lobes, erosion, height profile
+and extinction of the visible volume. A 512² R16Float texture (512 KiB) integrates
+32 samples along the fixed sun direction through the layer, storing transmission
+at its base. The map spans the 16 km periodic field in coordinates that move with
+the clouds. It is generated on first use and when cloud geometry/coverage/extinction
+changes, including entering/leaving surveys; wind and camera changes need no
+regeneration. The ordinary frame adds four filtered texture samples per receiver,
+not a cloud ray march. Sun-angle and pixel footprints soften shadow edges. A map
+update adds a GPU pass and roughly 8.4 million density evaluations before empty
+coverage rejection; continuously editing coverage can therefore cost more than
+steady weather. No end-to-end frame-time improvement is claimed.
+
+Receivers project to cloud base along the sun vector using their own height.
+Terrain, paths, buildings, vegetation and water sun highlights share transmission;
+sky fill and water sky reflections remain separately lit. Above-cloud receivers
+stay sunlit; the uncommon receiver inside a cloud uses a bounded 12-step partial
+integral. Default shadow strength now permits full direct-sun extinction while
+retaining the existing artistic ambient fill. The cache resolves features at
+31.25 m, not individual wisps; baked normal lighting, approximate sky fill, the
+fixed sun, and half-resolution sky reconstruction remain limitations.
+
+**Region → Sky and wind** exposes visual profiles, cloud cover, speed (m/s), a
+travel heading (0° north, 90° east), and calm wind. Changes affect presentation
+only and are not saved or applied to ecology. Rain/snow/hail, fog, storms, lightning,
+surface accumulation and weather gameplay remain the staged roadmap above, rather
+than being approximated by the preview controls.
+
+Validation includes unit checks for changing/reversing wind, calm, timestep
+partitioning, wrapping, clock rewind and nonfinite values. Native Metal readback
+checks visible cloud movement and ground-shadow movement, verifies no teleport on
+wind changes, exact calm/reverse behaviour, clear gaps between shadows, and cache
+invalidation when coverage/extinction changes. Landscape captures compare fair and
+clear skies; an eye-height capture checks the cloud appearance. The prior sky
+profile/resize/finite-output regression remains in place.

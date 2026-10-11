@@ -27,6 +27,8 @@ pub struct Gpu {
     sky_lookup: crate::sky::Lookup,
     shadows: crate::shadows::Shadows,
     clouds: crate::clouds::Clouds,
+    cloud_shadow: crate::clouds::shadow::CloudShadow,
+    cloud_motion: crate::atmosphere::CloudMotion,
     pub contacts: crate::contact::Contacts,
     pub world: crate::world_mesh::WorldMesh,
     overlay: wgpu::Buffer,
@@ -98,14 +100,16 @@ impl Gpu {
             label: Some("world and atmosphere"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                     include_str!("frame.wgsl"),
                     include_str!("scene.wgsl"),
                     include_str!("atmosphere.wgsl"),
                     include_str!("terrain.wgsl"),
                     include_str!("water.wgsl"),
                     include_str!("water_optics.wgsl"),
+                    include_str!("cloud_field.wgsl"),
                     include_str!("clouds.wgsl"),
+                    include_str!("cloud_shadow.wgsl"),
                     include_str!("building.wgsl"),
                     include_str!("stone.wgsl"),
                     include_str!("foliage.wgsl"),
@@ -116,9 +120,11 @@ impl Gpu {
                 .into(),
             ),
         });
-        let shadows = crate::shadows::Shadows::new(&device);
         let sky_lookup = crate::sky::Lookup::new(&device, &layout);
         let clouds = crate::clouds::Clouds::new(&device, &queue, &sky_lookup.view);
+        let cloud_shadow =
+            crate::clouds::shadow::CloudShadow::new(&device, &layout, &clouds.layout);
+        let shadows = crate::shadows::Shadows::new(&device, &cloud_shadow.view);
         let contacts = crate::contact::Contacts::new(&device);
         let shadow_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shadow projection"),
@@ -223,6 +229,8 @@ impl Gpu {
             sky_lookup,
             shadows,
             clouds,
+            cloud_shadow,
+            cloud_motion: Default::default(),
             contacts,
             shadow_pipeline,
             instances,
@@ -314,13 +322,16 @@ impl Gpu {
         target: WorldTarget<'_>,
         camera: &Camera,
         aspect: f32,
-        time: f32,
+        time: f64,
         atmosphere: Atmosphere,
         measure: bool,
     ) -> wgpu::CommandEncoder {
         self.sky.resize(&self.device, target.size);
         let timing = self.timing.as_ref().filter(|_| measure);
-        let uniform = FrameUniform::new(camera, aspect, time, atmosphere);
+        let displacement = self
+            .cloud_motion
+            .update(time, atmosphere.clouds.wind_metres_per_second);
+        let uniform = FrameUniform::new(camera, aspect, time as f32, atmosphere, displacement);
         self.queue
             .write_buffer(&self.camera, 0, bytemuck::bytes_of(&uniform));
         // Separate buffers keep both projections alive for the entire submission;
@@ -331,6 +342,12 @@ impl Gpu {
             .write_buffer(&self.far_camera, 0, bytemuck::bytes_of(&far_uniform));
         let mut encoder = self.device.create_command_encoder(&Default::default());
         self.sky_lookup.encode(&mut encoder, &self.camera_group);
+        self.cloud_shadow.encode(
+            &mut encoder,
+            &self.camera_group,
+            &self.clouds.group,
+            &uniform,
+        );
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("half resolution cloud volume and sky"),

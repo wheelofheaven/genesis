@@ -7,6 +7,7 @@ mod navigation;
 mod objects;
 mod survey;
 pub mod theme;
+mod weather;
 
 use crate::session::Session;
 use egui::{Align2, Color32, RichText};
@@ -20,6 +21,7 @@ pub fn show(
     session: &mut Session,
     camera: &mut Camera,
     front: &mut crate::frontend::Frontend,
+    atmosphere: &mut genesis_renderer::atmosphere::Atmosphere,
 ) -> Vec<egui::Rect> {
     let compact = ctx.content_rect().width() < 1120.;
     let mut occupied = vec![
@@ -80,6 +82,8 @@ pub fn show(
                                 });
                             }
                             if session.world_tools {
+                                weather::show(ui, atmosphere);
+                                ui.separator();
                                 world(ui, session, camera);
                             } else if session.survey.open {
                                 survey::panel(ui, session);

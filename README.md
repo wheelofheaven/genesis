@@ -542,9 +542,16 @@ Clouds occupy a finite volume with rounded lobes, shaded interiors and wind drif
 A half-resolution sky pass is capped at 1024×768; terrain edges and the solar disk
 remain at display resolution. Sky, aerial perspective and water share the clear-sky
 lookup; water uses a cheaper version of the same cloud volume. Ground cloud shadows
-use a broad column approximation. Survey views disable clouds and aerial tint.
+sample a cached sun-transmission map integrated through that volume, with soft edges
+and height-correct projection onto terrain, buildings, vegetation and water. Wind
+advects sky, reflections and shadows together. Survey views disable clouds and aerial tint.
 This is an initial single-scattering and volumetric-cloud renderer, with approximate
 cloud lighting and soft/noisy distant edges. It is not yet a dynamic weather system.
+
+**Region → Sky and wind** offers live clear/fair/overcast previews, cloud cover,
+wind speed and a compass heading describing the direction clouds travel towards.
+Wind changes preserve cloud position; calm wind stops motion. These are visual
+controls, not simulated weather or saved climate state.
 
 `--weather clear|fair|overcast` selects a presentation preview; `fair` is the default.
 For example, `mise exec -- cargo run -p genesis-app -- --weather overcast` launches

@@ -282,3 +282,12 @@ coverage, extinction and wind, plus clear/fair/overcast visual previews. A futur
 deterministic weather model belongs in `sim_core`; the application interpolates
 its presentation state and the renderer consumes it. Time of day, precipitation,
 surface accumulation, weather audio and gameplay consequences remain future work.
+
+
+Clouds should follow the current wind continuously, including when wind direction
+or speed changes, and cast moving shadows that agree with their visible forms.
+Cloud height and the sun direction determine where those shadows fall. The first
+implementation integrates layer wind and shares the cloud volume with a cached
+surface-shadow projection. Future weather should drive the same inputs and unify
+wind across precipitation, vegetation and water; live sky controls are previews,
+not substitutes for deterministic regional weather state.

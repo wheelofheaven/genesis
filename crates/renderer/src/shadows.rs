@@ -10,7 +10,7 @@ pub struct Shadows {
     pub group: wgpu::BindGroup,
 }
 impl Shadows {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, cloud_shadow: &wgpu::TextureView) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("nested sunlight depth"),
             size: wgpu::Extent3d {
@@ -63,6 +63,16 @@ impl Shadows {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -76,6 +86,10 @@ impl Shadows {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(cloud_shadow),
                 },
             ],
         });

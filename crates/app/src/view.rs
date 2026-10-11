@@ -318,7 +318,7 @@ impl View {
         let mut custom_cursor = false;
         let output = context.run(self.gui_state.take_egui_input(&self.window), |ctx| {
             self.occupied = if front.playing() {
-                ui::show(ctx, session, camera, front)
+                ui::show(ctx, session, camera, front, &mut self.atmosphere)
             } else {
                 front.show(ctx, session, camera)
             };
@@ -473,7 +473,7 @@ impl View {
             if capture.is_some() {
                 1.
             } else {
-                self.started.elapsed().as_secs_f32()
+                self.started.elapsed().as_secs_f64()
             },
             genesis_renderer::atmosphere::Atmosphere {
                 sea_level: session.sim.sea_level,
