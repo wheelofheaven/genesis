@@ -12,7 +12,18 @@ fn main() {
             .iter()
             .filter(|c| c.elevation > sim.sea_level)
             .count();
-        let trees = sim.geography.cover.iter().filter(|c| !c.rock).count();
+        let trees = sim.geography.cover.iter().filter(|c| c.kind.tree()).count();
+        for kind in genesis_sim_core::ecology::CoverKind::ALL {
+            println!(
+                "  {}: {}",
+                kind.name(),
+                sim.geography
+                    .cover
+                    .iter()
+                    .filter(|c| c.kind == kind)
+                    .count()
+            );
+        }
         let elevation = sim
             .grid
             .cells()

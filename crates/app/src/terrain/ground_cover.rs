@@ -82,6 +82,8 @@ pub fn placements(sim: &SimState, eye: Vec3) -> Vec<Instance> {
             }
             let fade = ((metres(38.) - distance) / metres(10.)).clamp(0., 1.);
             let variation = unit(sim.config.seed ^ 523, id);
+            let moisture = spatial::sample(&sim.grid, p, |c| c.moisture);
+            let dry = ((0.65 - moisture) * sim.geography.climate.summer_drought).clamp(0., 0.5);
             out.push(Instance {
                 position_scale: [
                     ground.x,
@@ -90,8 +92,8 @@ pub fn placements(sim: &SimState, eye: Vec3) -> Vec<Instance> {
                     (0.65 + variation * 0.8) * fade,
                 ],
                 tint_rotation: [
-                    0.85 + variation * 0.3,
-                    0.9 + variation * 0.2,
+                    0.85 + variation * 0.3 + dry * 0.65,
+                    0.9 + variation * 0.2 - dry * 0.10,
                     1.,
                     variation * std::f32::consts::TAU,
                 ],

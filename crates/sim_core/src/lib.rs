@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod catalog;
 pub mod config;
+pub mod ecology;
 pub mod events;
 pub mod grid;
 pub mod paths;
@@ -117,7 +118,7 @@ impl SimState {
                                 !paths::on_path(
                                     &path,
                                     plant.position,
-                                    units::metres(if plant.rock { 2.34 } else { 0.5 }) * plant.size,
+                                    plant.kind.collision_radius() * plant.size + units::metres(0.3),
                                 )
                             });
                             self.paths.push(path);
@@ -135,6 +136,10 @@ impl SimState {
                     match self.validate_building(&building) {
                         Ok(()) => {
                             events.push(SimEvent::BuildingPlaced { id: building.id });
+                            self.geography.cover.retain(|plant| {
+                                paths::distance(plant.position, building.position)
+                                    >= units::metres(if plant.kind.tree() { 6. } else { 4. })
+                            });
                             self.buildings.push(building);
                         }
                         Err(reason) => events.push(SimEvent::BuildingRejected { reason }),

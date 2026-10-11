@@ -1,99 +1,149 @@
-//! Procedural foliage lobes and weathered rocks at human scale.
+//! Cached metric scenery, culled and instanced at three distances.
+mod meshes;
 use crate::terrain;
-use genesis_renderer::geometry::{Vertex, cuboid};
-use genesis_sim_core::SimState;
+use genesis_renderer::{
+    camera::Camera,
+    instances::{Instance, SceneryVertex},
+};
+use genesis_sim_core::{SimState, ecology::CoverKind, units::metres, worldgen::noise::unit};
 use glam::Vec3;
-
-fn stone(out: &mut Vec<Vertex>, center: Vec3, radius: f32, height: f32, color: Vec3) {
-    // Irregular latitude rings remove the old diamond/bipyramid silhouette.
-    let vertex = |ring: usize, segment: usize| {
-        let a = segment as f32 * std::f32::consts::TAU / 7.;
-        let t = ring as f32 * std::f32::consts::PI / 3.;
-        let variation = 1. + 0.10 * (a * 3. + center.x * 7.).sin() * t.sin();
-        let normal = Vec3::new(t.sin() * a.cos(), t.cos(), t.sin() * a.sin());
-        let p = center + normal * Vec3::new(radius * variation, height, radius * variation);
-        let shade = 0.53 + 0.47 * normal.dot(Vec3::new(-0.5, 0.75, 0.3).normalize()).max(0.);
-        let tint = color * shade;
-        Vertex {
-            position: p.to_array(),
-            color: [tint.x, tint.y, tint.z, 1.],
-        }
-    };
-    for ring in 0..3 {
-        for i in 0..7 {
-            let a = vertex(ring, i);
-            let b = vertex(ring, i + 1);
-            let c = vertex(ring + 1, i);
-            let d = vertex(ring + 1, i + 1);
-            if ring > 0 {
-                out.extend_from_slice(&[a, b, c]);
-            }
-            if ring < 2 {
-                out.extend_from_slice(&[b, d, c]);
-            }
-        }
-    }
+pub const VARIANTS: usize = 2;
+pub const LODS: usize = 3;
+pub const BATCHES: usize = 8 * VARIANTS * LODS;
+fn batch(kind: CoverKind, variant: usize, lod: usize) -> usize {
+    (kind.index() * VARIANTS + variant) * LODS + lod
 }
-
-/// Shared meshes are authored in metres before conversion to world units.
-pub fn meshes() -> [Vec<Vertex>; 2] {
-    use genesis_sim_core::units::metres;
-    let mut tree = Vec::new();
-    let s = metres(7.);
-    cuboid(
-        &mut tree,
-        [0., s * 0.55, 0.],
-        [s * 0.07, s * 1.1, s * 0.07],
-        [0.25, 0.21, 0.13],
-    );
-    for lobe in 0..5 {
-        let angle = lobe as f32 * 2.399963;
-        let reach = if lobe == 0 { 0. } else { s * 0.43 };
-        let center = Vec3::new(
-            angle.cos() * reach,
-            s * (1.05 + 0.16 * (angle * 1.3).sin()),
-            angle.sin() * reach,
-        );
-        stone(
-            &mut tree,
-            center,
-            s * (0.42 + 0.06 * angle.sin()),
-            s * 0.38,
-            Vec3::new(0.20, 0.28, 0.115) * (0.93 + 0.07 * angle.cos()),
-        );
-    }
-    let mut rock = Vec::new();
-    let s = metres(3.6);
-    stone(
-        &mut rock,
-        Vec3::Y * s * 0.16,
-        s * 0.65,
-        s * 0.42,
-        Vec3::new(0.49, 0.43, 0.33),
-    );
-    [tree, rock]
-}
-
-pub fn placements(sim: &SimState) -> [Vec<genesis_renderer::instances::Instance>; 2] {
-    let mut result = [Vec::new(), Vec::new()];
-    for (index, plant) in sim.geography.cover.iter().enumerate() {
-        let p = terrain::point(sim, plant.position);
-        if p.y < sim.sea_level + genesis_sim_core::units::metres(2.)
-            || sim.buildings.iter().any(|b| {
-                (b.position.x - plant.position.x).powi(2)
-                    + (b.position.z - plant.position.z).powi(2)
-                    < genesis_sim_core::settlement::Building::TREE_CLEARANCE.powi(2)
+pub fn meshes() -> Vec<Vec<SceneryVertex>> {
+    CoverKind::ALL
+        .into_iter()
+        .flat_map(|kind| {
+            (0..VARIANTS).flat_map(move |variant| {
+                (0..LODS).map(move |lod| meshes::build(kind, variant, lod))
             })
-        {
-            continue;
+        })
+        .collect()
+}
+struct Item {
+    kind: CoverKind,
+    variant: usize,
+    position: Vec3,
+    instance: Instance,
+    radius: f32,
+}
+pub struct Scenery {
+    items: Vec<Item>,
+}
+impl Scenery {
+    pub fn new(sim: &SimState) -> Self {
+        let mut items = Vec::new();
+        for plant in &sim.geography.cover {
+            let p = terrain::point(sim, plant.position);
+            if p.y < sim.sea_level + metres(0.3)
+                || sim.buildings.iter().any(|b| {
+                    genesis_sim_core::paths::distance(b.position, plant.position)
+                        < metres(if plant.kind.tree() { 6. } else { 4. })
+                })
+                || sim.paths.iter().any(|path| {
+                    genesis_sim_core::paths::on_path(
+                        path,
+                        plant.position,
+                        plant.kind.collision_radius() * plant.size + metres(0.2),
+                    )
+                })
+            {
+                continue;
+            }
+            let variation = unit(plant.seed, 955);
+            let shade = 0.86 + unit(plant.seed, 959) * 0.27;
+            let radius = metres(if plant.kind.tree() {
+                17.
+            } else if plant.kind.rock() {
+                2.5
+            } else {
+                2.
+            }) * plant.size;
+            items.push(Item {
+                kind: plant.kind,
+                variant: (plant.seed % VARIANTS as u64) as usize,
+                position: p,
+                radius,
+                instance: Instance {
+                    position_scale: [p.x, p.y, p.z, plant.size],
+                    tint_rotation: [
+                        shade,
+                        shade * (0.97 + variation * 0.06),
+                        shade * (0.92 + variation * 0.12),
+                        variation * std::f32::consts::TAU,
+                    ],
+                },
+            });
         }
-        let variation =
-            genesis_sim_core::worldgen::noise::unit(sim.config.seed ^ 955, index as u64);
-        let shade = 0.88 + variation * 0.24;
-        result[usize::from(plant.rock)].push(genesis_renderer::instances::Instance {
-            position_scale: [p.x, p.y, p.z, plant.size],
-            tint_rotation: [shade, shade, shade, variation * std::f32::consts::TAU],
-        });
+        Self { items }
     }
-    result
+    /// Large conservative bounds keep whole crowns visible at screen edges.
+    pub fn visible(&self, camera: &Camera, aspect: f32) -> Vec<Vec<Instance>> {
+        let mut batches = vec![Vec::new(); BATCHES];
+        let matrix = camera.view_projection(aspect);
+        let eye = camera.eye();
+        for item in &self.items {
+            let distance = item.position.distance(eye);
+            let range = metres(if item.kind.tree() {
+                12000.
+            } else if item.kind.rock() {
+                1400.
+            } else {
+                400.
+            });
+            if distance > range {
+                continue;
+            }
+            let clip = matrix * (item.position + Vec3::Y * item.radius * 0.4).extend(1.);
+            let margin = item.radius * 3.;
+            if clip.w < -margin || clip.x.abs() > clip.w + margin || clip.y.abs() > clip.w + margin
+            {
+                continue;
+            }
+            let lod = if distance < metres(85.) {
+                0
+            } else if distance < metres(320.) {
+                1
+            } else {
+                2
+            };
+            let mut instance = item.instance;
+            // Shrubs fade by shrinking only over the last 60 m of their range.
+            if !item.kind.tree() && !item.kind.rock() {
+                instance.position_scale[3] *= ((range - distance) / metres(60.)).clamp(0., 1.);
+            }
+            batches[batch(item.kind, item.variant, lod)].push(instance);
+        }
+        batches
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scenery_meshes_have_finite_metric_bounds_and_reduce_detail() {
+        for kind in CoverKind::ALL {
+            let detailed = meshes::build(kind, 0, 0);
+            let distant = meshes::build(kind, 0, 2);
+            assert!(detailed.len() > distant.len(), "{}", kind.name());
+            for v in &detailed {
+                assert!(
+                    v.position
+                        .iter()
+                        .chain(&v.normal)
+                        .chain(&v.color)
+                        .all(|v| v.is_finite())
+                );
+                let p = Vec3::from_array(v.position);
+                assert!(p.length() < metres(20.), "{}: {p:?}", kind.name());
+            }
+            if kind.tree() {
+                assert!(distant.len() < 2500);
+            }
+        }
+    }
 }

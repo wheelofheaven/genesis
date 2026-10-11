@@ -173,8 +173,8 @@ map area. This is a working geometry convention, not a claim of historical house
 resource volumes, time, and existing survey readouts retain their prototype units.
 `--settlement-capture /tmp/genesis-settlement.png` captures a close view for scale
 review; `--landscape-capture /tmp/genesis-landscape.png` frames its surroundings.
-Generation recipe 6 includes local surface detail and preserves jittered vegetation
-sampling at 10 m intervals, with fertility and broad patches shaping the groves.
+Generation recipe 7 preserves local surface detail and adds climate-aware vegetation
+assemblages, clustered understorey and formation-specific stones.
 The environmental field still uses 20 m samples. Trees and rocks share GPU meshes;
 each placement uses 32 bytes rather than duplicating its geometry. River widths
 follow local rainfall-weighted catchment area (bounded to 0.8–12 m), instead of
@@ -410,3 +410,41 @@ Step. This is a geometric path network; agent routing is still future work.
 `mise exec -- cargo run -- --interaction-test /tmp/genesis-interactions.png`
 checks roof picking, path drafting, paused construction, and selecting the result
 on the native GPU. It also writes `.house.png` and `.draft.png` captures.
+
+
+### Ecosystems and scenery
+
+Recipe 7 separates habitat rules in `sim_core::ecology` from disposable scenery
+meshes. Scenario climate records prescribe temperature, moisture scaling, and
+summer drought; altitude, slope, local moisture, river proximity and rock type
+influence the vegetation mix. Earth coordinates are not required by these rules.
+The current catalogue contains functional Mediterranean-inspired forms: broadleaf,
+open pine, riparian broadleaf, evergreen shrub and dry scrub. These are procedural
+proxies, not authenticated species or historical botanical reconstructions.
+
+Stable placement seeds drive mesh variant, scale, rotation and tint independently
+of vector order. Vegetation forms patches and understorey clusters; limestone,
+sandstone and basalt use different rock geometry/colour and nearby fragments.
+Exposed terrain follows formation colours. Construction exclusions use continuous
+path segments; trees and stones retain solid footprints while shrubs are traversable.
+
+Rendering uses branching trunks, cutout leaf/needle sprays, two variants per type,
+three mesh detail levels, frustum culling and bounded shrub visibility. Scenery
+alone carries normals and leaf coordinates, leaving the terrain vertex budget
+unchanged. Bark, leaves and rocks have separate procedural material treatments.
+A 2048² local sun-shadow map includes terrain, houses, foliage and stones, with
+filtered comparison samples and a soft boundary around the camera focus. Foliage
+sway also affects the shadow pass. This is one bounded shadow region, not a
+planet-wide cascaded-shadow solution; mesh LOD transitions are currently discrete.
+
+`--ecology-capture /tmp/ecology.png` frames vegetation near the settlement;
+`--ecology-ground-capture /tmp/ecology-ground.png` inspects it at eye height.
+Both accept `--region coast|highlands|island` and `--seed`.
+
+Next realism work: species-specific authored assets, terrain-conforming roots and
+stone bedding, seasonal phenology, leaf litter and deadwood, continuous LOD
+transitions, and streamed vegetation chunks. Climate currently guides generation;
+it does not yet simulate plant succession, growth, reproduction or mortality.
+Future ecosystems need their own species/functional catalogues and habitat rules,
+not just colour changes to this Mediterranean assemblage. Exoplanet chemistry,
+gravity and life forms remain future simulation inputs.

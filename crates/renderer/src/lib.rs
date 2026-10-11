@@ -4,3 +4,5 @@ pub mod geometry;
 pub mod glass;
 pub mod gpu;
 pub mod instances;
+
+mod shadows;

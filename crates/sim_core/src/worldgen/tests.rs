@@ -64,7 +64,7 @@ fn seed_sweep_has_land_sea_rivers_resources_and_valid_settlements() {
             assert!((0. ..HEIGHT as f32 - 1.).contains(&plant.position.z));
             assert!(
                 crate::spatial::elevation(&sim.grid, plant.position)
-                    >= sim.sea_level + crate::units::metres(9.)
+                    >= sim.sea_level + crate::units::metres(1.5)
             );
             assert!(river_distance(&sim, plant.position) >= crate::units::metres(8.));
             assert!(
@@ -72,7 +72,7 @@ fn seed_sweep_has_land_sea_rivers_resources_and_valid_settlements() {
                     .iter()
                     .all(|b| (b.position.x - plant.position.x).powi(2)
                         + (b.position.z - plant.position.z).powi(2)
-                        >= crate::settlement::Building::TREE_CLEARANCE.powi(2))
+                        >= crate::units::metres(if plant.kind.tree() { 6. } else { 4. }).powi(2))
             );
         }
         assert_eq!(sim.buildings.len(), 6, "seed {seed}: settlement");

@@ -102,11 +102,14 @@ pub fn advance(
             input.cursor = Some(pointer(view, camera, terrain::point(&session.sim, p))?);
         }
         24 => {
-            let cursor = input.cursor.ok_or("no path pointer")?;
+            // Test the current projected target, independently of delayed OS warp
+            // events or the user moving their pointer during this native check.
+            let cursor = pointer(view, camera, terrain::point(&session.sim, session.position))?;
+            input.cursor = Some(cursor);
             let ground = view.pick(session, camera, cursor);
             let hit = view.pick_object(session, camera, cursor, ground);
             if hit != session.selected_object {
-                return Err(format!("path picking failed: {hit:?}").into());
+                return Err(format!("path picking failed: {hit:?}, cursor {cursor:?}, ground {ground:?}, expected {:?} at {:?}",session.selected_object,session.position).into());
             }
         }
         _ => {}

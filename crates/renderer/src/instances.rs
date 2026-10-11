@@ -8,6 +8,15 @@ pub struct Instance {
     pub position_scale: [f32; 4],
     pub tint_rotation: [f32; 4],
 }
+/// Scenery alone carries normals and leaf coordinates; regional terrain stays compact.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SceneryVertex {
+    pub position: [f32; 3],
+    pub color: [f32; 4],
+    pub normal: [f32; 3],
+    pub uv: [f32; 2],
+}
 struct Batch {
     mesh: wgpu::Buffer,
     vertices: u32,
@@ -16,6 +25,7 @@ struct Batch {
 }
 pub struct Instances {
     pipeline: wgpu::RenderPipeline,
+    shadow_pipeline: wgpu::RenderPipeline,
     batches: Vec<Batch>,
 }
 impl Instances {
@@ -23,6 +33,7 @@ impl Instances {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         layout: &wgpu::PipelineLayout,
+        shadow_layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
     ) -> Self {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -34,9 +45,9 @@ impl Instances {
                 compilation_options: Default::default(),
                 buffers: &[
                     wgpu::VertexBufferLayout {
-                        array_stride: size_of::<Vertex>() as u64,
+                        array_stride: size_of::<SceneryVertex>() as u64,
                         step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 4 => Float32x3, 5 => Float32x2],
                     },
                     wgpu::VertexBufferLayout {
                         array_stride: size_of::<Instance>() as u64,
@@ -56,7 +67,7 @@ impl Instances {
                 })],
             }),
             primitive: wgpu::PrimitiveState {
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -70,12 +81,66 @@ impl Instances {
             multiview: None,
             cache: None,
         });
+        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("instanced scenery"),
+            layout: Some(shadow_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("shadow_instanced_vertex"),
+                compilation_options: Default::default(),
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: size_of::<SceneryVertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 4 => Float32x3, 5 => Float32x2],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: size_of::<Instance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![2 => Float32x4, 3 => Float32x4],
+                    },
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("shadow_fragment"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: Default::default(),
+                bias: wgpu::DepthBiasState { constant: 2, slope_scale: 2., clamp: 0. },
+            }),
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
         Self {
+            shadow_pipeline,
             pipeline,
             batches: Vec::new(),
         }
     }
     pub fn add_mesh(&mut self, device: &wgpu::Device, vertices: &[Vertex]) -> usize {
+        let vertices: Vec<_> = vertices
+            .iter()
+            .map(|v| SceneryVertex {
+                position: v.position,
+                color: v.color,
+                normal: [0., 1., 0.],
+                uv: [0., 0.],
+            })
+            .collect();
+        self.add_scenery(device, &vertices)
+    }
+    pub fn add_scenery(&mut self, device: &wgpu::Device, vertices: &[SceneryVertex]) -> usize {
         let index = self.batches.len();
         self.batches.push(Batch {
             mesh: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -116,8 +181,15 @@ impl Instances {
         }
         batch.count = instances.len() as u32;
     }
+    pub fn render_shadow(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_pipeline(&self.shadow_pipeline);
+        self.draw_batches(pass);
+    }
     pub fn render(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);
+        self.draw_batches(pass);
+    }
+    fn draw_batches(&self, pass: &mut wgpu::RenderPass<'_>) {
         for batch in &self.batches {
             if batch.count == 0 {
                 continue;

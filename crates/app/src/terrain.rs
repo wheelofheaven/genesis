@@ -53,7 +53,11 @@ fn colored_vertex(
     let sand = Vec3::new(0.55, 0.48, 0.34);
     let grass = Vec3::new(0.30 - green * 0.10, 0.30 + green * 0.025, 0.13);
     let slope = (1. - normal.y).clamp(0., 1.);
-    let stone = Vec3::new(0.39, 0.37, 0.30);
+    let stone = match sim.subsurface.reading(p).rock {
+        genesis_sim_core::subsurface::Rock::Limestone => Vec3::new(0.53, 0.49, 0.39),
+        genesis_sim_core::subsurface::Rock::Sandstone => Vec3::new(0.48, 0.33, 0.21),
+        genesis_sim_core::subsurface::Rock::Basalt => Vec3::new(0.22, 0.23, 0.21),
+    };
     let exposure = ((v.y - 18.) / 26.)
         .clamp(0., 1.)
         .max((slope * 2.5).clamp(0., 1.));

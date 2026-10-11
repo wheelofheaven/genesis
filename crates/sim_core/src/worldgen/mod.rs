@@ -26,6 +26,8 @@ pub struct Geography {
     pub version: u32,
     #[serde(default)]
     pub region: Region,
+    #[serde(default)]
+    pub climate: crate::ecology::Climate,
     pub rivers: Vec<River>,
     pub cover: Vec<Cover>,
 }
@@ -33,7 +35,8 @@ pub struct Geography {
 pub struct Cover {
     pub position: Position,
     pub size: f32,
-    pub rock: bool,
+    pub kind: crate::ecology::CoverKind,
+    pub seed: u64,
 }
 
 /// A new Mediterranean-inspired coastal region with reproducible terrain,
@@ -74,7 +77,8 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
     }
     let flow = drainage::route(&mut sim.grid, sim.sea_level);
     sim.geography = Geography {
-        version: 6,
+        version: 7,
+        climate: crate::ecology::Climate::for_region(region),
         region,
         rivers: drainage::rivers(
             &sim.grid,

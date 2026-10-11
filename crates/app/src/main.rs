@@ -384,7 +384,8 @@ impl ApplicationHandler for App {
                 self.input.alt = modifiers.state().alt_key();
             }
             WindowEvent::Occluded(hidden) => {
-                self.hidden = hidden;
+                // Automated captures must finish even when another window covers them.
+                self.hidden = hidden && self.capture.is_none();
                 self.last_frame = Some(Instant::now());
                 self.input.clear();
             }
@@ -561,6 +562,8 @@ fn main() -> Result<()> {
             if flag == "--capture"
                 || flag == "--settlement-capture"
                 || flag == "--ground-capture"
+                || flag == "--ecology-capture"
+                || flag == "--ecology-ground-capture"
                 || flag == "--landscape-capture"
                 || flag == "--seafloor-capture"
                 || flag == "--smoke-test"
@@ -581,7 +584,7 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
@@ -623,6 +626,39 @@ fn main() -> Result<()> {
             } else {
                 4.5
             });
+    }
+    if args
+        .first()
+        .is_some_and(|flag| flag == "--ecology-capture" || flag == "--ecology-ground-capture")
+    {
+        let anchor = app.session.position;
+        let plant = app
+            .session
+            .sim
+            .geography
+            .cover
+            .iter()
+            .filter(|c| c.kind.tree())
+            .min_by(|a, b| {
+                genesis_sim_core::paths::distance(a.position, anchor)
+                    .total_cmp(&genesis_sim_core::paths::distance(b.position, anchor))
+            })
+            .ok_or("region has no trees to inspect")?;
+        let p = plant.position;
+        app.session.select(p);
+        app.session.clock.paused = true;
+        app.camera.center(
+            terrain::point(&app.session.sim, p)
+                + glam::Vec3::Y * genesis_sim_core::units::metres(3.),
+        );
+        app.camera.set_visible_height(2.2);
+        if args[0] == "--ecology-ground-capture" {
+            ground::toggle(&app.session.sim, p, &mut app.camera);
+            app.camera.look_at_ground(
+                terrain::point(&app.session.sim, p)
+                    + glam::Vec3::Y * genesis_sim_core::units::metres(4.),
+            );
+        }
     }
     if args.first().is_some_and(|flag| flag == "--ground-capture") {
         ground::toggle(&app.session.sim, app.session.position, &mut app.camera);

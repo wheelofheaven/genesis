@@ -25,12 +25,10 @@ pub fn standable(sim: &SimState, p: Position) -> bool {
         }
     }
     for plant in &sim.geography.cover {
-        let r = radius
-            + if plant.rock {
-                metres(2.34) * plant.size
-            } else {
-                metres(0.35) * plant.size
-            };
+        if (!plant.kind.tree() && !plant.kind.rock()) || (plant.kind.rock() && plant.size < 0.15) {
+            continue;
+        }
+        let r = radius + plant.kind.collision_radius() * plant.size;
         if (plant.position.x - p.x).powi(2) + (plant.position.z - p.z).powi(2) < r * r {
             return false;
         }

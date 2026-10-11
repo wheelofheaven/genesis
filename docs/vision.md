@@ -243,3 +243,12 @@ not a substitute for that simulation architecture.
 
 Introduce modules and crates when concrete work requires them. Preserve bounded,
 stable simulation values, invariant tests, and clear ownership of state.
+
+
+Scenery must read as a real ecosystem at human scale: trees, bushes, shrubs,
+stones and ground cover with coherent sizes, structure and placement. Botany,
+climate and geology should determine local assemblages. Regional and future
+exoplanet ecosystems must support distinct life forms and material definitions;
+a universal tree mesh with biome colour swaps is insufficient. The first
+implementation separates functional habitat rules from instanced mesh/material
+catalogues, with local sunlight shadows and view-dependent detail.

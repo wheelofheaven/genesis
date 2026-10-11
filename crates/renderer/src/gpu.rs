@@ -9,6 +9,8 @@ pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    shadow_pipeline: wgpu::RenderPipeline,
+    shadows: crate::shadows::Shadows,
     vertices: wgpu::Buffer,
     count: u32,
     overlay: wgpu::Buffer,
@@ -36,7 +38,7 @@ impl Gpu {
         });
         let camera = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera"),
-            size: 80,
+            size: 144,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -62,9 +64,15 @@ impl Gpu {
             }],
         });
         let shader = device.create_shader_module(wgpu::include_wgsl!("scene.wgsl"));
+        let shadows = crate::shadows::Shadows::new(&device);
+        let shadow_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("shadow projection"),
+            bind_group_layouts: &[&layout],
+            push_constant_ranges: &[],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[&layout, &shadows.layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -105,9 +113,49 @@ impl Gpu {
             multiview: None,
             cache: None,
         });
-        let instances =
-            crate::instances::Instances::new(&device, format, &pipeline_layout, &shader);
+        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("world sun shadows"),
+            layout: Some(&shadow_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("shadow_vertex"),
+                compilation_options: Default::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                }],
+            },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: Default::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.,
+                    clamp: 0.,
+                },
+            }),
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
+        let instances = crate::instances::Instances::new(
+            &device,
+            format,
+            &pipeline_layout,
+            &shadow_layout,
+            &shader,
+        );
         Ok(Self {
+            shadows,
+            shadow_pipeline,
             instances,
             device,
             queue,
@@ -188,12 +236,35 @@ impl Gpu {
         view_projection: Mat4,
         view_direction: glam::Vec3,
         time: f32,
+        focus: glam::Vec3,
     ) -> wgpu::CommandEncoder {
         let mut matrix = view_projection.to_cols_array().to_vec();
         matrix.extend_from_slice(&[view_direction.x, view_direction.y, view_direction.z, time]);
+        matrix.extend_from_slice(&crate::shadows::Shadows::matrix(focus).to_cols_array());
         self.queue
             .write_buffer(&self.camera, 0, bytemuck::cast_slice(&matrix));
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("local sun shadows"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadows.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.shadow_pipeline);
+            pass.set_bind_group(0, &self.camera_group, &[]);
+            pass.set_vertex_buffer(0, self.vertices.slice(..));
+            pass.draw(0..self.count, 0..1);
+            self.instances.render_shadow(&mut pass);
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -224,6 +295,7 @@ impl Gpu {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.camera_group, &[]);
+            pass.set_bind_group(1, &self.shadows.group, &[]);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
             pass.draw(0..self.count, 0..1);
             pass.set_vertex_buffer(0, self.overlay.slice(..));

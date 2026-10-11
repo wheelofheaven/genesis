@@ -32,7 +32,9 @@ pub struct View {
     terrain_changed: bool,
     started: Instant,
     scenery_buildings: Option<usize>,
-    foliage_batches: [usize; 2],
+    foliage_batches: Vec<usize>,
+    scenery: Option<crate::landscape::Scenery>,
+    scenery_camera: Option<glam::Mat4>,
     ground_batch: usize,
     occupied: Vec<egui::Rect>,
     path_tool_active: bool,
@@ -87,14 +89,18 @@ impl View {
         );
         let glass =
             genesis_renderer::glass::Glass::new(&gpu, config.width, config.height, config.format);
-        let foliage_batches =
-            crate::landscape::meshes().map(|mesh| gpu.instances.add_mesh(&gpu.device, &mesh));
+        let foliage_batches = crate::landscape::meshes()
+            .iter()
+            .map(|mesh| gpu.instances.add_scenery(&gpu.device, mesh))
+            .collect();
         let ground_batch = gpu
             .instances
             .add_mesh(&gpu.device, &terrain::ground_cover::mesh());
         Ok(Self {
             ground_batch,
             foliage_batches,
+            scenery: None,
+            scenery_camera: None,
             glass,
             occupied: Vec::new(),
             path_tool_active: false,
@@ -322,18 +328,8 @@ impl View {
                     >= Duration::from_millis(if session.survey.active() { 250 } else { 1000 }))
         {
             if self.scenery_buildings != Some(session.sim.buildings.len()) {
-                for (batch, placements) in self
-                    .foliage_batches
-                    .into_iter()
-                    .zip(crate::landscape::placements(&session.sim))
-                {
-                    self.gpu.instances.upload(
-                        &self.gpu.device,
-                        &self.gpu.queue,
-                        batch,
-                        &placements,
-                    );
-                }
+                self.scenery = Some(crate::landscape::Scenery::new(&session.sim));
+                self.scenery_camera = None;
                 self.scenery_buildings = Some(session.sim.buildings.len());
             }
             if let Some((_, cache)) = &self.terrain_cache {
@@ -347,6 +343,25 @@ impl View {
             self.last_world_upload = Instant::now();
             session.dirty = false;
             session.urgent_redraw = false;
+        }
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        let matrix = camera.view_projection(aspect);
+        if front.surface_backdrop() && self.scenery_camera != Some(matrix) {
+            if let Some(scenery) = &self.scenery {
+                for (&batch, placements) in self
+                    .foliage_batches
+                    .iter()
+                    .zip(scenery.visible(camera, aspect))
+                {
+                    self.gpu.instances.upload(
+                        &self.gpu.device,
+                        &self.gpu.queue,
+                        batch,
+                        &placements,
+                    );
+                }
+            }
+            self.scenery_camera = Some(matrix);
         }
         if session.overlay_dirty {
             self.gpu.upload_overlay(&scene::overlay(session));
@@ -395,6 +410,7 @@ impl View {
             } else {
                 self.started.elapsed().as_secs_f32()
             },
+            camera.focus,
         );
         if !panels.is_empty() {
             self.glass
