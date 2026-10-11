@@ -930,3 +930,83 @@ identical shadow/scenery submissions. World-pass timing was unavailable for the
 updated captures, so no frame-time parity or improvement is established.
 App/renderer suites pass 84 tests with six existing ignored tests; workspace
 Clippy and formatting checks are clean.
+
+## Sky volume and weather foundation
+
+This replaces the earlier painted gradient and flat cloud sheet. The design
+references [Hillaire's atmosphere work](https://sebh.github.io/publications/egsr2020.pdf)
+for separating sky transport into small lookup tables, and
+[Guerrilla's volumetric cloud work](https://www.guerrilla-games.com/read/the-real-time-volumetric-cloudscapes-of-horizon-zero-dawn)
+for coverage-driven cloud volumes. The current implementation is a smaller,
+independently written regional renderer with the limits described below.
+
+A 128×64 RGBA16Float table integrates molecular and aerosol single scattering
+through a spherical atmosphere using 32 quadratically spaced samples. Elevation
+samples concentrate near the horizon. Planet radius, atmosphere height, molecular
+RGB optical depth, aerosol loading and both scale heights are explicit inputs;
+Earth-like values are defaults. Camera altitude updates the table each frame.
+Sky, cloud haze, water reflection and regional aerial perspective sample this same
+table. The sun is still fixed at the scene's existing daytime direction; solar
+attenuation uses a local plane-parallel approximation appropriate to that high sun.
+Higher scattering orders use a small artistic fill. Ozone, moving low sun, orbital
+views, night skies and a physical aerial-perspective volume remain future work.
+
+Cloud coverage retains the 512² periodic map. A new 64³ R8 cellular volume provides
+rounded lobes and a second erosion scale. Its seven mip levels total 299,593 bytes.
+Cloud height, thickness, extinction, coverage and wind are independent presentation
+parameters. Displacement wraps per axis over 16 km, including arbitrary and negative
+wind speeds; the 2 km lobe texture repeats exactly across that boundary. Clouds
+advance on presentation time, including while the simulation is paused; captures
+fix the time to one second. No cloud or weather state enters the simulation or saves.
+
+The sky integrates the finite slab front-to-back with Beer extinction, up to 64
+steps, and early exits below 1% transmission. Three sparse sunward density probes
+approximate self-shadowing, with an artistic diffuse fill and forward scattering.
+A spatially fixed per-pixel jitter replaces coherent sample bands with fine noise.
+Angular and ray-step footprints filter both lobe scales. Cloud bases vary with
+lobe density; they do not remain one horizontal cutout. At the 48 km integration
+limit the cloud radiance blends toward atmospheric haze. Very distant cloud edges
+remain soft/noisy; temporal reconstruction and multiple cloud layers are not present.
+
+Clouds and clear-sky radiance render to a half-resolution RGBA16Float target, capped
+at 1024×768 (6 MiB). A full-resolution composite uses reverse depth to preserve
+terrain silhouettes. Its alpha stores cloud transmission for a sharp solar disk.
+The scattering table adds 64 KiB. Resizes recreate only the sky target and binding,
+not shader pipelines. Two additional render passes are used: the small scattering
+table and the reduced-resolution environment. Water uses eight cloud steps with a
+coarser light approximation; broad surface sun attenuation uses a coverage column
+instead of marching the volume on every terrain fragment. Those approximations
+can disagree in fine cloud detail. Ground illumination is still the earlier baked
+sun/ambient model; overcast does not yet produce fully diffuse environmental lighting.
+
+`--weather clear|fair|overcast` selects visual inspection profiles without claiming
+a simulated forecast. The default fair layer starts at 1500 m with 1100 m thickness;
+overcast uses a lower, thicker, denser layer and more haze. `--sky-capture output.png`
+places a fixed eye-height camera near the settlement, looking above the horizon.
+Other captures accept the same weather switch. Surveys disable cloud effects and
+preserve their existing data-colour handling.
+
+Tests check periodic volume generation and mip means, bounded/finite weather inputs,
+arbitrary-wind wrapping, uniform layout and bounded sky-target sizes. The native
+`sky_profiles_resize_and_stay_finite_on_native_gpu` test reads actual HDR pixels for
+clear/fair/overcast, returns exactly to the clear image, resizes across odd dimensions,
+and checks views inside and above the cloud slab. It passed on Apple M4 / Metal.
+Run it with `mise exec -- cargo test -p genesis-app sky_profiles_resize -- --ignored --nocapture`.
+Normal app/renderer suites pass 87 tests; seven native/manual tests are opt-in.
+
+The final fair-sky capture reported 3.671 ms for the reduced-resolution environment
+pass on Apple M4. This counter excludes the scattering-table pass, full-resolution
+composition and the rest of the frame; captures are diagnostics, not a benchmark.
+World-pass timestamps remain intermittently unavailable. Additional GPU work and
+water-fragment sampling mean no FPS parity or improvement is established.
+
+The weather roadmap is staged: first connect deterministic regional weather state
+to these presentation inputs and unify wind across clouds, vegetation and water;
+then add cloud layers/types, fog volumes and weather transitions. Precipitation
+needs shelter/occlusion, wind response and bounded near-camera particle budgets.
+Rain, snow, sleet and hail should feed hydrology, wetness, puddles, snow/ice storage
+and drying/melting in the simulation. Lightning/thunder, dust/sand and severe storms
+need their own presentation and gameplay consequences. Sun motion, seasons and
+planet-specific atmospheric/condensate parameters should drive these systems.
+The broader scope is recorded in the product vision; none of those future effects
+are implied by the three current sky previews.

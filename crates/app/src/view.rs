@@ -18,6 +18,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub struct View {
     pub window: Arc<Window>,
+    pub atmosphere: genesis_renderer::atmosphere::Atmosphere,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     gpu: Gpu,
@@ -121,6 +122,7 @@ impl View {
             terrain_changed: false,
             terrain_prepared: false,
             started: Instant::now(),
+            atmosphere: Default::default(),
             scenery_buildings: None,
             last_world_upload: Instant::now(),
             window,
@@ -461,6 +463,7 @@ impl View {
             });
         let mut encoder = self.gpu.encode(
             WorldTarget {
+                size: [self.config.width, self.config.height],
                 color: &self.tone_map.multisample,
                 resolve: &self.tone_map.resolve,
                 depth: &self.depth.create_view(&Default::default()),
@@ -476,8 +479,12 @@ impl View {
                 sea_level: session.sim.sea_level,
                 survey: session.survey.active(),
                 // Survey colours carry data; keep them free of aerial tint.
-                density: if session.survey.active() { 0. } else { 0.00009 },
-                ..Default::default()
+                density: if session.survey.active() {
+                    0.
+                } else {
+                    self.atmosphere.density
+                },
+                ..self.atmosphere
             },
             capture.is_some(),
         );
@@ -534,11 +541,11 @@ impl View {
         if let (Some(texture), Some(path)) = (capture_texture.as_ref(), capture) {
             self.gpu.capture(texture, path)?;
             if let Some(timings) = self.gpu.capture_timings()? {
-                let [near, far, world] = timings.map(|t| {
+                let [near, far, world, sky] = timings.map(|t| {
                     t.map_or_else(|| "unavailable".to_string(), |ms| format!("{ms:.3} ms"))
                 });
                 eprintln!(
-                    "GPU capture passes: near shadows {near}; wide shadows {far}; world {world} (excludes display/glass/UI)"
+                    "GPU capture passes: near shadows {near}; wide shadows {far}; world {world}; sky {sky} (excludes display/glass/UI)"
                 );
             }
             let camera_volume =

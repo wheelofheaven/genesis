@@ -13,4 +13,5 @@ pub mod shadows;
 pub mod tonemap;
 
 mod clouds;
+mod sky;
 mod timing;

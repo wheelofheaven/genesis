@@ -1,12 +1,14 @@
-// Regional artistic approximation: shared sky, water reflection and aerial light.
-// Linear-light values; no extra textures, ray marching or full-screen fog buffer.
+// Shared directional scattering lookup for sky, water and regional aerial light.
+// Cloud integration is evaluated in the reduced-resolution sky environment pass.
+@group(2) @binding(3) var sky_scattering: texture_2d<f32>;
+@group(2) @binding(4) var sky_lookup_sampler: sampler;
 fn sky_radiance(direction: vec3<f32>) -> vec3<f32> {
-    let sun = normalize(vec3<f32>(-0.5, 0.75, 0.3));
-    let height = pow(clamp(direction.y, 0.0, 1.0), 0.45);
-    let alignment = max(dot(direction, sun), 0.0);
-    let halo = pow(alignment, 24.0) * 0.10;
-    return mix(camera.horizon.rgb, camera.zenith.rgb, height)
-        + vec3<f32>(1.0, 0.82, 0.58) * halo;
+    let sun_xz = normalize(vec2<f32>(-0.5, 0.3));
+    let horizontal = direction.xz / max(length(direction.xz), 0.00001);
+    let phi = acos(clamp(dot(horizontal, sun_xz), -1.0, 1.0)) / 3.14159265;
+    let height = sqrt(clamp(direction.y, 0.0, 1.0));
+    let uv = (vec2<f32>(phi, height) * vec2<f32>(127.0, 63.0) + 0.5) / vec2<f32>(128.0, 64.0);
+    return textureSampleLevel(sky_scattering, sky_lookup_sampler, uv, 0.0).rgb;
 }
 
 fn aerial_perspective(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
@@ -27,22 +29,22 @@ fn aerial_perspective(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
 struct SkyOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) ray: vec3<f32>,
+    @location(1) uv: vec2<f32>,
 };
 @vertex fn sky_vertex(@builtin(vertex_index) index: u32) -> SkyOutput {
     let p = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u)) * 2.0 - 1.0;
     var out: SkyOutput;
     out.position = vec4<f32>(p, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
     // z=0 is a direction at infinity in our reversed infinite projection.
     out.ray = (camera.inverse_projection * vec4<f32>(p, 0.0, 1.0)).xyz;
     return out;
 }
-@fragment fn sky_fragment(in: SkyOutput) -> @location(0) vec4<f32> {
+// RGB stores sky + cloud radiance; alpha stores cloud transmission so the
+// composite can draw the small solar disk at full display resolution.
+@fragment fn sky_environment(in: SkyOutput) -> @location(0) vec4<f32> {
     let ray = normalize(in.ray);
-    let sun = normalize(vec3<f32>(-0.5, 0.75, 0.3));
-    let alignment = dot(ray, sun);
-    let edge = max(fwidth(alignment), 0.000001);
-    let disk = smoothstep(0.999989 - edge, 0.999989 + edge, alignment);
-    let cloud = cloud_layer(ray, camera.eye_sea_level.xyz * 20.0, length(fwidth(ray)));
-    let clear = sky_radiance(ray) + vec3<f32>(12.0, 11.04, 8.88) * disk;
-    return vec4<f32>(mix(clear, cloud.rgb, cloud.a), 1.0);
+    let jitter = 0.1 + 0.8 * hash(floor(in.position.xy));
+    let cloud = cloud_layer(ray, camera.eye_sea_level.xyz * 20.0, length(fwidth(ray)), 64u, jitter);
+    return vec4<f32>(mix(sky_radiance(ray), cloud.rgb, cloud.a), 1.0 - cloud.a);
 }

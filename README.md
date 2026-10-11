@@ -536,16 +536,22 @@ and ambient fill keeps shadowed scenery readable. MSAA adds GPU memory and
 rendering cost; this is an edge-quality improvement, not a measured speedup or
 temporal anti-aliasing solution.
 
-The regional sky now has a directional colour gradient, a sun disk and halo;
-height-dependent aerial perspective separates distant landforms. Water reflects
-the same sky using its actual eye-to-surface direction. A drifting cloud sheet
-adds softly shaded sky patches, filtered water reflections and broad moving sun
-attenuation on terrain and scenery. Its shared 512² mipmapped density field uses
-about 341 KiB of nominal texture storage with no additional render pass.
-Survey views disable clouds and the aerial tint to preserve their data colours.
-This is a lightweight artistic
-approximation with configurable atmosphere parameters, not a planetary scattering
-or weather simulation.
+The sky now samples a directional scattering lookup, with configurable molecular
+optical depth, aerosol loading, planet radius and atmospheric scale heights.
+Clouds occupy a finite volume with rounded lobes, shaded interiors and wind drift.
+A half-resolution sky pass is capped at 1024×768; terrain edges and the solar disk
+remain at display resolution. Sky, aerial perspective and water share the clear-sky
+lookup; water uses a cheaper version of the same cloud volume. Ground cloud shadows
+use a broad column approximation. Survey views disable clouds and aerial tint.
+This is an initial single-scattering and volumetric-cloud renderer, with approximate
+cloud lighting and soft/noisy distant edges. It is not yet a dynamic weather system.
+
+`--weather clear|fair|overcast` selects a presentation preview; `fair` is the default.
+For example, `mise exec -- cargo run -p genesis-app -- --weather overcast` launches
+with a thicker cloud layer. `--sky-capture /tmp/genesis-sky.png --weather fair`
+provides a fixed inspection camera and phase. Rain, snow, storms, fog banks, changing
+daylight and weather-driven surface response remain planned; see
+[the rendering roadmap](docs/rendering.md#sky-volume-and-weather-foundation).
 
 Scenery is grouped into 160 m clusters and rejected against camera and sun volumes
 before individual tests. Each shadow map gets its own caster list, including

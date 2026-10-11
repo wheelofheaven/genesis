@@ -1,17 +1,3 @@
-struct Camera {
-    view_projection: mat4x4<f32>,
-    direction_time: vec4<f32>,
-    light_projection: mat4x4<f32>,
-    far_light_projection: mat4x4<f32>,
-    eye_sea_level: vec4<f32>,
-    inverse_projection: mat4x4<f32>,
-    zenith: vec4<f32>,
-    horizon: vec4<f32>,
-    haze: vec4<f32>,
-    clouds: vec4<f32>,
-    cloud_motion: vec4<f32>,
-};
-@group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var sun_depth: texture_depth_2d_array;
 @group(1) @binding(1) var sun_sampler: sampler_comparison;
 struct Output {

@@ -262,3 +262,23 @@ exoplanet ecosystems must support distinct life forms and material definitions;
 a universal tree mesh with biome colour swaps is insufficient. The first
 implementation separates functional habitat rules from instanced mesh/material
 catalogues, with local sunlight shadows and view-dependent detail.
+
+
+## Sky and weather direction
+
+The sky should read as a natural atmosphere at human and settlement scales.
+Long-term weather scope includes varied cloud types and layers, clear and overcast
+skies, wind and gusts, rain and drizzle, snow and sleet, hail, fog and mist, dust
+and sand, thunderstorms with lightning and thunder, and their transitions.
+Seasonal and diurnal changes should connect the atmosphere to local climate,
+hydrology, ecosystems and individual life. Wetness, puddles, snow accumulation,
+ice and drying/melting should follow world state rather than independent cosmetic
+switches. Phenomena must be selected by each planet's atmosphere and climate;
+Earth's blue sky, water cycle and cloud species are not universal assumptions.
+
+This is a staged product direction, not a claim that these systems exist. The
+renderer currently exposes molecular/aerosol parameters, layer height, thickness,
+coverage, extinction and wind, plus clear/fair/overcast visual previews. A future
+deterministic weather model belongs in `sim_core`; the application interpolates
+its presentation state and the renderer consumes it. Time of day, precipitation,
+surface accumulation, weather audio and gameplay consequences remain future work.

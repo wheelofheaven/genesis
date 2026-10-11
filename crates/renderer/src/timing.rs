@@ -1,7 +1,7 @@
 //! Optional native GPU timestamps for capture diagnostics, never a blocking frame loop.
 use crate::gpu::Gpu;
 use std::{error::Error, sync::mpsc, time::Duration};
-const QUERIES: u32 = 6;
+const QUERIES: u32 = 8;
 pub(crate) struct Timing {
     query: wgpu::QuerySet,
     resolve: wgpu::Buffer,
@@ -45,7 +45,7 @@ impl Timing {
         encoder.resolve_query_set(&self.query, 0..QUERIES, &self.resolve, 0);
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.readback, 0, QUERIES as u64 * 8);
     }
-    pub fn read(&self, gpu: &Gpu) -> Result<[Option<f64>; 3], Box<dyn Error>> {
+    pub fn read(&self, gpu: &Gpu) -> Result<[Option<f64>; 4], Box<dyn Error>> {
         let (tx, rx) = mpsc::channel();
         self.readback
             .slice(..)

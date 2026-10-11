@@ -2,6 +2,7 @@
 //! Cosmetic atmosphere only; it does not generate weather in the simulation.
 pub(crate) const SIZE: u32 = 512;
 pub(crate) const TILE_METRES: f32 = 16_000.;
+mod shape;
 
 pub(crate) struct Clouds {
     pub layout: wgpu::BindGroupLayout,
@@ -9,7 +10,7 @@ pub(crate) struct Clouds {
 }
 
 impl Clouds {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, sky: &wgpu::TextureView) -> Self {
         let levels = mip_chain();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("periodic cloud density"),
@@ -47,13 +48,57 @@ impl Clouds {
                 },
             );
         }
+        let shape_levels = shape::levels();
+        let volume = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("periodic cloud lobes"),
+            size: wgpu::Extent3d {
+                width: shape::SIZE,
+                height: shape::SIZE,
+                depth_or_array_layers: shape::SIZE,
+            },
+            mip_level_count: shape_levels.len() as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (level, data) in shape_levels.iter().enumerate() {
+            let size = shape::SIZE >> level;
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &volume,
+                    mip_level: level as u32,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(size),
+                    rows_per_image: Some(size),
+                },
+                wgpu::Extent3d {
+                    width: size,
+                    height: size,
+                    depth_or_array_layers: size,
+                },
+            );
+        }
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("filtered repeating clouds"),
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("clamped sky lookup"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -75,6 +120,32 @@ impl Clouds {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -90,6 +161,20 @@ impl Clouds {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &volume.create_view(&Default::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(sky),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&sky_sampler),
                 },
             ],
         });

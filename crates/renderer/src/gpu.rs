@@ -14,6 +14,7 @@ pub struct WorldTarget<'a> {
     pub color: &'a wgpu::TextureView,
     pub resolve: &'a wgpu::TextureView,
     pub depth: &'a wgpu::TextureView,
+    pub size: [u32; 2],
 }
 
 pub struct Gpu {
@@ -22,7 +23,8 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
-    sky_pipeline: wgpu::RenderPipeline,
+    sky: crate::sky::Sky,
+    sky_lookup: crate::sky::Lookup,
     shadows: crate::shadows::Shadows,
     clouds: crate::clouds::Clouds,
     pub contacts: crate::contact::Contacts,
@@ -96,7 +98,8 @@ impl Gpu {
             label: Some("world and atmosphere"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                    include_str!("frame.wgsl"),
                     include_str!("scene.wgsl"),
                     include_str!("atmosphere.wgsl"),
                     include_str!("terrain.wgsl"),
@@ -114,7 +117,8 @@ impl Gpu {
             ),
         });
         let shadows = crate::shadows::Shadows::new(&device);
-        let clouds = crate::clouds::Clouds::new(&device, &queue);
+        let sky_lookup = crate::sky::Lookup::new(&device, &layout);
+        let clouds = crate::clouds::Clouds::new(&device, &queue, &sky_lookup.view);
         let contacts = crate::contact::Contacts::new(&device);
         let shadow_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shadow projection"),
@@ -201,40 +205,7 @@ impl Gpu {
             multiview: None,
             cache: None,
         });
-        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("directional sky"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("sky_vertex"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("sky_fragment"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: Default::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: SAMPLE_COUNT,
-                ..Default::default()
-            },
-            multiview: None,
-            cache: None,
-        });
+        let sky = crate::sky::Sky::new(&device, &layout, &pipeline_layout, &shader);
         let instances = crate::instances::Instances::new(
             &device,
             format,
@@ -248,7 +219,8 @@ impl Gpu {
             .then(|| crate::timing::Timing::new(&device));
         Ok(Self {
             timing,
-            sky_pipeline,
+            sky,
+            sky_lookup,
             shadows,
             clouds,
             contacts,
@@ -338,7 +310,7 @@ impl Gpu {
     }
 
     pub fn encode(
-        &self,
+        &mut self,
         target: WorldTarget<'_>,
         camera: &Camera,
         aspect: f32,
@@ -346,6 +318,7 @@ impl Gpu {
         atmosphere: Atmosphere,
         measure: bool,
     ) -> wgpu::CommandEncoder {
+        self.sky.resize(&self.device, target.size);
         let timing = self.timing.as_ref().filter(|_| measure);
         let uniform = FrameUniform::new(camera, aspect, time, atmosphere);
         self.queue
@@ -357,6 +330,30 @@ impl Gpu {
         self.queue
             .write_buffer(&self.far_camera, 0, bytemuck::bytes_of(&far_uniform));
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.sky_lookup.encode(&mut encoder, &self.camera_group);
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("half resolution cloud volume and sky"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.sky.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: timing.map(|t| t.writes(3)),
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.sky.generation);
+            pass.set_bind_group(0, &self.camera_group, &[]);
+            pass.set_bind_group(1, &self.shadows.group, &[]);
+            pass.set_bind_group(2, &self.clouds.group, &[]);
+            pass.set_bind_group(3, &self.contacts.group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         for cascade in 0..crate::shadows::CASCADES {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(if cascade == 0 {
@@ -438,9 +435,7 @@ impl Gpu {
             pass.draw(0..self.overlay_count, 0..1);
             self.instances.render(&mut pass);
             // Reverse-depth zero lets early depth rejection shade only open sky.
-            pass.set_pipeline(&self.sky_pipeline);
-            pass.set_bind_group(0, &self.camera_group, &[]);
-            pass.draw(0..3, 0..1);
+            self.sky.composite(&mut pass, &self.camera_group);
         }
         if let Some(timing) = timing {
             timing.resolve(&mut encoder);
@@ -449,7 +444,7 @@ impl Gpu {
     }
 
     /// Call only after submitting a measured capture; never blocks ordinary frames.
-    pub fn capture_timings(&self) -> Result<Option<[Option<f64>; 3]>> {
+    pub fn capture_timings(&self) -> Result<Option<[Option<f64>; 4]>> {
         self.timing.as_ref().map(|t| t.read(self)).transpose()
     }
 

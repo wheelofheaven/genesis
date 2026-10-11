@@ -46,6 +46,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 #[derive(Default)]
 struct App {
     view: Option<View>,
+    atmosphere: genesis_renderer::atmosphere::Atmosphere,
     front: frontend::Frontend,
     session: Session,
     camera: Camera,
@@ -344,7 +345,8 @@ impl ApplicationHandler for App {
             pollster::block_on(View::new(window))
         })();
         match result {
-            Ok(view) => {
+            Ok(mut view) => {
+                view.atmosphere = self.atmosphere;
                 self.session.dirty = true;
                 self.session.urgent_redraw = true;
                 self.session.overlay_dirty = true;
@@ -551,6 +553,14 @@ impl ApplicationHandler for App {
 fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut app = App::default();
+    if let Some(index) = args.iter().position(|arg| arg == "--weather") {
+        app.atmosphere = genesis_renderer::atmosphere::Atmosphere::preview(
+            args.get(index + 1)
+                .ok_or("--weather needs clear, fair, or overcast")?,
+        )
+        .ok_or("--weather must be clear, fair, or overcast")?;
+        args.drain(index..=index + 1);
+    }
     let explicit_seed = args.iter().any(|arg| arg == "--seed");
     let explicit_region = args.iter().any(|arg| arg == "--region");
     let mut seed = genesis_sim_core::worldgen::DEFAULT_SEED;
@@ -614,6 +624,7 @@ fn main() -> Result<()> {
             if flag == "--capture"
                 || flag == "--settlement-capture"
                 || flag == "--ground-capture"
+                || flag == "--sky-capture"
                 || flag == "--house-capture"
                 || flag == "--rock-capture"
                 || flag == "--river-capture"
@@ -641,7 +652,7 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
@@ -785,6 +796,18 @@ fn main() -> Result<()> {
     }
     if args.first().is_some_and(|flag| flag == "--ground-capture") {
         ground::toggle(&app.session.sim, app.session.position, &mut app.camera);
+        app.session.clock.paused = true;
+    }
+    if args.first().is_some_and(|flag| flag == "--sky-capture") {
+        let anchor = app.session.position;
+        let stand = genesis_sim_core::spatial::Position::new(anchor.x + 5., anchor.z + 5.);
+        ground::toggle(&app.session.sim, stand, &mut app.camera);
+        if !app.camera.is_ground() {
+            return Err("no accessible ground for sky inspection".into());
+        }
+        let eye = app.camera.eye();
+        app.camera
+            .look_at_ground(eye + glam::Vec3::new(-5., 2.4, -7.));
         app.session.clock.paused = true;
     }
     if args.first().is_some_and(|flag| flag == "--house-capture") {
