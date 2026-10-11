@@ -441,6 +441,40 @@ The latter needs GPU access and checks zero uploads on unchanged input, selectiv
 edits, removal of stale chunks and an empty replacement, along with shader creation.
 Capture commands report actual upload and visible-batch counts.
 
+### POV refresh stalls
+
+The recipe-9 coastal POV fixture exposed recurring foreground preparation despite
+resident GPU chunks: terrain-cache preparation took 533.09 ms, picking-data
+construction 17.64 ms, scene colours/geometry 68.43 ms, and spatial partitioning
+43.96 ms in one Apple M4 optimized-development run. Colour refresh and partitioning
+previously ran together on the render thread every approximately one second during
+active simulation. Camera LOD already built its terrain cache in the background,
+but still built the picker and coloured/partitioned the result on the render thread.
+
+One background request now handles periodic colour updates or a complete camera
+LOD replacement, including picking data, scene geometry, partitioning and hashes.
+Colour-only work shares the immutable terrain cache through `Arc`. Results publish
+only when terrain revision, camera bucket, survey and explicit-edit epoch still
+match; newer ticks keep their dirty state for the next refresh. Terrain/picking
+and world geometry switch together. Pending work is bounded to one request, even
+when obsolete; no extra workers accumulate during rapid navigation. Explicit edits,
+first load and entry/teleport into insufficiently detailed ground remain synchronous.
+
+The native Metal upload audit measured 120.30 ms of CPU preparation (now performed
+by the worker in the application) and 8.27 ms for the remaining foreground upload
+after one simulated second: 302 changed chunks and 51,069,648 bytes. The initial
+78,659,952-byte upload took 15.55 ms. These are individual preparation/upload samples,
+not whole-frame timings, and the GPU-completion wait is outside the upload timer.
+Simulation snapshot cloning, GPU staging, draw cost, dropping replaced CPU data,
+and the synchronous cases above remain possible hitch sources. Incremental material
+updates and regional mesh reuse are still needed to reduce total work and traffic.
+
+Reproduce uploads with
+`mise exec -- cargo test -p genesis-app pov_refresh_upload_timing -- --ignored --nocapture`.
+The native resident-buffer test also submits a scene prepared on another thread.
+Unit tests cover rejecting stale edits/surveys/detail keys, keeping colour refreshes
+on their existing cache, and building matching picking data for a fresh cache.
+
 ## Local riverbeds and water
 
 Generation recipe 8 adds channel incision to the canonical simulation surface.

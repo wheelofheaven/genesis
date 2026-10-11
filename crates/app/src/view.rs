@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 use winit::{event::WindowEvent, window::Window};
+mod preparation;
+use preparation::{Pending, Tag};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -27,13 +29,12 @@ pub struct View {
     pub drawable: bool,
     picker: Option<(u64, terrain::Picker)>,
     last_world_upload: Instant,
-    terrain_cache: Option<(u64, terrain::Cache)>,
-    terrain_pending: Option<(
-        u64,
-        terrain::lod::Key,
-        std::sync::mpsc::Receiver<terrain::Cache>,
-    )>,
+    terrain_cache: Option<(u64, Arc<terrain::Cache>)>,
+    scene_pending: Option<Pending>,
+    scene_epoch: u64,
+    refresh_needed: bool,
     terrain_changed: bool,
+    terrain_prepared: bool,
     started: Instant,
     scenery_buildings: Option<usize>,
     foliage_batches: Vec<usize>,
@@ -114,8 +115,11 @@ impl View {
             path_tool_active: false,
             picker: None,
             terrain_cache: None,
-            terrain_pending: None,
+            scene_pending: None,
+            scene_epoch: 0,
+            refresh_needed: false,
             terrain_changed: false,
+            terrain_prepared: false,
             started: Instant::now(),
             scenery_buildings: None,
             last_world_upload: Instant::now(),
@@ -178,39 +182,55 @@ impl View {
                 .as_ref()
                 .is_none_or(|(r, _)| *r != revision)
         {
-            let cache = terrain::Cache::at(&session.sim, key);
+            self.scene_epoch += 1;
+            let cache = Arc::new(terrain::Cache::at(&session.sim, key));
             self.picker = Some((revision, terrain::Picker::from_cache(&session.sim, &cache)));
             self.terrain_cache = Some((revision, cache));
             self.terrain_changed = true;
+            self.terrain_prepared = false;
             self.scenery_buildings = None;
         }
-        if let Some((r, k, rx)) = &self.terrain_pending {
-            match rx.try_recv() {
-                Ok(cache) => {
-                    if *r == revision && *k == key {
-                        self.picker =
-                            Some((revision, terrain::Picker::from_cache(&session.sim, &cache)));
-                        self.terrain_cache = Some((revision, cache));
-                        self.terrain_changed = true;
+        let tag = Tag {
+            revision,
+            key,
+            survey: session.survey,
+            epoch: self.scene_epoch,
+        };
+        if let Some(pending) = &self.scene_pending {
+            match pending.receiver.try_recv() {
+                Ok(ready) => {
+                    if pending.matches(tag, session.urgent_redraw) {
+                        if let Some(picker) = ready.picker {
+                            self.picker = Some((revision, picker));
+                            self.terrain_changed = true;
+                            self.terrain_prepared = true;
+                        }
+                        self.gpu.world.upload_prepared(
+                            &self.gpu.device,
+                            &self.gpu.queue,
+                            &ready.world,
+                        );
+                        self.terrain_cache = Some((revision, ready.cache));
+                        self.last_world_upload = Instant::now();
+                    } else {
+                        self.refresh_needed = true;
                     }
-                    self.terrain_pending = None;
+                    self.scene_pending = None;
                 }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.terrain_pending = None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.scene_pending = None;
+                    self.refresh_needed = true;
+                }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
-        if self.terrain_pending.is_none()
+        if self.scene_pending.is_none()
             && self
                 .terrain_cache
                 .as_ref()
                 .is_some_and(|(_, c)| c.key != key)
         {
-            let sim = session.sim.clone();
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let _ = tx.send(terrain::Cache::at(&sim, key));
-            });
-            self.terrain_pending = Some((revision, key, rx));
+            self.scene_pending = Some(Pending::spawn(session.sim.clone(), tag, None));
         }
     }
 
@@ -314,6 +334,7 @@ impl View {
         self.window.set_cursor_visible(!custom_cursor);
         if front.surface_backdrop() {
             self.ensure_terrain(session, camera);
+            session.dirty |= std::mem::take(&mut self.refresh_needed);
             if self.terrain_changed {
                 if let Some((_, cache)) = &self.terrain_cache {
                     for (batch, placements) in self.ground_batches.iter().zip(&cache.ground_cover) {
@@ -325,10 +346,13 @@ impl View {
                         );
                     }
                 }
-                session.dirty = true;
-                session.urgent_redraw = true;
+                if !self.terrain_prepared {
+                    session.dirty = true;
+                    session.urgent_redraw = true;
+                }
                 session.overlay_dirty = true;
                 self.terrain_changed = false;
+                self.terrain_prepared = false;
             }
         }
         if front.surface_backdrop()
@@ -342,17 +366,37 @@ impl View {
                 self.scenery_camera = None;
                 self.scenery_buildings = Some(session.sim.buildings.len());
             }
-            if let Some((_, cache)) = &self.terrain_cache {
-                self.gpu.upload_scene(&scene::mesh(
-                    &session.sim,
-                    session.survey,
-                    cache,
-                    &cache.rivers,
+            if session.urgent_redraw {
+                // Explicit edits and initial/teleported views publish immediately.
+                // An older worker result must never overwrite this newer state.
+                self.scene_epoch += 1;
+                if let Some((_, cache)) = &self.terrain_cache {
+                    self.gpu.upload_scene(&scene::mesh(
+                        &session.sim,
+                        session.survey,
+                        cache,
+                        &cache.rivers,
+                    ));
+                }
+                self.last_world_upload = Instant::now();
+                session.dirty = false;
+                session.urgent_redraw = false;
+            } else if self.scene_pending.is_none()
+                && let Some((revision, cache)) = &self.terrain_cache
+            {
+                self.scene_pending = Some(Pending::spawn(
+                    session.sim.clone(),
+                    Tag {
+                        revision: *revision,
+                        key: cache.key,
+                        survey: session.survey,
+                        epoch: self.scene_epoch,
+                    },
+                    Some(Arc::clone(cache)),
                 ));
+                self.last_world_upload = Instant::now();
+                session.dirty = false;
             }
-            self.last_world_upload = Instant::now();
-            session.dirty = false;
-            session.urgent_redraw = false;
         }
         let aspect = self.config.width as f32 / self.config.height as f32;
         let matrix = camera.view_projection(aspect);
@@ -381,7 +425,7 @@ impl View {
         if session.overlay_dirty {
             self.gpu.upload_overlay(&scene::overlay(
                 session,
-                self.terrain_cache.as_ref().map(|(_, cache)| cache),
+                self.terrain_cache.as_ref().map(|(_, cache)| cache.as_ref()),
             ));
             session.overlay_dirty = false;
         }

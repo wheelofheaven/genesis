@@ -172,16 +172,43 @@ pub struct WorldMesh {
     chunks: BTreeMap<Key, Resident>,
     pub last_upload: UploadStats,
 }
+
+/// CPU-only geometry preparation, safe to perform away from the render thread.
+/// Fingerprints are computed here, not while submitting replacement GPU buffers.
+pub struct PreparedWorld {
+    chunks: BTreeMap<Key, (ChunkMesh, u64)>,
+}
+impl PreparedWorld {
+    pub fn new(vertices: &[Vertex]) -> Self {
+        Self {
+            chunks: partition(vertices)
+                .into_iter()
+                .map(|(key, chunk)| {
+                    let fingerprint = chunk.fingerprint();
+                    (key, (chunk, fingerprint))
+                })
+                .collect(),
+        }
+    }
+}
 impl WorldMesh {
     pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, vertices: &[Vertex]) {
-        let prepared = partition(vertices);
+        self.upload_prepared(device, queue, &PreparedWorld::new(vertices));
+    }
+    pub fn upload_prepared(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        world: &PreparedWorld,
+    ) {
+        let prepared = &world.chunks;
         self.chunks.retain(|key, _| prepared.contains_key(key));
         let mut stats = UploadStats {
             chunks: prepared.len(),
             ..Default::default()
         };
-        for (key, chunk) in prepared {
-            let fingerprint = chunk.fingerprint();
+        for (&key, (chunk, fingerprint)) in prepared {
+            let fingerprint = *fingerprint;
             let bytes = bytemuck::cast_slice(&chunk.vertices);
             let resident = self.chunks.entry(key).or_insert_with(|| Resident {
                 buffer: device.create_buffer(&wgpu::BufferDescriptor {

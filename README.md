@@ -530,6 +530,14 @@ their own invisible chunks. Water and path decals do not cast opaque shadows. La
 keep coarse horizon geometry from generating excessive draw calls. CPU terrain
 reconstruction is still regional; this is not yet planetary streaming.
 
+Periodic colour refreshes and camera-detail replacements prepare their scene
+geometry, picking data and chunk fingerprints in one background worker. The
+current scene stays visible until a matching replacement is ready; outdated edits,
+camera buckets and survey results are rejected. This removes a measured ~112 ms
+of recurring scene preparation from the input/render thread in the POV fixture.
+GPU uploads, initial entry into detailed terrain and explicit edits still have
+foreground costs; this is not a guarantee of a particular frame rate.
+
 Ground colour follows living plant coverage, moisture, drought and local geology,
 with the same palette continued into the distant context. Close views add irregular
 earth patches, centimetre-scale mineral chips, fine grain and subtle surface-normal
