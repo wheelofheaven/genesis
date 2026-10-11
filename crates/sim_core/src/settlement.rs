@@ -53,7 +53,7 @@ impl std::fmt::Display for PlacementError {
             Self::OutsideMap => "Footprint extends beyond the map",
             Self::Underwater => "Choose dry land",
             Self::SteepSlope => "Ground is too steep",
-            Self::Occupied => "Too close to another building",
+            Self::Occupied => "Keep buildings, paths and boreholes clear",
             Self::InvalidPosition => "Invalid position or rotation",
             Self::Watercourse => "Keep the watercourse clear",
         })
@@ -66,6 +66,17 @@ pub fn validate(
     sea: f32,
     buildings: &[Building],
     candidate: &Building,
+) -> Result<(), PlacementError> {
+    validate_surface(grid, sea, buildings, candidate, |p| elevation(grid, p))
+}
+
+/// Validate against the shared physical surface, independent of rendering LOD.
+pub fn validate_surface(
+    grid: &Grid,
+    sea: f32,
+    buildings: &[Building],
+    candidate: &Building,
+    height: impl Fn(Position) -> f32,
 ) -> Result<(), PlacementError> {
     let p = candidate.position;
     if !p.x.is_finite() || !p.z.is_finite() || !candidate.rotation.is_finite() {
@@ -92,7 +103,7 @@ pub fn validate(
                     + (corners[1].z - corners[0].z) * u
                     + (corners[3].z - corners[0].z) * v,
             );
-            let h = elevation(grid, point);
+            let h = height(point);
             low = low.min(h);
             high = high.max(h);
         }

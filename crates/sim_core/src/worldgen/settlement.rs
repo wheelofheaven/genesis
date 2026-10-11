@@ -93,7 +93,10 @@ pub fn seed(sim: &mut SimState) {
             let dz = nearest.z - p.z;
             let length = (dx * dx + dz * dz).sqrt();
             for step in 0..=24 {
-                let t = step as f32 / 24.;
+                // Centre-to-centre walks used to run through both houses.
+                // Stop outside either rotated footprint and leave entrance walks to the renderer.
+                let inset = metres(5.) / length;
+                let t = inset + (1. - 2. * inset) * step as f32 / 24.;
                 let bend = (t * std::f32::consts::PI).sin() * metres(0.8);
                 points.push(Position::new(
                     p.x + dx * t - dz / length * bend,
@@ -106,10 +109,19 @@ pub fn seed(sim: &mut SimState) {
             {
                 continue;
             }
-            sim.paths.push(Path {
+            let path = Path {
                 points,
                 width: Building::PATH_WIDTH,
-            });
+            };
+            if sim
+                .buildings
+                .iter()
+                .chain(std::iter::once(&b))
+                .any(|b| crate::paths::intersects_building(&path, b))
+            {
+                continue;
+            }
+            sim.paths.push(path);
         }
         sim.buildings.push(b);
         if sim.buildings.len() == 6 {

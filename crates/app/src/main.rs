@@ -1,10 +1,16 @@
 mod clock;
+mod cursor;
 mod frontend;
+mod ground;
 mod horizon;
 mod input;
+mod interaction;
+mod interaction_smoke;
 mod landscape;
 mod menu_smoke;
+mod path_tool;
 mod scene;
+mod selection;
 mod session;
 mod survey;
 mod terrain;
@@ -48,6 +54,7 @@ struct App {
     smoke: bool,
     survey_smoke: bool,
     world_smoke: bool,
+    interaction_smoke: bool,
     frames: u32,
     menu_smoke: Option<menu_smoke::Check>,
 }
@@ -98,9 +105,15 @@ impl App {
         self.front.poll(&mut self.session, &mut self.camera);
         if self.front.playing() {
             self.session.advance(elapsed);
+            let speed = if self.camera.is_ground() {
+                1.
+            } else {
+                self.front.settings.sensitivity
+            };
             self.input.update_camera(
+                &self.session.sim,
                 &mut self.camera,
-                elapsed.as_secs_f32() * self.front.settings.sensitivity,
+                elapsed.as_secs_f32() * speed,
                 view.window.inner_size().height as f32,
             );
         } else {
@@ -159,13 +172,31 @@ impl App {
                 return Err("survey changed world picking".into());
             }
         }
-        if self.session.placing && !self.input.orbit && !self.input.pan {
+        if self.front.playing() && !self.input.orbit && !self.input.pan {
             let hover = self
                 .input
                 .cursor
                 .filter(|p| !view.pointer_over_ui(*p))
                 .and_then(|p| view.pick(&self.session, &self.camera, p));
+            let object = if !self.session.placing && !self.session.path.active {
+                self.input
+                    .cursor
+                    .filter(|p| !view.pointer_over_ui(*p))
+                    .and_then(|p| view.pick_object(&self.session, &self.camera, p, hover))
+            } else {
+                None
+            };
             self.session.set_hover(hover);
+            self.session.set_hovered_object(object);
+        }
+        if self.interaction_smoke {
+            interaction_smoke::advance(
+                self.frames,
+                &mut self.session,
+                &mut self.camera,
+                view,
+                &mut self.input,
+            )?;
         }
         if self.smoke && self.frames == 1 {
             // Exercise the same camera, command, clock, and resize paths as input.
@@ -223,7 +254,15 @@ impl App {
             self.session.survey.minerals = self.frames != 12;
             self.session.refresh_survey();
         }
-        let layer_capture = if self.survey_smoke && [16, 22].contains(&self.frames) {
+        let layer_capture = if self.interaction_smoke && [8, 18].contains(&self.frames) {
+            self.capture.as_ref().map(|p| {
+                p.with_extension(if self.frames == 8 {
+                    "house.png"
+                } else {
+                    "draft.png"
+                })
+            })
+        } else if self.survey_smoke && [16, 22].contains(&self.frames) {
             self.capture.as_ref().map(|path| {
                 path.with_extension(if self.frames == 16 {
                     "water.png"
@@ -358,7 +397,10 @@ impl ApplicationHandler for App {
                     let pressed = event.state == ElementState::Pressed;
                     if pressed && !event.repeat && code == KeyCode::Escape {
                         if playing
-                            && (self.session.placing
+                            && (self.camera.is_ground()
+                                || self.session.placing
+                                || self.session.path.active
+                                || self.session.selected_object.is_some()
                                 || self.session.help
                                 || self.session.landscape_tools
                                 || self.session.survey.open
@@ -403,15 +445,28 @@ impl ApplicationHandler for App {
                         MouseButton::Left if !pressed => self.input.pan = false,
                         MouseButton::Left if self.input.alt => self.input.pan = true,
                         MouseButton::Left if pressed => {
-                            if let Some(cursor) = self.input.cursor
-                                && let Some(position) =
-                                    view.pick(&self.session, &self.camera, cursor)
-                            {
+                            if let Some(cursor) = self.input.cursor {
+                                let ground = view.pick(&self.session, &self.camera, cursor);
+                                self.session.set_hover(ground);
                                 if self.session.placing {
-                                    self.session.set_hover(Some(position));
                                     self.session.build_hovered(self.input.shift);
+                                } else if self.session.path.active {
+                                    self.session.add_path_point();
                                 } else {
-                                    self.session.select(position);
+                                    let object = view.pick_object(
+                                        &self.session,
+                                        &self.camera,
+                                        cursor,
+                                        ground,
+                                    );
+                                    if ground.is_some() || object.is_some() {
+                                        self.session.select_object(
+                                            object,
+                                            ground.unwrap_or(self.session.position),
+                                        );
+                                    } else {
+                                        self.session.select_object(None, self.session.position);
+                                    }
                                 }
                             }
                         }
@@ -505,11 +560,13 @@ fn main() -> Result<()> {
         [flag, path]
             if flag == "--capture"
                 || flag == "--settlement-capture"
+                || flag == "--ground-capture"
                 || flag == "--landscape-capture"
                 || flag == "--seafloor-capture"
                 || flag == "--smoke-test"
                 || flag == "--survey-test"
                 || flag == "--world-test"
+                || flag == "--interaction-test"
                 || flag == "--menu-capture"
                 || flag == "--menu-test" =>
         {
@@ -517,13 +574,14 @@ fn main() -> Result<()> {
             app.smoke = flag == "--smoke-test" || flag == "--survey-test";
             app.survey_smoke = flag == "--survey-test";
             app.world_smoke = flag == "--world-test";
+            app.interaction_smoke = flag == "--interaction-test";
             if flag == "--menu-test" {
                 app.menu_smoke = Some(menu_smoke::Check::default());
             }
         }
         _ => {
             return Err(
-                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --settlement-capture output.png | --world-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--seed number] [--region coast|highlands|island] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
@@ -565,6 +623,10 @@ fn main() -> Result<()> {
             } else {
                 4.5
             });
+    }
+    if args.first().is_some_and(|flag| flag == "--ground-capture") {
+        ground::toggle(&app.session.sim, app.session.position, &mut app.camera);
+        app.session.clock.paused = true;
     }
     if args
         .first()

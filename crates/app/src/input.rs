@@ -23,8 +23,11 @@ impl Input {
                 | KeyCode::Digit2
                 | KeyCode::Digit3
                 | KeyCode::KeyB
+                | KeyCode::KeyP
+                | KeyCode::Backspace
                 | KeyCode::KeyF
                 | KeyCode::KeyR
+                | KeyCode::KeyG
                 | KeyCode::KeyH
                 | KeyCode::KeyV
                 | KeyCode::KeyQ
@@ -68,16 +71,25 @@ impl Input {
             KeyCode::Digit1 => session.clock.set_speed(1),
             KeyCode::Digit2 => session.clock.set_speed(4),
             KeyCode::Digit3 => session.clock.set_speed(16),
+            KeyCode::KeyG => crate::ground::toggle(&session.sim, session.position, camera),
             KeyCode::KeyR => crate::terrain::home_camera(&session.sim, camera),
+            KeyCode::KeyP => session.set_path_tool(!session.path.active),
+            KeyCode::Enter if session.path.active => session.finish_path(),
+            KeyCode::Backspace if session.path.active => session.undo_path_point(),
             KeyCode::KeyB => session.set_placing(!session.placing),
             KeyCode::Escape => {
+                camera.leave_ground();
                 session.set_placing(false);
+                session.selected_object = None;
                 session.help = false;
                 session.landscape_tools = false;
                 session.survey.open = false;
                 session.world_tools = false;
             }
-            KeyCode::KeyF => camera.center(session.selected_point()),
+            KeyCode::KeyF => {
+                camera.leave_ground();
+                camera.center(session.selected_point());
+            }
             KeyCode::KeyH => session.help = !session.help,
             KeyCode::KeyV => session.set_survey(!session.survey.open),
             KeyCode::KeyQ | KeyCode::KeyE => {
@@ -91,12 +103,28 @@ impl Input {
             _ => {}
         }
     }
-    pub fn update_camera(&self, camera: &mut Camera, seconds: f32, height: f32) {
+    pub fn update_camera(
+        &self,
+        sim: &genesis_sim_core::SimState,
+        camera: &mut Camera,
+        seconds: f32,
+        height: f32,
+    ) {
         let has = |a, b| self.keys.contains(&a) || self.keys.contains(&b);
         let x = i32::from(has(KeyCode::KeyA, KeyCode::ArrowLeft))
             - i32::from(has(KeyCode::KeyD, KeyCode::ArrowRight));
         let y = i32::from(has(KeyCode::KeyW, KeyCode::ArrowUp))
             - i32::from(has(KeyCode::KeyS, KeyCode::ArrowDown));
+        if camera.is_ground() {
+            crate::ground::travel(
+                sim,
+                camera,
+                Vec2::new(x as f32, y as f32).normalize_or_zero(),
+                seconds,
+                self.shift,
+            );
+            return;
+        }
         let delta = Vec2::new(x as f32, y as f32).normalize_or_zero()
             * seconds.min(0.1)
             * height
@@ -122,7 +150,7 @@ mod tests {
         input.key(KeyCode::KeyW, true, &mut session, &mut camera);
         input.clear();
         let before = camera.focus;
-        input.update_camera(&mut camera, 0.1, 800.);
+        input.update_camera(&session.sim, &mut camera, 0.1, 800.);
         assert_eq!(before, camera.focus);
     }
 }

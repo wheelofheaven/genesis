@@ -290,6 +290,8 @@ pub fn legend(ctx: &egui::Context, session: &Session, dock_top: f32) -> Option<e
     if !session.survey.active()
         || session.survey.open
         || session.placing
+        || session.path.active
+        || session.selected_object.is_some()
         || session.landscape_tools
         || session.world_tools
     {

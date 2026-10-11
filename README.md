@@ -77,11 +77,15 @@ world and its edits; the World panel makes this explicit.
 - **WASD / arrows:** move; hold **Shift** for faster travel.
 - **Right drag:** orbit; **middle drag** or **Alt + left drag:** pan.
 - **Scroll:** zoom toward the pointer; **F:** focus selection; **R:** reset camera.
-- **Left click:** select a landscape position.
+- **Left click:** select a dwelling, path, or landscape position. Objects highlight
+  under the custom expedition cursor; selection stays highlighted with an inspector.
+- **P / Paths:** click waypoints for a rounded footpath; **Enter** builds the clicked
+  route, **Backspace** undoes a waypoint, **Escape** cancels the draft. Width is
+  adjustable from 1.2–4 m; endpoints snap to existing paths within 1.5 m.
 - **B / Build dwelling:** preview follows the pointer; **Q / E** rotate by 15°;
   **click** to place or **Shift-click** to continue placing.
 - Green previews indicate suitable sites; red footprints explain blocked placement.
-- **Escape:** close the active tool, then open/resume from the pause menu.
+- **Escape:** cancel the active tool or clear selection, then open/resume the pause menu.
 - **Space:** pause/resume; **1 / 2 / 3:** select 1× / 4× / 16× speed.
 - **Landscape:** open the contextual panel to raise/lower terrain or plant.
 - **V / Survey:** toggle hydrology and geology independently, or combine them.
@@ -92,7 +96,7 @@ world and its edits; the World panel makes this explicit.
 - The compass follows the camera; click it to face north. Adjacent buttons provide
   zoom, focus, and home controls.
 
-The HUD uses dark instrument panels, a bottom tool dock, and contextual
+The HUD uses light frosted glass panels, a bottom tool dock, and contextual
 shortcut hints. Exploration keeps the center clear; building, survey, and landscape panels
 appear only for their active tool. The minimum window is 760 × 540 logical pixels,
 with compact controls and scrolling where needed.
@@ -142,19 +146,44 @@ the small authored regression fixture.
 
 ### Working spatial scale
 
+The ground now has a separate, deterministic **0.625 m local surface** with adaptive
+rendering. The 20 m environmental field no longer caps visible geometric detail.
+Press **G** or the person icon beside the compass for **ground inspection** at
+1.7 m eye height. Move with WASD/arrows, hold Shift for speed, right-drag to look,
+and press G/Escape to restore the overhead view. Select dry ground or a dwelling
+before entering; the observer starts in a nearby clear spot. This inspects the
+shared world; it does not yet play a simulated inhabitant.
+
+`--ground-capture /tmp/genesis-ground.png` captures that perspective. See
+[Human-scale world](docs/human-scale-world.md) for what is implemented, the budgets,
+and the remaining channel, asset, lighting and streaming work.
+
 Geometry uses **20 metres per world unit**. A dwelling occupies **6.5 × 4.8 m**,
 with 2.8 m walls and a roof/parapet reaching 3.3 m. Paths are 1.2 m wide, entrance
 walks 0.9 m, and generated homes cluster at roughly 10–20 m spacing. The same
 dimensions drive meshes, rotated placement footprints, clearance, and previews.
-Trees, boulders, and well equipment use compatible proportions. The scale bar
-updates with zoom, and the camera can move close enough to inspect individual homes.
+Trees, boulders, and well equipment use compatible proportions. A 45° perspective
+camera gives distant ground and objects their expected reduction in apparent size.
+The scale bar measures horizontal distances at the camera focus; ground farther
+away appears smaller. Zoom remains anchored at the pointer's picked elevation,
+and the camera can move close enough to inspect individual homes.
 
 The 384 × 320 region therefore spans **7.68 × 6.40 km**, sixteen times the previous
 map area. This is a working geometry convention, not a claim of historical house accuracy or calibrated hydrology:
 resource volumes, time, and existing survey readouts retain their prototype units.
 `--settlement-capture /tmp/genesis-settlement.png` captures a close view for scale
 review; `--landscape-capture /tmp/genesis-landscape.png` frames its surroundings.
-Generation recipe 4 preserves the revised settlement spacing.
+Generation recipe 6 includes local surface detail and preserves jittered vegetation
+sampling at 10 m intervals, with fertility and broad patches shaping the groves.
+The environmental field still uses 20 m samples. Trees and rocks share GPU meshes;
+each placement uses 32 bytes rather than duplicating its geometry. River widths
+follow local rainfall-weighted catchment area (bounded to 0.8–12 m), instead of
+resetting a visual taper at each polyline. This is a visual heuristic, not a
+discharge model.
+
+Run `mise exec -- cargo run -p genesis-sim-core --example scale_audit` to report
+regional dimensions, relief, vegetation counts, river widths, and dwellings for
+all three default-seed regions.
 
 ### Generation recipe
 
@@ -242,7 +271,7 @@ over their illustrated background.
 
 - Upper left: region identity and actual dwelling/borehole counts.
 - Upper right: region tools, help, and the session menu.
-- Bottom center: Explore, Build, Landscape, and Survey icons with short captions.
+- Bottom center: Explore, Build, Paths, Landscape, and Survey icons with short captions.
 - Right inspector: the active tool, readings, and interventions; close with × or Esc.
 - Lower left: compass, camera controls, and metric scale.
 - Lower right: time controls; these move under the menu on narrower windows.
@@ -359,3 +388,25 @@ The orbital globe is a cached illustration built from Natural Earth land outline
 with decorative shading and atmospheric patterns. It is separate from simulation
 terrain; see [asset provenance](assets/maps/README.md). There is no simulated
 spaceflight, historical Earth reconstruction, or global terrain streaming yet.
+
+
+### Objects and footpath construction
+
+House picking intersects the rendered wall/roof geometry and respects terrain
+occlusion, including in ground inspection. Paths have independent selections and
+length/width readouts. Hover and selection use a small separate overlay mesh;
+hovering does not upload the regional terrain again. The vector cursor scales
+with the UI and shows the hovered object or active construction tool.
+
+Footpaths are continuous, rounded centre lines, validated at half-metre intervals
+across their width. The simulation rejects water, watercourses, steep routes,
+building/borehole collisions, invalid coordinates, and duplicate routes. Each
+construction is bounded to 64 waypoints and 500 m. New dwellings cannot cover
+existing paths. Building a path clears trees/rocks in its corridor and suppresses
+nearby grass; it does not yet grade terrain, build bridges, charge resources, or
+assign construction labour. Actions remain queued while paused until Resume or
+Step. This is a geometric path network; agent routing is still future work.
+
+`mise exec -- cargo run -- --interaction-test /tmp/genesis-interactions.png`
+checks roof picking, path drafting, paused construction, and selecting the result
+on the native GPU. It also writes `.house.png` and `.draft.png` captures.

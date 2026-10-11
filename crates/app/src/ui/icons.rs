@@ -5,7 +5,9 @@ use egui::{Color32, Pos2, Rect, Response, Sense, Shape, Stroke, Vec2};
 #[derive(Clone, Copy)]
 pub enum Icon {
     Explore,
+    Person,
     House,
+    Path,
     Terrain,
     Survey,
     Globe,
@@ -34,6 +36,16 @@ pub fn paint(p: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         ));
     };
     match icon {
+        Icon::Path => {
+            path(&[[0.18, 0.9], [0.22, 0.64], [0.57, 0.42], [0.58, 0.12]]);
+            path(&[[0.43, 0.9], [0.44, 0.75], [0.79, 0.52], [0.82, 0.12]]);
+        }
+        Icon::Person => {
+            p.circle_stroke(point(0.5, 0.2), rect.width() * 0.11, stroke);
+            path(&[[0.25, 0.53], [0.5, 0.4], [0.75, 0.53]]);
+            path(&[[0.5, 0.4], [0.5, 0.65], [0.32, 0.9]]);
+            line([0.5, 0.65], [0.68, 0.9]);
+        }
         Icon::House | Icon::Home => {
             path(&[[0.1, 0.45], [0.5, 0.12], [0.9, 0.45]]);
             path(&[
@@ -163,7 +175,14 @@ pub fn button(
     tooltip: &str,
 ) -> Response {
     let size = if caption {
-        Vec2::new(76., 58.)
+        Vec2::new(
+            if ui.ctx().content_rect().width() < 650. {
+                63.
+            } else {
+                76.
+            },
+            58.,
+        )
     } else {
         Vec2::splat(32.)
     };

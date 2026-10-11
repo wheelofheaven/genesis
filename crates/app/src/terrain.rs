@@ -5,9 +5,16 @@ use genesis_sim_core::{
     spatial::{self, Position},
 };
 use glam::Vec3;
+pub mod ground_cover;
+pub mod lod;
 
-fn detail(sim: &SimState) -> u32 {
-    if sim.grid.width > 128 { 1 } else { 2 }
+#[cfg(test)]
+pub(crate) fn detail(sim: &SimState) -> u32 {
+    if sim.geography.version > 0 {
+        genesis_sim_core::surface::SUBDIVISIONS
+    } else {
+        2
+    }
 }
 pub fn home_camera(sim: &SimState, camera: &mut genesis_renderer::camera::Camera) {
     *camera = genesis_renderer::camera::Camera::default();
@@ -26,23 +33,7 @@ pub fn point(sim: &SimState, p: Position) -> Vec3 {
 /// Attach small objects to the actual triangle surface, not the curved field
 /// hidden between its vertices. This prevents floating houses and broken rivers.
 fn rendered_elevation(sim: &SimState, p: Position) -> f32 {
-    let d = detail(sim) as f32;
-    let x = (p.x * d).floor() / d;
-    let z = (p.z * d).floor() / d;
-    let tx = (p.x - x) * d;
-    let tz = (p.z - z) * d;
-    let a = spatial::elevation(&sim.grid, Position::new(x, z));
-    if tx == 0. && tz == 0. {
-        return a;
-    }
-    let b = spatial::elevation(&sim.grid, Position::new(x + 1. / d, z));
-    let c = spatial::elevation(&sim.grid, Position::new(x, z + 1. / d));
-    if tx + tz <= 1. {
-        a + tx * (b - a) + tz * (c - a)
-    } else {
-        let e = spatial::elevation(&sim.grid, Position::new(x + 1. / d, z + 1. / d));
-        e + (1. - tx) * (c - e) + (1. - tz) * (b - e)
-    }
+    genesis_sim_core::surface::elevation(sim, p)
 }
 pub fn surface_point(sim: &SimState, p: Position) -> Vec3 {
     let mut v = point(sim, p);
@@ -93,6 +84,7 @@ fn colored_vertex(
 }
 
 /// Winding faces up; neighboring patches share exactly the same vertices.
+#[cfg(test)]
 pub fn triangles(sim: &SimState, mut visit: impl FnMut([Position; 3])) {
     let detail = detail(sim);
     for z in 0..sim.grid.height * detail {
@@ -114,33 +106,78 @@ pub fn triangles(sim: &SimState, mut visit: impl FnMut([Position; 3])) {
 pub struct Cache {
     context: crate::horizon::Cache,
     samples: Vec<(Position, Vec3, Vec3)>,
-    width: u32,
-    height: u32,
+    indices: Vec<[usize; 3]>,
+    pub key: lod::Key,
+    patches: lod::Patches,
+    pub rivers: Vec<Vertex>,
+    pub ground_cover: Vec<genesis_renderer::instances::Instance>,
 }
 impl Cache {
+    #[cfg(test)]
     pub fn new(sim: &SimState) -> Self {
-        let detail = detail(sim);
-        let width = sim.grid.width * detail + 1;
-        let height = sim.grid.height * detail + 1;
-        let samples = (0..height)
-            .flat_map(|z| {
-                (0..width).map(move |x| {
-                    let p = Position::new(x as f32 / detail as f32, z as f32 / detail as f32);
-                    let v = point(sim, p);
-                    let dx = spatial::elevation(&sim.grid, Position::new(p.x + 0.1, p.z))
-                        - spatial::elevation(&sim.grid, Position::new(p.x - 0.1, p.z));
-                    let dz = spatial::elevation(&sim.grid, Position::new(p.x, p.z + 0.1))
-                        - spatial::elevation(&sim.grid, Position::new(p.x, p.z - 0.1));
-                    (p, v, Vec3::new(-dx, 0.2, -dz).normalize())
-                })
+        let mut camera = genesis_renderer::camera::Camera::default();
+        home_camera(sim, &mut camera);
+        Self::at(sim, lod::Key::at(camera.eye()))
+    }
+    pub fn at(sim: &SimState, key: lod::Key) -> Self {
+        let (points, indices, patches) = lod::topology(sim, key);
+        let samples = points
+            .into_iter()
+            .map(|p| {
+                let v = point(sim, p);
+                let delta = genesis_sim_core::surface::SPACING;
+                let height =
+                    |x, z| genesis_sim_core::surface::vertex_height(sim, Position::new(x, z));
+                let dx = height(p.x + delta, p.z) - height(p.x - delta, p.z);
+                let dz = height(p.x, p.z + delta) - height(p.x, p.z - delta);
+                (p, v, Vec3::new(-dx, delta * 2., -dz).normalize())
             })
             .collect();
-        Self {
+        let mut cache = Self {
+            patches,
+            rivers: Vec::new(),
+            ground_cover: ground_cover::placements(sim, key.eye()),
             context: crate::horizon::Cache::new(sim),
             samples,
-            width,
-            height,
+            indices,
+            key,
+        };
+        let mut rivers = Vec::new();
+        crate::water::rivers(sim, &cache, &mut rivers);
+        cache.rivers = rivers;
+        cache
+    }
+    fn patch(&self, p: Position) -> Option<(u32, &std::ops::Range<usize>)> {
+        let x = (p.x * 32.).floor().max(0.) as u32;
+        let z = (p.z * 32.).floor().max(0.) as u32;
+        [1, 2, 4, 8, 16, 32].into_iter().find_map(|size| {
+            self.patches
+                .get(&(x / size * size, z / size * size, size))
+                .map(|r| (size, r))
+        })
+    }
+    pub fn detail_at(&self, p: Position) -> u32 {
+        self.patch(p).map_or(1, |(s, _)| 32 / s)
+    }
+    pub fn height_at(&self, sim: &SimState, p: Position) -> f32 {
+        if let Some((_, range)) = self.patch(p) {
+            for id in range.clone() {
+                let [a, b, c] = self.indices[id].map(|i| self.samples[i]);
+                let ax = b.0.x - a.0.x;
+                let az = b.0.z - a.0.z;
+                let bx = c.0.x - a.0.x;
+                let bz = c.0.z - a.0.z;
+                let dx = p.x - a.0.x;
+                let dz = p.z - a.0.z;
+                let det = ax * bz - az * bx;
+                let u = (dx * bz - dz * bx) / det;
+                let v = (ax * dz - az * dx) / det;
+                if u >= -1e-5 && v >= -1e-5 && u + v <= 1.00001 {
+                    return a.1.y + u * (b.1.y - a.1.y) + v * (c.1.y - a.1.y);
+                }
+            }
         }
+        rendered_elevation(sim, p)
     }
     pub fn mesh(&self, sim: &SimState, out: &mut Vec<Vertex>, layers: crate::survey::Survey) {
         let vertices: Vec<_> = self
@@ -148,30 +185,17 @@ impl Cache {
             .iter()
             .map(|&(p, v, n)| colored_vertex(sim, p, v, n, layers))
             .collect();
-        for z in 0..self.height - 1 {
-            for x in 0..self.width - 1 {
-                let i = (z * self.width + x) as usize;
-                let w = self.width as usize;
-                for ids in [[i, i + w, i + 1], [i + 1, i + w, i + w + 1]] {
-                    for j in ids {
-                        out.push(vertices[j]);
-                    }
-                    if !layers.seafloor
-                        && ids.iter().any(|&j| vertices[j].position[1] < sim.sea_level)
-                    {
-                        for j in ids {
-                            let [x, h, z] = vertices[j].position;
-                            out.push(Vertex {
-                                position: [x, sim.sea_level, z],
-                                color: [
-                                    0.24,
-                                    0.32,
-                                    0.24,
-                                    -(1. + (sim.sea_level - h).max(0.) * 20.),
-                                ],
-                            });
-                        }
-                    }
+        for ids in &self.indices {
+            for &j in ids {
+                out.push(vertices[j]);
+            }
+            if !layers.seafloor && ids.iter().any(|&j| vertices[j].position[1] < sim.sea_level) {
+                for &j in ids {
+                    let [x, h, z] = vertices[j].position;
+                    out.push(Vertex {
+                        position: [x, sim.sea_level, z],
+                        color: [0.24, 0.32, 0.24, -(1. + (sim.sea_level - h).max(0.) * 20.)],
+                    });
                 }
             }
         }
@@ -205,7 +229,7 @@ pub fn mesh(sim: &SimState, out: &mut Vec<Vertex>, layers: crate::survey::Survey
     Cache::new(sim).mesh(sim, out, layers);
 }
 
-fn intersect(origin: Vec3, dir: Vec3, [a, b, c]: [Vec3; 3]) -> Option<f32> {
+pub(crate) fn intersect(origin: Vec3, dir: Vec3, [a, b, c]: [Vec3; 3]) -> Option<f32> {
     let e = b - a;
     let f = c - a;
     let h = dir.cross(f);
@@ -233,14 +257,19 @@ struct Chunk {
     max: Vec3,
 }
 impl Picker {
+    #[cfg(test)]
     pub fn new(sim: &SimState) -> Self {
+        Self::from_cache(sim, &Cache::new(sim))
+    }
+    pub fn from_cache(sim: &SimState, cache: &Cache) -> Self {
         let columns = sim.grid.width.div_ceil(16) as usize;
         let mut buckets = vec![Vec::new(); columns * sim.grid.height.div_ceil(16) as usize];
-        triangles(sim, |tri| {
+        for ids in &cache.indices {
+            let tri = ids.map(|i| cache.samples[i].0);
             let x = (tri[0].x.min(tri[1].x).min(tri[2].x) / 16.) as usize;
             let z = (tri[0].z.min(tri[1].z).min(tri[2].z) / 16.) as usize;
-            buckets[z * columns + x].push(tri.map(|p| point(sim, p)));
-        });
+            buckets[z * columns + x].push(ids.map(|i| cache.samples[i].1));
+        }
         let chunks = buckets
             .into_iter()
             .map(|triangles| {
@@ -341,6 +370,45 @@ pub fn pick(sim: &SimState, origin: Vec3, dir: Vec3) -> Option<Position> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn human_view_shares_physical_ground_and_fits_the_mesh_budget() {
+        use genesis_sim_core::worldgen::{self, Region};
+        for region in Region::ALL {
+            let sim = worldgen::generate_region(worldgen::DEFAULT_SEED, region);
+            let mut camera = genesis_renderer::camera::Camera::default();
+            crate::ground::toggle(&sim, sim.buildings[0].position, &mut camera);
+            assert!(camera.is_ground());
+            let start = std::time::Instant::now();
+            let cache = Cache::at(&sim, lod::Key::at(camera.eye()));
+            let mut mesh = Vec::new();
+            cache.mesh(&sim, &mut mesh, Default::default());
+            let bytes = (mesh.len() + cache.rivers.len()) * std::mem::size_of::<Vertex>();
+            eprintln!(
+                "{}: {} terrain triangles, {} river vertices, {} MiB, {:?} build",
+                region.name(),
+                cache.indices.len(),
+                cache.rivers.len(),
+                bytes / 1048576,
+                start.elapsed()
+            );
+            assert!(bytes < 128 * 1024 * 1024, "bounded CPU/GPU scene mesh");
+            for i in 0..32 {
+                let p = Position::new(
+                    camera.focus.x + sim.grid.width as f32 / 2. + i as f32 * 0.013,
+                    camera.focus.z + sim.grid.height as f32 / 2. + 0.137,
+                );
+                assert_eq!(cache.detail_at(p), genesis_sim_core::surface::SUBDIVISIONS);
+                assert!(
+                    (cache.height_at(&sim, p) - genesis_sim_core::surface::elevation(&sim, p))
+                        .abs()
+                        < 1e-4
+                );
+            }
+            let picker = Picker::from_cache(&sim, &cache);
+            let point = picker.pick(camera.eye(), Vec3::NEG_Y, false).unwrap();
+            assert!((point.x - camera.focus.x - sim.grid.width as f32 / 2.).abs() < 1e-5);
+        }
+    }
     #[test]
     fn cached_picker_matches_reference_for_oblique_rays_and_edits() {
         let mut sim = genesis_sim_core::scenarios::coastal_outpost();

@@ -15,6 +15,7 @@ pub struct Gpu {
     overlay_count: u32,
     camera: wgpu::Buffer,
     camera_group: wgpu::BindGroup,
+    pub instances: crate::instances::Instances,
 }
 
 impl Gpu {
@@ -96,7 +97,7 @@ impl Gpu {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_compare: wgpu::CompareFunction::Greater,
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -104,7 +105,10 @@ impl Gpu {
             multiview: None,
             cache: None,
         });
+        let instances =
+            crate::instances::Instances::new(&device, format, &pipeline_layout, &shader);
         Ok(Self {
+            instances,
             device,
             queue,
             pipeline,
@@ -210,7 +214,7 @@ impl Gpu {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Clear(0.0),
                         store: wgpu::StoreOp::Discard,
                     }),
                     stencil_ops: None,
@@ -224,6 +228,7 @@ impl Gpu {
             pass.draw(0..self.count, 0..1);
             pass.set_vertex_buffer(0, self.overlay.slice(..));
             pass.draw(0..self.overlay_count, 0..1);
+            self.instances.render(&mut pass);
         }
         encoder
     }

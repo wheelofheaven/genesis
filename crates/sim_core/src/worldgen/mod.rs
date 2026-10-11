@@ -1,5 +1,6 @@
 //! Seeded regional generation. This is a plausible landscape recipe, not a
 //! calibrated Earth or plate-tectonics model. All distances use game units.
+mod cover;
 mod drainage;
 mod geology;
 pub mod noise;
@@ -12,7 +13,7 @@ mod tests;
 
 use crate::{SimState, config::SimConfig, grid::Grid, spatial::Position};
 pub use drainage::River;
-use noise::{noise, unit};
+
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_SEED: u64 = 7319;
@@ -73,7 +74,7 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
     }
     let flow = drainage::route(&mut sim.grid, sim.sea_level);
     sim.geography = Geography {
-        version: 4,
+        version: 6,
         region,
         rivers: drainage::rivers(
             &sim.grid,
@@ -100,37 +101,7 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
     if inhabited {
         settlement::seed(&mut sim);
     }
-    for (x, z, c) in sim.grid.iter_coords() {
-        let i = (z * WIDTH + x) as u64;
-        let p = Position::new(
-            x as f32 + unit(seed ^ 811, i) - 0.5,
-            z as f32 + unit(seed ^ 821, i) - 0.5,
-        );
-        let rock = c.elevation > 18. || unit(seed ^ 835, i) < 0.08;
-        let patch = (noise(seed ^ 111, p.x / 7., p.z / 7.) + 0.45).max(0.);
-        if c.elevation < 0.45
-            || unit(seed ^ 831, i) > if rock { 0.085 } else { c.plants * patch * 0.9 }
-        {
-            continue;
-        }
-        if sim.buildings.iter().any(|b| {
-            (b.position.x - p.x).powi(2) + (b.position.z - p.z).powi(2)
-                < crate::settlement::Building::TREE_CLEARANCE.powi(2)
-        }) || sim
-            .paths
-            .iter()
-            .flat_map(|p| &p.points)
-            .any(|q| (q.x - p.x).powi(2) + (q.z - p.z).powi(2) < crate::units::metres(3.).powi(2))
-            || river_distance(&sim, p) < 0.9
-        {
-            continue;
-        }
-        sim.geography.cover.push(Cover {
-            position: p,
-            size: 0.45 + unit(seed ^ 841, i) * 0.8,
-            rock,
-        });
-    }
+    sim.geography.cover = cover::generate(&sim);
     sim
 }
 

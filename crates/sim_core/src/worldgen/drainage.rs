@@ -7,7 +7,11 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct River {
     pub points: Vec<Position>,
+    /// Maximum bank-to-bank width, in world units.
     pub width: f32,
+    /// Local bank-to-bank widths, aligned with points. Empty in legacy data.
+    #[serde(default)]
+    pub widths: Vec<f32>,
     #[serde(default)]
     pub bounds: Option<[f32; 4]>,
 }
@@ -137,14 +141,20 @@ pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32, threshold: f32) -> Vec
             continue;
         }
         let mut points = Vec::new();
+        let mut widths = Vec::new();
         let mut i = start;
-        let mut maximum = drainage.accumulation[i];
         loop {
             points.push(Position::new(
                 (i % grid.width as usize) as f32,
                 (i / grid.width as usize) as f32,
             ));
-            maximum = maximum.max(drainage.accumulation[i]);
+            // A metric visual recipe based on contributing rainfall-weighted
+            // catchment area, not distance along an arbitrarily split polyline.
+            let area_km2 =
+                drainage.accumulation[i] * crate::units::METRES_PER_UNIT.powi(2) / 1_000_000.;
+            widths.push(crate::units::metres(
+                (0.8 + 4. * area_km2.sqrt()).clamp(0.8, 12.),
+            ));
             if used[i] || grid.cells()[i].elevation <= sea {
                 break;
             }
@@ -159,8 +169,10 @@ pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32, threshold: f32) -> Vec
             // mouths exactly. Flow accumulation still uses the routing graph.
             for _ in 0..2 {
                 let mut smooth = vec![points[0]];
-                for pair in points.windows(2) {
+                let mut smooth_widths = vec![widths[0]];
+                for (index, pair) in points.windows(2).enumerate() {
                     for t in [0.25, 0.75] {
+                        smooth_widths.push(widths[index] * (1. - t) + widths[index + 1] * t);
                         smooth.push(Position::new(
                             pair[0].x * (1. - t) + pair[1].x * t,
                             pair[0].z * (1. - t) + pair[1].z * t,
@@ -168,7 +180,9 @@ pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32, threshold: f32) -> Vec
                     }
                 }
                 smooth.push(points[points.len() - 1]);
+                smooth_widths.push(widths[widths.len() - 1]);
                 points = smooth;
+                widths = smooth_widths;
             }
             let bounds = points.iter().fold(
                 [
@@ -182,7 +196,8 @@ pub fn rivers(grid: &Grid, drainage: &Drainage, sea: f32, threshold: f32) -> Vec
             result.push(River {
                 bounds: Some(bounds),
                 points,
-                width: (0.08 + maximum.sqrt() * 0.009).clamp(0.12, 0.65),
+                width: widths.iter().copied().fold(0., f32::max),
+                widths,
             });
         }
     }

@@ -1,9 +1,10 @@
 pub mod glass;
 mod hud;
-mod icons;
+pub(crate) mod icons;
 #[cfg(test)]
 mod interaction_tests;
 mod navigation;
+mod objects;
 mod survey;
 pub mod theme;
 
@@ -29,7 +30,13 @@ pub fn show(
         navigation::show(ctx, session, camera),
         navigation::scale(ctx, camera),
     ];
-    if session.placing || session.landscape_tools || session.survey.open || session.world_tools {
+    if session.placing
+        || session.path.active
+        || session.selected_object.is_some()
+        || session.landscape_tools
+        || session.survey.open
+        || session.world_tools
+    {
         let top = if compact { 148. } else { 88. };
         let available = (occupied[3].top() - top - 50.).max(80.);
         let tool = egui::Area::new("tool_card".into())
@@ -58,6 +65,7 @@ pub fn show(
                                             .clicked()
                                         {
                                             session.set_placing(false);
+                                            session.selected_object = None;
                                             session.survey.open = false;
                                             session.landscape_tools = false;
                                             session.world_tools = false;
@@ -77,8 +85,12 @@ pub fn show(
                                 survey::panel(ui, session);
                             } else if session.placing {
                                 building(ui, session, ctx.content_rect().height() < 650.);
+                            } else if session.path.active {
+                                objects::path_tool(ui, session);
                             } else if session.landscape_tools {
                                 landscape(ui, session);
+                            } else {
+                                objects::selection(ui, session);
                             }
                         });
                 });

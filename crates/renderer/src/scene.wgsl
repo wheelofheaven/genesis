@@ -18,6 +18,17 @@ struct Output {
 fn hash(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
 }
+@vertex fn instanced_vertex(@location(0) position: vec3<f32>, @location(1) color: vec4<f32>,
+    @location(2) placement: vec4<f32>, @location(3) tint_rotation: vec4<f32>) -> Output {
+    let s = sin(tint_rotation.w);
+    let c = cos(tint_rotation.w);
+    let rotated = vec3<f32>(c * position.x - s * position.z, position.y, s * position.x + c * position.z);
+    var out: Output;
+    out.world = placement.xyz + rotated * placement.w;
+    out.position = camera.view_projection * vec4<f32>(out.world, 1.);
+    out.color = vec4<f32>(color.rgb * tint_rotation.rgb, color.a);
+    return out;
+}
 fn noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);

@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 /// Used for expedition log, UI feedback, and debugging.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimEvent {
+    PathBuilt {
+        index: usize,
+    },
+    PathRejected {
+        reason: crate::paths::PathError,
+    },
     WellDrilled {
         id: u64,
     },

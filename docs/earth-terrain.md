@@ -8,9 +8,11 @@ mask is a scenario choice, not a planetary assumption.
 
 ## Implemented
 
-Generation recipe 4 offers procedural Levant coastal plain and inland hill
+Generation recipe 6 offers procedural Levant coastal plain and inland hill
 windows, plus the existing Mediterranean island. The local simulation covers
-7.68 × 6.4 km at 20 m sample spacing, with the same scale for buildings and terrain.
+7.68 × 6.4 km with 20 m environmental samples. The shared physical ground is
+queried at sub-metre resolution and rendered adaptively; see
+[Human-scale world](human-scale-world.md). Buildings and terrain share metric dimensions.
 Continental fields clamp boundary samples instead of wrapping east onto west.
 Drainage exits at sea or the local boundary; upstream inflow from neighbouring
 windows is not modelled. Coarser surrounding geometry provides visual continuity

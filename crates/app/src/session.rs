@@ -13,6 +13,9 @@ pub struct Session {
     pub position: Position,
     pub building_rotation: f32,
     pub placing: bool,
+    pub path: crate::path_tool::Draft,
+    pub selected_object: Option<crate::interaction::Object>,
+    pub hovered_object: Option<crate::interaction::Object>,
     pub hover: Option<Position>,
     pub overlay_dirty: bool,
     pub urgent_redraw: bool,
@@ -51,6 +54,9 @@ impl Session {
             position,
             building_rotation: 0.,
             placing: false,
+            path: crate::path_tool::Draft::default(),
+            selected_object: None,
+            hovered_object: None,
             hover: None,
             overlay_dirty: true,
             urgent_redraw: true,
@@ -111,6 +117,7 @@ impl Session {
         for event in events {
             match &event {
                 SimEvent::WellDrilled { id } => {
+                    self.terrain_revision += 1;
                     self.message = format!("Borehole {id} online");
                     self.message_is_error = false;
                 }
@@ -126,7 +133,23 @@ impl Session {
                     self.message_is_error = false;
                 }
 
+                SimEvent::PathBuilt { index } => {
+                    self.terrain_revision += 1;
+                    let object = crate::interaction::Object::Path(*index);
+                    self.select_object(Some(object), self.position);
+                    self.message = format!("{} built", object.label());
+                    self.message_is_error = false;
+                }
+                SimEvent::PathRejected { reason } => {
+                    self.message = reason.to_string();
+                    self.message_is_error = true;
+                }
                 SimEvent::BuildingPlaced { id } => {
+                    self.select_object(
+                        Some(crate::interaction::Object::Building(*id)),
+                        self.position,
+                    );
+                    self.terrain_revision += 1;
                     self.message = format!("Dwelling {id} built");
                     self.message_is_error = false;
                 }
@@ -155,11 +178,15 @@ impl Session {
         }
     }
     pub fn select(&mut self, position: Position) {
+        self.selected_object = None;
         self.position = position;
         self.selected = (position.x.round() as i32, position.z.round() as i32);
         self.overlay_dirty = true;
     }
     pub fn set_placing(&mut self, placing: bool) {
+        self.path.active = false;
+        self.path.points.clear();
+        self.hovered_object = None;
         self.placing = placing;
         if placing {
             self.landscape_tools = false;
@@ -192,9 +219,39 @@ impl Session {
             (self.building_rotation + radians).rem_euclid(std::f32::consts::TAU);
         self.overlay_dirty = true;
     }
+    pub fn select_object(&mut self, object: Option<crate::interaction::Object>, ground: Position) {
+        use crate::interaction::Object;
+        let p = match object {
+            Some(Object::Building(id)) => self
+                .sim
+                .buildings
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| b.position),
+            Some(Object::Path(i)) => self
+                .sim
+                .paths
+                .get(i)
+                .and_then(|p| p.points.get(p.points.len() / 2))
+                .copied(),
+            None => None,
+        }
+        .unwrap_or(ground);
+        self.select(p);
+        self.selected_object = object;
+    }
+    pub fn set_hovered_object(&mut self, object: Option<crate::interaction::Object>) {
+        if self.hovered_object != object {
+            self.hovered_object = object;
+            self.overlay_dirty = true;
+        }
+    }
     pub fn set_hover(&mut self, hover: Option<Position>) {
         if self.hover != hover {
             self.hover = hover;
+            if hover.is_none() {
+                self.hovered_object = None;
+            }
             self.overlay_dirty = true;
         }
     }

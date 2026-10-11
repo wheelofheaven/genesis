@@ -75,8 +75,8 @@ pub fn build(grid: &mut Grid, seed: u64, region: Region) {
 /// Also used outside the active simulation window for visual context. This
 /// procedural source can later be replaced by an imported topobathymetric raster.
 pub fn regional_sample(seed: u64, region: Region, x: f32, z: f32) -> (f32, f32) {
-    let east = (x - super::WIDTH as f32 * 0.5) * 20.;
-    let south = (z - super::HEIGHT as f32 * 0.5) * 20.;
+    let east = (x - super::WIDTH as f32 * 0.5) * crate::units::METRES_PER_UNIT;
+    let south = (z - super::HEIGHT as f32 * 0.5) * crate::units::METRES_PER_UNIT;
     let coast = -950. + fbm(seed ^ 101, 7., south / 1900.) * 220. + (south / 1200.).sin() * 130.;
     let inland = east - coast;
     let warp = fbm(seed ^ 219, east / 1800., south / 1800.) * 0.55;
@@ -113,7 +113,8 @@ pub fn regional_sample(seed: u64, region: Region, x: f32, z: f32) -> (f32, f32) 
         - (east / 12000.).max(0.))
     .clamp(0.2, 0.85);
     (
-        (height / 20.).clamp(crate::units::MIN_ELEVATION, crate::units::MAX_ELEVATION),
+        crate::units::metres(height)
+            .clamp(crate::units::MIN_ELEVATION, crate::units::MAX_ELEVATION),
         rainfall,
     )
 }

@@ -161,6 +161,7 @@ pub fn dock(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.;
                     let exploring = !session.placing
+                        && !session.path.active
                         && !session.landscape_tools
                         && !session.survey.open
                         && !session.world_tools;
@@ -190,6 +191,18 @@ pub fn dock(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
                     .clicked()
                     {
                         session.set_placing(!session.placing);
+                    }
+                    if icons::button(
+                        ui,
+                        Icon::Path,
+                        "Paths",
+                        session.path.active,
+                        true,
+                        "Lay a footpath · P\nClick waypoints · Enter builds · Backspace undoes",
+                    )
+                    .clicked()
+                    {
+                        session.set_path_tool(!session.path.active);
                     }
                     if icons::button(
                         ui,

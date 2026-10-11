@@ -170,6 +170,12 @@ simulation, usable by future modes with different access to information.
 
 ## Art direction
 
+The world must remain convincing from an individual human's point of view, not
+only from the settlement camera. This is a shared-world requirement for future
+individual play. Environmental simulation resolution must not cap ground detail;
+see [the human-scale world architecture](human-scale-world.md) for the physical
+surface, adaptive rendering, object, streaming and validation boundaries.
+
 Keep proportions grounded in a shared physical scale: modest single-storey homes,
 human-sized doors and paths, and compatible trees, rocks, and equipment. Settlements
 should occupy a small, believable part of the wider terrain. Illustrated rendering

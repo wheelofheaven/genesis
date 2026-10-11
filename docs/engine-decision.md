@@ -179,6 +179,16 @@ uses a tighter layout (recipe version 2). The camera supports closer inspection;
 a metric scale bar makes distances visible at every zoom. This calibrates geometry
 only: simulation time and resource volumes still use prototype units.
 
+The current scale pass uses a 45° perspective camera, with analytic picking rays
+to preserve precision at close zoom far from the origin. The scale bar is local
+to the focal plane. Reversed floating-point depth preserves thin surface details
+from house inspection to regional views, and river geometry splits at terrain
+triangle edges to avoid disappearing below creases. Recipe 5 samples vegetation independently at jittered 10 m
+intervals and stores a local width profile on each river. Shared GPU meshes and
+32-byte instances allow denser cover without duplicating tree geometry in world
+uploads. Placements refresh after terrain edits, world replacement, and building
+changes; ordinary ecological recoloring reuses the instance buffers.
+
 ## Related documents
 
 - [Project vision](vision.md)

@@ -31,10 +31,14 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
         egui::vec2(1120., 540.),
         egui::vec2(1280., 800.),
     ] {
-        for tool in 0..5 {
+        for tool in 0..7 {
             let ctx = egui::Context::default();
             theme::install(&ctx);
             let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
+            session.path.active = tool == 5;
+            if tool == 6 {
+                session.selected_object = Some(crate::interaction::Object::Building(1));
+            }
             session.placing = tool == 1;
             session.landscape_tools = tool == 2;
             session.survey.open = tool == 3;
@@ -82,6 +86,7 @@ fn dock_switches_tools_and_menu_is_reachable() {
     let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
     let mut front = crate::frontend::Frontend::default();
     for (label, expected) in [
+        ("Paths", 6),
         ("Build", 1),
         ("Survey", 2),
         ("Landscape", 3),
@@ -120,10 +125,11 @@ fn dock_switches_tools_and_menu_is_reachable() {
                 ],
             );
         }
+        assert_eq!(session.path.active, expected == 6);
         assert_eq!(session.placing, expected == 1);
         assert_eq!(session.survey.open, expected == 2);
         assert_eq!(session.landscape_tools, expected == 3);
-        assert_eq!(session.world_tools, expected >= 4);
+        assert_eq!(session.world_tools, expected == 4 || expected == 5);
         if expected == 5 {
             assert_eq!(front.screen, crate::frontend::Screen::Pause);
         }

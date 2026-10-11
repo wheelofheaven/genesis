@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 /// Player actions fed into the simulation each tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Action {
+    /// Construct a curved footpath through continuous waypoints.
+    BuildPath {
+        waypoints: Vec<crate::spatial::Position>,
+        width: f32,
+    },
     DrillWell {
         position: crate::spatial::Position,
     },

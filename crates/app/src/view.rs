@@ -24,10 +24,18 @@ pub struct View {
     picker: Option<(u64, terrain::Picker)>,
     last_world_upload: Instant,
     terrain_cache: Option<(u64, terrain::Cache)>,
+    terrain_pending: Option<(
+        u64,
+        terrain::lod::Key,
+        std::sync::mpsc::Receiver<terrain::Cache>,
+    )>,
+    terrain_changed: bool,
     started: Instant,
-    scenery_cache: Vec<genesis_renderer::geometry::Vertex>,
-    scenery_buildings: usize,
+    scenery_buildings: Option<usize>,
+    foliage_batches: [usize; 2],
+    ground_batch: usize,
     occupied: Vec<egui::Rect>,
+    path_tool_active: bool,
 }
 
 impl View {
@@ -54,7 +62,7 @@ impl View {
         // egui supplies gamma-space premultiplied colors. Blend UI through an
         // UNORM view; keep the world's lighting and frosting in linear light.
         config.view_formats = vec![config.format.remove_srgb_suffix()];
-        let gpu = Gpu::new(&adapter, config.format).await?;
+        let mut gpu = Gpu::new(&adapter, config.format).await?;
         surface.configure(&gpu.device, &config);
         let depth = gpu.texture(
             config.width,
@@ -79,14 +87,23 @@ impl View {
         );
         let glass =
             genesis_renderer::glass::Glass::new(&gpu, config.width, config.height, config.format);
+        let foliage_batches =
+            crate::landscape::meshes().map(|mesh| gpu.instances.add_mesh(&gpu.device, &mesh));
+        let ground_batch = gpu
+            .instances
+            .add_mesh(&gpu.device, &terrain::ground_cover::mesh());
         Ok(Self {
+            ground_batch,
+            foliage_batches,
             glass,
             occupied: Vec::new(),
+            path_tool_active: false,
             picker: None,
             terrain_cache: None,
+            terrain_pending: None,
+            terrain_changed: false,
             started: Instant::now(),
-            scenery_cache: Vec::new(),
-            scenery_buildings: 0,
+            scenery_buildings: None,
             last_world_upload: Instant::now(),
             window,
             surface,
@@ -123,11 +140,65 @@ impl View {
         if let WindowEvent::KeyboardInput { event, .. } = event
             && let winit::keyboard::PhysicalKey::Code(code) = event.physical_key
             && playing
-            && crate::input::Input::is_shortcut(code)
+            && (crate::input::Input::is_shortcut(code)
+                || (code == winit::keyboard::KeyCode::Enter && self.path_tool_active))
         {
             return false;
         }
         self.gui_state.on_window_event(&self.window, event).consumed
+    }
+
+    fn ensure_terrain(&mut self, session: &Session, camera: &Camera) {
+        let revision = session.terrain_revision;
+        let key = terrain::lod::Key::at(camera.eye());
+        let foot = genesis_sim_core::spatial::Position::new(
+            camera.focus.x + session.sim.grid.width as f32 / 2.,
+            camera.focus.z + session.sim.grid.height as f32 / 2.,
+        );
+        let needs_ground = camera.is_ground()
+            && self.terrain_cache.as_ref().is_some_and(|(_, c)| {
+                c.key != key && c.detail_at(foot) < genesis_sim_core::surface::SUBDIVISIONS
+            });
+        if needs_ground
+            || self
+                .terrain_cache
+                .as_ref()
+                .is_none_or(|(r, _)| *r != revision)
+        {
+            let cache = terrain::Cache::at(&session.sim, key);
+            self.picker = Some((revision, terrain::Picker::from_cache(&session.sim, &cache)));
+            self.terrain_cache = Some((revision, cache));
+            self.terrain_changed = true;
+            self.scenery_buildings = None;
+        }
+        if let Some((r, k, rx)) = &self.terrain_pending {
+            match rx.try_recv() {
+                Ok(cache) => {
+                    if *r == revision && *k == key {
+                        self.picker =
+                            Some((revision, terrain::Picker::from_cache(&session.sim, &cache)));
+                        self.terrain_cache = Some((revision, cache));
+                        self.terrain_changed = true;
+                    }
+                    self.terrain_pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.terrain_pending = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if self.terrain_pending.is_none()
+            && self
+                .terrain_cache
+                .as_ref()
+                .is_some_and(|(_, c)| c.key != key)
+        {
+            let sim = session.sim.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(terrain::Cache::at(&sim, key));
+            });
+            self.terrain_pending = Some((revision, key, rx));
+        }
     }
 
     pub fn pick(
@@ -136,13 +207,7 @@ impl View {
         camera: &Camera,
         cursor: glam::Vec2,
     ) -> Option<genesis_sim_core::spatial::Position> {
-        if self
-            .picker
-            .as_ref()
-            .is_none_or(|(revision, _)| *revision != session.terrain_revision)
-        {
-            self.picker = Some((session.terrain_revision, terrain::Picker::new(&session.sim)));
-        }
+        self.ensure_terrain(session, camera);
         let size = self.window.inner_size();
         let (origin, dir) = camera.ray(
             cursor,
@@ -152,6 +217,41 @@ impl View {
             .as_ref()?
             .1
             .pick(origin, dir, !session.survey.seafloor)
+    }
+    pub fn pick_object(
+        &mut self,
+        session: &Session,
+        camera: &Camera,
+        cursor: glam::Vec2,
+        ground: Option<genesis_sim_core::spatial::Position>,
+    ) -> Option<crate::interaction::Object> {
+        let size = self.window.inner_size();
+        let (origin, dir) = camera.ray(
+            cursor,
+            glam::Vec2::new(size.width as f32, size.height as f32),
+        )?;
+        let ground = ground.map(|p| {
+            let mut v = terrain::point(&session.sim, p);
+            if let Some((_, cache)) = &self.terrain_cache {
+                v.y = cache.height_at(&session.sim, p);
+            }
+            if !session.survey.seafloor {
+                v.y = v.y.max(session.sim.sea_level);
+            }
+            v
+        });
+        crate::interaction::pick(&session.sim, origin, dir, ground)
+    }
+    /// Native smoke tests also feed egui: macOS cursor warps need not emit movement.
+    pub fn test_pointer(&mut self, cursor: glam::Vec2) {
+        let scale = self.gui_state.egui_ctx().pixels_per_point();
+        self.gui_state
+            .egui_input_mut()
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(
+                cursor.x / scale,
+                cursor.y / scale,
+            )));
     }
     pub fn pointer_over_ui(&self, cursor: glam::Vec2) -> bool {
         let scale = self.gui_state.egui_ctx().pixels_per_point();
@@ -180,44 +280,68 @@ impl View {
         };
         let context = self.gui_state.egui_ctx().clone();
         context.set_zoom_factor(front.settings.scale);
+        let mut custom_cursor = false;
         let output = context.run(self.gui_state.take_egui_input(&self.window), |ctx| {
             self.occupied = if front.playing() {
                 ui::show(ctx, session, camera, front)
             } else {
                 front.show(ctx, session, camera)
             };
+            if self.window.has_focus() || capture.is_some() {
+                let world = front.playing()
+                    && ctx
+                        .pointer_hover_pos()
+                        .is_some_and(|p| !self.occupied.iter().any(|r| r.contains(p)));
+                custom_cursor = crate::cursor::paint(ctx, session, world);
+            }
         });
+        self.path_tool_active = session.path.active;
         self.gui_state
             .handle_platform_output(&self.window, output.platform_output);
+        self.window.set_cursor_visible(!custom_cursor);
+        if front.surface_backdrop() {
+            self.ensure_terrain(session, camera);
+            if self.terrain_changed {
+                if let Some((_, cache)) = &self.terrain_cache {
+                    self.gpu.instances.upload(
+                        &self.gpu.device,
+                        &self.gpu.queue,
+                        self.ground_batch,
+                        &cache.ground_cover,
+                    );
+                }
+                session.dirty = true;
+                session.urgent_redraw = true;
+                self.terrain_changed = false;
+            }
+        }
         if front.surface_backdrop()
             && session.dirty
             && (session.urgent_redraw
                 || self.last_world_upload.elapsed()
                     >= Duration::from_millis(if session.survey.active() { 250 } else { 1000 }))
         {
-            if self
-                .terrain_cache
-                .as_ref()
-                .is_none_or(|(revision, _)| *revision != session.terrain_revision)
-            {
-                self.scenery_cache.clear();
-                self.terrain_cache =
-                    Some((session.terrain_revision, terrain::Cache::new(&session.sim)));
-            }
-            if self.scenery_cache.is_empty()
-                || self.scenery_buildings != session.sim.buildings.len()
-            {
-                self.scenery_cache.clear();
-                crate::water::rivers(&session.sim, &mut self.scenery_cache);
-                crate::landscape::cover(&session.sim, &mut self.scenery_cache);
-                self.scenery_buildings = session.sim.buildings.len();
+            if self.scenery_buildings != Some(session.sim.buildings.len()) {
+                for (batch, placements) in self
+                    .foliage_batches
+                    .into_iter()
+                    .zip(crate::landscape::placements(&session.sim))
+                {
+                    self.gpu.instances.upload(
+                        &self.gpu.device,
+                        &self.gpu.queue,
+                        batch,
+                        &placements,
+                    );
+                }
+                self.scenery_buildings = Some(session.sim.buildings.len());
             }
             if let Some((_, cache)) = &self.terrain_cache {
                 self.gpu.upload_scene(&scene::mesh(
                     &session.sim,
                     session.survey,
                     cache,
-                    &self.scenery_cache,
+                    &cache.rivers,
                 ));
             }
             self.last_world_upload = Instant::now();

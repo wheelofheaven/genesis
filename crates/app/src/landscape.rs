@@ -35,10 +35,50 @@ fn stone(out: &mut Vec<Vertex>, center: Vec3, radius: f32, height: f32, color: V
     }
 }
 
-pub fn cover(sim: &SimState, out: &mut Vec<Vertex>) {
-    for plant in &sim.geography.cover {
+/// Shared meshes are authored in metres before conversion to world units.
+pub fn meshes() -> [Vec<Vertex>; 2] {
+    use genesis_sim_core::units::metres;
+    let mut tree = Vec::new();
+    let s = metres(7.);
+    cuboid(
+        &mut tree,
+        [0., s * 0.55, 0.],
+        [s * 0.07, s * 1.1, s * 0.07],
+        [0.25, 0.21, 0.13],
+    );
+    for lobe in 0..5 {
+        let angle = lobe as f32 * 2.399963;
+        let reach = if lobe == 0 { 0. } else { s * 0.43 };
+        let center = Vec3::new(
+            angle.cos() * reach,
+            s * (1.05 + 0.16 * (angle * 1.3).sin()),
+            angle.sin() * reach,
+        );
+        stone(
+            &mut tree,
+            center,
+            s * (0.42 + 0.06 * angle.sin()),
+            s * 0.38,
+            Vec3::new(0.20, 0.28, 0.115) * (0.93 + 0.07 * angle.cos()),
+        );
+    }
+    let mut rock = Vec::new();
+    let s = metres(3.6);
+    stone(
+        &mut rock,
+        Vec3::Y * s * 0.16,
+        s * 0.65,
+        s * 0.42,
+        Vec3::new(0.49, 0.43, 0.33),
+    );
+    [tree, rock]
+}
+
+pub fn placements(sim: &SimState) -> [Vec<genesis_renderer::instances::Instance>; 2] {
+    let mut result = [Vec::new(), Vec::new()];
+    for (index, plant) in sim.geography.cover.iter().enumerate() {
         let p = terrain::point(sim, plant.position);
-        if p.y < sim.sea_level + 0.1
+        if p.y < sim.sea_level + genesis_sim_core::units::metres(2.)
             || sim.buildings.iter().any(|b| {
                 (b.position.x - plant.position.x).powi(2)
                     + (b.position.z - plant.position.z).powi(2)
@@ -47,38 +87,13 @@ pub fn cover(sim: &SimState, out: &mut Vec<Vertex>) {
         {
             continue;
         }
-        let s = plant.size * if plant.rock { 0.18 } else { 0.35 };
-        if plant.rock {
-            stone(
-                out,
-                p + Vec3::Y * s * 0.16,
-                s * 0.65,
-                s * 0.42,
-                Vec3::new(0.49, 0.43, 0.33),
-            );
-        } else {
-            cuboid(
-                out,
-                (p + Vec3::Y * s * 0.55).to_array(),
-                [s * 0.12, s * 1.1, s * 0.12],
-                [0.25, 0.21, 0.13],
-            );
-            for lobe in 0..5 {
-                let angle = lobe as f32 * 2.399963 + p.x;
-                let reach = if lobe == 0 { 0. } else { s * 0.43 };
-                let center = p + Vec3::new(
-                    angle.cos() * reach,
-                    s * (1.05 + 0.16 * (angle * 1.3).sin()),
-                    angle.sin() * reach,
-                );
-                stone(
-                    out,
-                    center,
-                    s * (0.42 + 0.06 * angle.sin()),
-                    s * 0.38,
-                    Vec3::new(0.20, 0.28, 0.115) * (0.93 + 0.07 * angle.cos()),
-                );
-            }
-        }
+        let variation =
+            genesis_sim_core::worldgen::noise::unit(sim.config.seed ^ 955, index as u64);
+        let shade = 0.88 + variation * 0.24;
+        result[usize::from(plant.rock)].push(genesis_renderer::instances::Instance {
+            position_scale: [p.x, p.y, p.z, plant.size],
+            tint_rotation: [shade, shade, shade, variation * std::f32::consts::TAU],
+        });
     }
+    result
 }

@@ -12,7 +12,13 @@ fn triangle(out: &mut Vec<Vertex>, points: [Vec3; 3], color: [f32; 3]) {
         });
     }
 }
-fn ribbon(sim: &SimState, out: &mut Vec<Vertex>, points: &[Position], width: f32, color: [f32; 3]) {
+pub(crate) fn ribbon(
+    sim: &SimState,
+    out: &mut Vec<Vertex>,
+    points: &[Position],
+    width: f32,
+    color: [f32; 3],
+) {
     if points.len() < 2 {
         return;
     }
@@ -40,7 +46,7 @@ fn ribbon(sim: &SimState, out: &mut Vec<Vertex>, points: &[Position], width: f32
         }
     }
 }
-fn house(sim: &SimState, out: &mut Vec<Vertex>, b: &Building) {
+pub(crate) fn house(sim: &SimState, out: &mut Vec<Vertex>, b: &Building) {
     let start = out.len();
     let corners = b.footprint();
     let high = corners
@@ -162,7 +168,13 @@ pub fn mesh(
     terrain_cache.mesh(sim, &mut out, layers);
     out.extend_from_slice(cover);
     for path in &sim.paths {
-        ribbon(sim, &mut out, &path.points, path.width, [0.59, 0.44, 0.27]);
+        ribbon(
+            sim,
+            &mut out,
+            &genesis_sim_core::paths::samples(path),
+            path.width,
+            [0.59, 0.44, 0.27],
+        );
     }
     if layers.minerals {
         for d in &sim.subsurface.deposits {
@@ -290,17 +302,29 @@ pub fn overlay(session: &Session) -> Vec<Vertex> {
                 [0.95, 0.23, 0.13]
             },
         );
-    } else {
+    } else if session.path.active {
+        crate::selection::draft(session, &mut out);
+    } else if session.selected_object.is_none() {
         let points: Vec<_> = (0..=64)
             .map(|i| {
                 let a = i as f32 / 64. * std::f32::consts::TAU;
                 Position::new(
-                    session.position.x + a.cos() * 0.48,
-                    session.position.z + a.sin() * 0.48,
+                    session.position.x + a.cos() * metres(2.),
+                    session.position.z + a.sin() * metres(2.),
                 )
             })
             .collect();
-        ribbon(sim, &mut out, &points, 0.035, [0.2, 0.85, 0.95]);
+        ribbon(sim, &mut out, &points, metres(0.08), [0.2, 0.85, 0.95]);
+    }
+    if !session.placing && !session.path.active {
+        if let Some(object) = session.selected_object {
+            crate::selection::object(session, &mut out, object, true);
+        }
+        if let Some(object) = session.hovered_object
+            && Some(object) != session.selected_object
+        {
+            crate::selection::object(session, &mut out, object, false);
+        }
     }
     if session.survey.seafloor {
         for v in &mut out {

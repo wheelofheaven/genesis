@@ -6,7 +6,7 @@ use crate::session::Session;
 use egui::{Align2, FontId, Sense, Shape, Stroke, Vec2};
 use genesis_renderer::camera::Camera;
 
-/// Orthographic horizontal distances retain their ground-plane metric scale.
+/// Metric scale at the focus plane; perspective makes distant objects smaller.
 pub fn scale(ctx: &egui::Context, camera: &Camera) -> egui::Rect {
     let pixels_per_metre = ctx.content_rect().height()
         / camera.visible_height()
@@ -29,10 +29,20 @@ pub fn scale(ctx: &egui::Context, camera: &Camera) -> egui::Rect {
             card().inner_margin(8).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 2.;
                 ui.label(
-                    egui::RichText::new(format!("{length:.0} m"))
-                        .size(11.)
-                        .color(TEXT),
+                    egui::RichText::new(if camera.is_ground() {
+                        "Eye · 1.7 m".into()
+                    } else {
+                        format!("{length:.0} m")
+                    })
+                    .size(11.)
+                    .color(TEXT),
+                )
+                .on_hover_text(
+                    "Scale at camera focus. Distant ground appears smaller in perspective.",
                 );
+                if camera.is_ground() {
+                    return;
+                }
                 let (rect, _) = ui.allocate_exact_size(
                     egui::vec2(length * pixels_per_metre, 7.),
                     egui::Sense::hover(),
@@ -89,6 +99,18 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                 if response.on_hover_text("Face north").clicked() {
                     camera.face_north();
                 }
+                if icons::button(
+                    ui,
+                    Icon::Person,
+                    "Ground",
+                    camera.is_ground(),
+                    false,
+                    "Ground inspection · G · WASD move, right drag look, Esc return",
+                )
+                .clicked()
+                {
+                    crate::ground::toggle(&session.sim, session.position, camera);
+                }
                 if ctx.content_rect().width() < 900. || ctx.content_rect().height() < 650. {
                     return;
                 }
@@ -116,6 +138,7 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                     )
                     .clicked()
                     {
+                        camera.leave_ground();
                         camera.center(session.selected_point());
                     }
                     if icons::button(
@@ -157,11 +180,14 @@ pub fn help(ctx: &egui::Context, open: &mut bool) -> Option<egui::Rect> {
                 .show(ui, |ui| {
                     for (key, action) in [
                         ("WASD / arrows", "Move · hold Shift for speed"),
-                        ("Right drag", "Orbit the view"),
+                        ("Right drag", "Orbit / look around on the ground"),
+                        ("G", "Ground inspection · Esc returns"),
                         ("Middle / Alt + left drag", "Pan across the landscape"),
                         ("Scroll", "Zoom toward the pointer"),
                         ("F / R", "Focus selection / return home"),
                         ("B", "Place a dwelling"),
+                        ("P / Enter", "Draw path / build clicked route"),
+                        ("Backspace", "Undo last path waypoint"),
                         ("V", "Survey groundwater and mineral deposits"),
                         ("Q / E", "Rotate a dwelling or orbit the view"),
                         ("Shift-click", "Build and keep placing"),

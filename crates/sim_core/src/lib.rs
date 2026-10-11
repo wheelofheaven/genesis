@@ -3,11 +3,13 @@ pub mod catalog;
 pub mod config;
 pub mod events;
 pub mod grid;
+pub mod paths;
 pub mod rules;
 pub mod scenarios;
 pub mod settlement;
 pub mod spatial;
 pub mod subsurface;
+pub mod surface;
 pub mod units;
 pub mod worldgen;
 
@@ -106,6 +108,24 @@ impl SimState {
                         });
                     }
                 }
+                Action::BuildPath { waypoints, width } => {
+                    match paths::validate(self, waypoints, *width) {
+                        Ok(path) => {
+                            let index = self.paths.len();
+                            // Construction clears vegetation/rocks across the walking corridor.
+                            self.geography.cover.retain(|plant| {
+                                !paths::on_path(
+                                    &path,
+                                    plant.position,
+                                    units::metres(if plant.rock { 2.34 } else { 0.5 }) * plant.size,
+                                )
+                            });
+                            self.paths.push(path);
+                            events.push(SimEvent::PathBuilt { index });
+                        }
+                        Err(reason) => events.push(SimEvent::PathRejected { reason }),
+                    }
+                }
                 Action::PlaceBuilding { position, rotation } => {
                     let building = settlement::Building {
                         id: self.buildings.len() as u64 + 1,
@@ -173,7 +193,16 @@ impl SimState {
         &self,
         building: &settlement::Building,
     ) -> Result<(), settlement::PlacementError> {
-        settlement::validate(&self.grid, self.sea_level, &self.buildings, building)?;
+        settlement::validate_surface(&self.grid, self.sea_level, &self.buildings, building, |p| {
+            surface::elevation(self, p)
+        })?;
+        if self
+            .paths
+            .iter()
+            .any(|path| paths::intersects_building(path, building))
+        {
+            return Err(settlement::PlacementError::Occupied);
+        }
         if worldgen::river_distance(self, building.position) < 1.2 {
             return Err(settlement::PlacementError::Watercourse);
         }

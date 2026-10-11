@@ -1,3 +1,4 @@
+use super::noise::unit;
 use super::*;
 
 #[test]
@@ -51,6 +52,29 @@ fn seed_sweep_has_land_sea_rivers_resources_and_valid_settlements() {
         let land = sim.grid.cells().iter().filter(|c| c.elevation > 0.).count() as f32 / count;
         assert!((0.15..0.75).contains(&land), "seed {seed}: land {land}");
         assert!(!sim.geography.rivers.is_empty(), "seed {seed}: no rivers");
+        for river in &sim.geography.rivers {
+            assert_eq!(river.points.len(), river.widths.len());
+            assert!(river.widths.iter().all(|w| w.is_finite()
+                && (crate::units::metres(0.8)..=crate::units::metres(12.)).contains(w)));
+            assert!(river.widths.windows(2).all(|w| w[1] + 1e-6 >= w[0]));
+            assert_eq!(river.width, river.widths.iter().copied().fold(0., f32::max));
+        }
+        for plant in &sim.geography.cover {
+            assert!((0. ..WIDTH as f32 - 1.).contains(&plant.position.x));
+            assert!((0. ..HEIGHT as f32 - 1.).contains(&plant.position.z));
+            assert!(
+                crate::spatial::elevation(&sim.grid, plant.position)
+                    >= sim.sea_level + crate::units::metres(9.)
+            );
+            assert!(river_distance(&sim, plant.position) >= crate::units::metres(8.));
+            assert!(
+                sim.buildings
+                    .iter()
+                    .all(|b| (b.position.x - plant.position.x).powi(2)
+                        + (b.position.z - plant.position.z).powi(2)
+                        >= crate::settlement::Building::TREE_CLEARANCE.powi(2))
+            );
+        }
         assert_eq!(sim.buildings.len(), 6, "seed {seed}: settlement");
         assert_eq!(sim.subsurface.deposits.len(), 9, "seed {seed}: deposits");
         for b in &sim.buildings {
