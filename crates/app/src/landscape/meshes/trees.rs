@@ -38,6 +38,16 @@ pub(super) fn build(out: &mut Mesh, kind: CoverKind, seed: u64, variant: usize, 
     } else {
         deciduous(out, height, kind, seed, lod, stem, &mut crowns);
     }
+    // Functional-form palettes, not calibrated species identification. Keep
+    // bark muted so illuminated plate edges do not read as freshly cut timber.
+    let bark = match kind {
+        CoverKind::Pine => [0.22, 0.17, 0.125],
+        CoverKind::Riparian => [0.25, 0.24, 0.20],
+        _ => [0.23, 0.215, 0.18],
+    };
+    for vertex in out.iter_mut() {
+        vertex.color[..3].copy_from_slice(&bark);
+    }
     super::foliage::emit(&crowns, out, lod, kind == CoverKind::Pine);
 }
 

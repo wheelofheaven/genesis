@@ -1,4 +1,5 @@
 //! Shared metric mesh primitives, shrubs and fractured lithologies.
+mod bark;
 mod canopy;
 mod foliage;
 mod rocks;
@@ -16,33 +17,7 @@ fn vertex(p: Vec3, n: Vec3, color: Vec3, material: f32, uv: [f32; 2]) -> Vertex 
         uv,
     }
 }
-fn branch(out: &mut Mesh, a: Vec3, b: Vec3, r0: f32, r1: f32, sides: usize) {
-    let axis = (b - a).normalize();
-    let u = axis
-        .cross(if axis.y.abs() < 0.95 {
-            Vec3::Y
-        } else {
-            Vec3::X
-        })
-        .normalize();
-    let v = axis.cross(u);
-    for i in 0..sides {
-        let n0 =
-            u * (i as f32 * TAU / sides as f32).cos() + v * (i as f32 * TAU / sides as f32).sin();
-        let n1 = u * ((i + 1) as f32 * TAU / sides as f32).cos()
-            + v * ((i + 1) as f32 * TAU / sides as f32).sin();
-        let ps = [a + n0 * r0, a + n1 * r0, b + n0 * r1, b + n1 * r1];
-        for j in [0, 1, 2, 2, 1, 3] {
-            out.push(vertex(
-                ps[j],
-                if j % 2 == 0 { n0 } else { n1 },
-                Vec3::new(0.23, 0.18, 0.115),
-                6.,
-                [0., 0.],
-            ));
-        }
-    }
-}
+use bark::branch;
 pub fn build(kind: CoverKind, variant: usize, lod: usize) -> Mesh {
     let mut out = Vec::new();
     let seed = 271 + variant as u64 * 113 + kind.index() as u64 * 47;

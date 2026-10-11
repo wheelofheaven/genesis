@@ -541,7 +541,8 @@ triangles, including transition fans. Depth then drives shallow
 bed colour. Vertex RGB carries a negative bed-material tag (limestone, sandstone
 or basalt) and two world-space surface slopes without increasing the vertex format.
 Damp bank colour comes from channel proximity.
-Gravel under water is a material approximation, not refraction through a transparent pass.
+Gravel under water is a material approximation. The optical refinement below bends
+the procedural bed coordinates; it does not refract the rendered scene.
 
 `water/slopes.rs` bins river segments and blends longitudinal slopes using compact
 smooth weights, extending support beyond the banks. The same field supplies both
@@ -650,8 +651,8 @@ baseline, not measurements of the new river meshes.
 
 Ground cover now uses five shared meshes: 90-vertex curved grass tufts,
 189-vertex rush-like clumps, 72-vertex rounded pebbles, 144-vertex curled fallen
-leaves and 72-vertex scattered needles. Geometry supplies actual
-normals; blades have gentle root-anchored wind, and pebbles use local limestone,
+leaves and 72-vertex scattered needles. Meshes carry normals, with smooth
+blade shading; blades have gentle root-anchored wind, and pebbles use local limestone,
 sandstone or basalt tint. Placement is cosmetic and seeded by world position.
 Bank plants use channel height and climate proxies, while clustered dry-ground
 coverage follows the existing vegetation field. Neither represents a calibrated
@@ -677,8 +678,8 @@ or soil feedback is simulated. Removing trees removes their litter on rebuilding
 Grass tint responds to moisture, drought and patch variation; pebbles also occur
 on gentle ground away from channels.
 
-Material 12 reuses the instance coverage pair for ground slopes (dh/dx, dh/dz).
-The vertex shader shears litter onto that local tangent plane, transforms normals
+Materials 10 and 12 reuse the instance coverage pair for ground slopes (dh/dx, dh/dz).
+The vertex shader shears blades and litter onto that local tangent plane, transforms normals
 with the inverse transpose, and restores [0, 1] coverage before the distance fade
 in both camera and shadow passes. This retains the 40-byte instance format. It is
 a local plane approximation; individual leaf vertices do not sample terrain.
@@ -789,3 +790,143 @@ suites pass 77 tests, with six existing ignored tests. Native Metal captures wer
 reviewed at eye height and overhead for broadleaf and pine. Matching eye-height
 captures retain identical geometry counts and world-buffer bytes. Full world-pass
 GPU timing was unavailable; these captures do not establish frame-time parity.
+
+## Branch bark
+
+Trunks and limbs now carry their own cylindrical coordinates: angular turns and
+axial prototype metres. This replaces the tree-centred angular projection that
+stretched across angled branches. The fractional bark tag stores an integer
+circumference period, `6 + cells / 256`, using 3–128 cells with a nominal 3.5 cm
+spacing at each segment's mean radius. Instance scale scales this pattern too.
+Wrapped lattice indices close the angular texture seam, while taper-aware normals
+follow the conical surface. Separate segments still meet as intersecting meshes;
+their texture phases and normals are not welded across branch junctions.
+
+A bounded nine-neighbour cellular field gives elongated bark plates. Periodic
+noise perturbs the edges, and the analytic gradient produces up to 1.2 mm of
+lighting relief, reduced on narrow twigs. No vertices are displaced. Derivatives
+filter fissures and fade the pattern toward a uniform response as it becomes
+unresolved; finer grain fades sooner. Muted palettes distinguish pine, broadleaf
+and riparian growth forms without claiming species-specific bark reconstruction.
+
+The shader runs only on bark, skips its cellular evaluation when unresolved, and
+uses the existing vertex/instance formats, geometry counts, batches and passes.
+It adds fragment arithmetic on nearby bark. Tests cover cylindrical seam closure,
+axial coordinates, material period, outward winding and unit taper normals across
+branch directions and detail levels. App/renderer validation passes 78 tests with
+six existing ignored tests, plus warning-free workspace Clippy. Native Metal
+captures compare eye-height and settlement views. The matching eye-height view
+retains 81,868,752 world-buffer bytes and identical camera/shadow geometry counts;
+world-pass timing remains unavailable, so this is not a frame-rate guarantee.
+
+## Scenery contact with the ground
+
+A 1024² R8 field covers 256 × 256 m around the terrain cache's camera position.
+Quarter-metre texels preserve finer root and rock contact than the terrain vertex
+spacing. Each exposed placement contributes a soft rotated ellipse, with a tighter
+base for trees and a weaker broad crown footprint. Strength combines by maximum,
+not addition, and is capped at 0.6. This is an artistic ground-lighting proxy; it
+does not trace occlusion rays, model inter-object light transport, or infer actual
+canopy geometry. It applies to terrain and paths, not vertical surfaces or water.
+
+The field shares construction clearance, sea-level rejection and instance rotation
+with scenery placement. Clearing, building over or submerging an object removes
+its footprint on terrain invalidation. Normal camera movement prepares the field
+on the existing terrain worker; periodic colour refreshes reuse it. Initial views,
+teleports and explicit edits retain the existing synchronous cache path. The GPU
+uploads only when a new cache is published, together with its ground-cover data.
+
+Eleven averaged mip levels occupy 1,398,101 bytes on the GPU and the same amount
+per cached CPU field, excluding allocation overhead. Base-level samples share a
+world-aligned quarter-metre lattice across camera bucket changes. Explicit mip
+sampling filters distance detail and a 24 m edge fade hides the finite window;
+outside the field the contribution is zero. Existing revision/epoch checks reject
+stale worker results before publishing their field. Survey colours bypass it.
+
+The world fragment shader uses one filtered lookup for ground receivers within
+the field and attenuates the result in direct sunlight. No mesh vertices, instance
+attributes, draw calls or rendering passes are added. Baking, texture upload and
+fragment sampling do add work; unchanged geometry is not a frame-time guarantee.
+
+Validation covers bounded/order-independent overlap, elliptical orientation,
+stable shared samples after a 20 m field shift, mip sizes/averages, and removal
+after construction or submersion. App and renderer suites pass 81 tests, with six
+existing ignored tests, and workspace Clippy is clean. Matching settlement Metal
+captures retain 80,791,956 world-buffer bytes and identical geometry submissions;
+world-pass timing remains unavailable. Eye-height rock contact is also inspected.
+
+## Ground vegetation refinement
+
+Grass now uses ten slender two-segment blades instead of six broader three-segment
+blades, retaining 90 vertices per shared tuft. Each blade has seeded height,
+width, lean, root spread and tint. Rushes retain nine blades, four segments and
+189 vertices. Continuous shading normals soften segment transitions and suggest
+a curved cross-section; across/height coordinates provide darker roots and a
+two-sided light response. Sun-facing transmission follows the existing shadow and
+cloud visibility. These are procedural growth forms, not botanical species assets.
+
+Grass and rush instances now carry the same local ground-slope payload as litter.
+Their shader restores full coverage before applying the existing 28–38 m fade,
+including in shadow passes. This keeps the existing 40-byte instance layout,
+five ground-cover batches and root-anchored wind. No new textures or passes are
+needed. The narrower tips can still alias at distance; this does not add temporal
+antialiasing or guarantee equivalent projected coverage to the old meshes.
+
+A local 8 m spatial index excludes whole tufts, litter and pebbles from exposed
+rock footprints and trunk flares. It includes each candidate's scaled mesh reach
+and wind allowance. Hidden/submerged scenery contributes no exclusion; shrubs
+remain permeable. Conservative circular bounds can leave more bare ground than
+an exact rock silhouette. Distribution remains seeded and habitat-driven; no
+simulation vegetation, collision rules or saved placements change. The index is
+built with the cached patch, rather than queried against every world object per
+candidate or rebuilt each rendered frame.
+
+Tests cover blade counts, winding, continuous unit normals, root coordinates,
+spatial bins against exhaustive footprint queries, full-tuft rock clearance and
+exact restoration of seeded placements after removing a rock. The app/renderer
+suites pass 84 tests with six existing ignored tests; workspace Clippy is clean.
+Native Metal captures were reviewed beside a limestone boulder and on a riverbank.
+The matching rock view retains 82,121,844 world-buffer bytes. Near-shadow scenery
+falls from 3,428 to 3,403 instances and from 1,873,818 to 1,871,460 vertices;
+wide submissions stay unchanged. Extra shading arithmetic remains, and world-pass
+timing is unavailable, so these counts do not establish an FPS improvement.
+
+## Water optics and surface refinement
+
+Water now uses an air/water refraction direction (IOR 1.333) to estimate the path
+through a locally parallel bed. Vertical mesh depth converts to normal separation
+using the shared surface slope. The refracted direction offsets world-space bed
+detail, capped at a 12 m path for the coordinate offset. RGB extinction attenuates
+warm bed colour into green-blue scattering; its coefficients are art-directed per
+river/ocean, not measured turbidity or simulated sediment. Rivers retain the
+limestone/sandstone/basalt payload; the ocean uses a neutral sandy bed proxy.
+Metric mineral chips reuse the bank shader and filter by the refracted footprint.
+Deep, opaque water skips bed detail. This does not reveal submerged scene objects,
+trace the actual bottom geometry, or add a transparent scene-colour pass.
+
+Schlick Fresnel uses 0.0204 normal-incidence reflectance, approaching full sky
+reflection at grazing angles while retaining the existing shallow-contact fade.
+Sun highlights use the GGX distribution and correlated Smith visibility described
+in [Filament's specular BRDF reference](https://google.github.io/filament/main/filament.html).
+A bounded normal-derivative variance broadens the highlight lobe; its width also
+informs cloud-reflection filtering. The base lobe and sun intensity remain
+art-directed. Direct sun visibility is recovered from the shadow helper's 0.58
+ambient floor, so occlusion suppresses sun highlights and diffuse illumination
+without multiplying the sky reflection by that shadow. Sky-only reflection and
+approximate ambient fill remain; this is not a complete physical water model.
+
+Two independently rotated ripple scales share the bounded six-second advection
+cycles. Each scale fades by footprint and skips its noise samples when unresolved.
+Ocean swell also receives the smaller irregular ripples. A slow phase distortion
+bends the long ocean crests; its analytic gradient participates in both surface
+slope and the wave filter. Existing shoreline foam receives direct illumination
+separately. No render passes, textures, vertex attributes or geometry are added.
+There is additional fragment arithmetic, and this is not a temporal AA solution.
+
+Native Metal captures inspect the default 1.7 m riverbank, a highlands river
+junction and the island overview. The matching bank capture retains 74,050,788
+world-buffer bytes across 924 chunks, 684,972 camera-visible world vertices and
+identical shadow/scenery submissions. World-pass timing was unavailable for the
+updated captures, so no frame-time parity or improvement is established.
+App/renderer suites pass 84 tests with six existing ignored tests; workspace
+Clippy and formatting checks are clean.

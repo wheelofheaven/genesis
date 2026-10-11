@@ -5,8 +5,8 @@ use glam::Vec3;
 
 pub fn build() -> [Vec<SceneryVertex>; super::BATCHES] {
     [
-        blades(false),
-        blades(true),
+        super::blades::build(false),
+        super::blades::build(true),
         pebble(),
         litter(false),
         litter(true),
@@ -34,45 +34,6 @@ fn triangle(out: &mut Vec<SceneryVertex>, points: [Vec3; 3], color: [f32; 3], ma
             uv: [0., 0.],
         });
     }
-}
-fn blades(rush: bool) -> Vec<SceneryVertex> {
-    let mut out = Vec::new();
-    let count = if rush { 9 } else { 6 };
-    let steps = if rush { 4 } else { 3 };
-    for i in 0..count {
-        let angle = i as f32 * 2.399963;
-        let direction = Vec3::new(angle.cos(), 0., angle.sin());
-        let side = Vec3::new(-angle.sin(), 0., angle.cos());
-        let root = direction * metres(0.015 + i as f32 * 0.006);
-        let height = metres(if rush {
-            0.55 + (i % 4) as f32 * 0.13
-        } else {
-            0.17 + (i % 3) as f32 * 0.055
-        });
-        let bend = metres(if rush { 0.2 } else { 0.12 });
-        let width = metres(if rush { 0.012 } else { 0.018 });
-        let cross = |t: f32| {
-            let center = root + Vec3::Y * height * t + direction * bend * t * t;
-            [
-                center - side * width * (1. - t),
-                center + side * width * (1. - t),
-            ]
-        };
-        for j in 0..steps {
-            let a = cross(j as f32 / steps as f32);
-            let b = cross((j + 1) as f32 / steps as f32);
-            let color = if rush {
-                [0.20, 0.29, 0.09]
-            } else {
-                [0.22, 0.29, 0.09]
-            };
-            triangle(&mut out, [a[0], a[1], b[0]], color, 10.);
-            if j + 1 < steps {
-                triangle(&mut out, [a[1], b[1], b[0]], color, 10.);
-            }
-        }
-    }
-    out
 }
 fn pebble() -> Vec<SceneryVertex> {
     let mut out = Vec::new();

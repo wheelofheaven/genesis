@@ -1,6 +1,8 @@
 //! Bounded cosmetic ground cover; these instances are not simulated organisms.
+mod blades;
 mod canopy;
 mod meshes;
+mod solids;
 use genesis_renderer::instances::{Instance, SceneryVertex};
 use genesis_sim_core::{
     SimState,
@@ -31,6 +33,7 @@ pub fn placements(sim: &SimState, eye: Vec3) -> Placements {
     }
     let clearance = crate::scene::Clearance::new(sim);
     let canopy = canopy::Canopy::new(sim, center, RADIUS, &clearance);
+    let solids = solids::Solids::new(sim, center, RADIUS, &clearance);
     let cx = (center.x / SPACING).floor() as i32;
     let cz = (center.z / SPACING).floor() as i32;
     let cells = (RADIUS / SPACING).ceil() as i32;
@@ -106,10 +109,10 @@ pub fn placements(sim: &SimState, eye: Vec3) -> Placements {
                 1 => 0.30,
                 2 => 0.11,
                 3 | 4 => 0.22,
-                _ => 0.19,
+                _ => 0.21,
             }) * (0.65 + variation * 0.8)
                 + metres(0.05);
-            if clearance.blocks(p, reach, reach) {
+            if clearance.blocks(p, reach, reach) || solids.blocks(p, reach) {
                 continue;
             }
             let moisture = spatial::sample(&sim.grid, p, |c| c.moisture);
@@ -150,9 +153,9 @@ pub fn placements(sim: &SimState, eye: Vec3) -> Placements {
                     tint[2],
                     unit(sim.config.seed ^ 541, id) * std::f32::consts::TAU,
                 ],
-                // Material 12 decodes this pair as ground slope, then supplies
+                // Blades and litter decode this pair as ground slope, then supply
                 // its own full coverage interval before the shared distance fade.
-                coverage: if kind >= 3 { [dx, dz] } else { [0., 1.] },
+                coverage: if kind != 2 { [dx, dz] } else { [0., 1.] },
             });
         }
     }
@@ -260,6 +263,50 @@ mod tests {
         assert!(cleared[3].is_empty() && cleared[4].is_empty());
         assert!(!cleared[0].is_empty());
     }
+    #[test]
+    fn boulders_exclude_entire_tufts_and_removal_restores_seeded_placements() {
+        let mut sim = fixture();
+        let eye = Vec3::new(0., 2.085, 0.5);
+        let before = placements(&sim, eye);
+        let tuft = &before[0][0];
+        let position = Position::new(tuft.position_scale[0] + 8., tuft.position_scale[2] + 8.);
+        let rock = genesis_sim_core::worldgen::Cover {
+            position,
+            size: 1.2,
+            seed: 11,
+            kind: genesis_sim_core::ecology::CoverKind::Limestone,
+        };
+        let rock_radius = rock.kind.collision_radius() * rock.size;
+        sim.geography.cover.push(rock);
+        let after = placements(&sim, eye);
+        assert!(after[0].len() < before[0].len());
+        let reach = meshes().map(|mesh| {
+            mesh.iter()
+                .map(|v| v.position[0].hypot(v.position[2]))
+                .fold(0., f32::max)
+        });
+        for (kind, batch) in after.iter().enumerate() {
+            for instance in batch {
+                let p = Position::new(
+                    instance.position_scale[0] + 8.,
+                    instance.position_scale[2] + 8.,
+                );
+                let separation = (p.x - position.x).hypot(p.z - position.z);
+                assert!(separation > rock_radius + reach[kind] * instance.position_scale[3]);
+            }
+        }
+        sim.geography.cover.pop();
+        let restored = placements(&sim, eye);
+        for (a, b) in before.iter().zip(&restored) {
+            assert_eq!(a.len(), b.len());
+            for (a, b) in a.iter().zip(b) {
+                assert_eq!(a.position_scale, b.position_scale);
+                assert_eq!(a.tint_rotation, b.tint_rotation);
+                assert_eq!(a.coverage, b.coverage);
+            }
+        }
+    }
+
     #[test]
     fn shared_meshes_have_finite_normals_and_human_scale_bounds() {
         for (i, mesh) in meshes().iter().enumerate() {

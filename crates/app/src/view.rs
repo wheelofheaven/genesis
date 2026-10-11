@@ -337,6 +337,7 @@ impl View {
             session.dirty |= std::mem::take(&mut self.refresh_needed);
             if self.terrain_changed {
                 if let Some((_, cache)) = &self.terrain_cache {
+                    self.gpu.contacts.upload(&self.gpu.queue, &cache.contacts);
                     for (batch, placements) in self.ground_batches.iter().zip(&cache.ground_cover) {
                         self.gpu.instances.upload(
                             &self.gpu.device,

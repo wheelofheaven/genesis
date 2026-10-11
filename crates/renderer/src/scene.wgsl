@@ -58,8 +58,8 @@ fn scenery_output(position: vec3<f32>, color: vec4<f32>, placement: vec4<f32>, t
     out.normal = vec3<f32>(c * normal.x - s * normal.z, normal.y, s * normal.x + c * normal.z);
     out.uv = uv;
     out.coverage = coverage;
-    if color.a >= 12.0 && color.a < 13.0 {
-        // Ground litter follows a local tangent plane without enlarging every
+    if (color.a >= 10.0 && color.a < 11.0) || (color.a >= 12.0 && color.a < 13.0) {
+        // Ground blades and litter follow a local tangent plane without enlarging every
         // scenery instance. In this material, the coverage pair carries slopes.
         out.world.y += dot(rotated.xz * placement.w, coverage);
         out.normal = normalize(vec3<f32>(out.normal.x - coverage.x * out.normal.y,
@@ -198,6 +198,8 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
     let local_pixel = max(length(fwidth(in.local)), 0.001);
     let world_dx = dpdx(in.world);
     let world_dy = dpdy(in.world);
+    let uv_dx = dpdx(in.uv);
+    let uv_dy = dpdy(in.uv);
     let face = cross(world_dx, world_dy);
     // Normalize before applying any fallback. At close range the cross product
     // can be much smaller than a fixed epsilon in our 20-metre world units.
@@ -231,7 +233,9 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
         let light = normalize(vec3<f32>(-0.5,0.75,0.3));
         let n = normalize(in.normal + vec3<f32>(0.00001));
         if in.color.a < 11.0 {
-            color *= 0.58 + 0.42 * abs(dot(n, light));
+            let grass = grass_material(in);
+            color = grass.diffuse;
+            transmission = grass.transmission;
         } else if in.color.a < 12.0 {
             color *= 0.40 + 0.60 * max(dot(n, light), 0.0);
             let grain = (noise(metres * 25.0)-0.5) * (1.0-smoothstep(0.015,0.12,pixel));
@@ -240,7 +244,6 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
             color *= 0.56 + 0.44 * abs(dot(n, light));
         }
     } else if in.color.a >= 5.0 {
-        let light = normalize(vec3<f32>(-0.5,0.75,0.3));
         let n = normalize(in.normal + vec3<f32>(0.00001));
         let local = in.local;
         if in.color.a < 6.0 {
@@ -251,11 +254,7 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
             color = foliage.diffuse;
             transmission = foliage.transmission;
         } else if in.color.a < 7.0 {
-            let bark = noise(vec2<f32>(atan2(local.z,local.x)*22.0,local.y*0.7));
-            let cracks = smoothstep(0.28,0.40,bark);
-            let detail = 1.0-smoothstep(0.025,0.22,local_pixel);
-            color *= mix(0.90, 0.58 + cracks*0.46 + noise(local.xz*30.0)*0.12, detail);
-            color *= 0.40+0.60*max(dot(n,light),0.0);
+            color = bark_material(in, world_dx, world_dy, uv_dx, uv_dy);
         } else {
             color = stone_material(color, in.world * 20.0, n, local.y, in.color.a, pixel);
         }
@@ -288,6 +287,11 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
             // response; this separates cast-shadow colour without claiming GI.
             let direct = clamp((shadow - 0.58) / 0.42, 0.0, 1.0) * cloud_sunlight(in.world * 20.0, pixel);
             color *= mix(vec3<f32>(0.40, 0.49, 0.62), vec3<f32>(1.08, 1.035, 0.95), direct);
+            if (in.color.a >= 2.0 && in.color.a < 2.5) || in.color.a >= 14.0 {
+                // Local scenery blocks sky fill more than direct sunlight.
+                // Only ground receivers use this footprint approximation.
+                color *= 1.0 - ground_occlusion(in.world, pixel) * (1.0 - direct * 0.65);
+            }
             color += transmission * direct * vec3<f32>(1.08, 1.035, 0.95);
         }
     }

@@ -1,6 +1,7 @@
 //! Rendering owns GPU resources and camera math; it knows no simulation types.
 pub mod atmosphere;
 pub mod camera;
+pub mod contact;
 pub mod geometry;
 pub mod glass;
 pub mod gpu;

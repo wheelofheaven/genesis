@@ -25,6 +25,7 @@ pub struct Gpu {
     sky_pipeline: wgpu::RenderPipeline,
     shadows: crate::shadows::Shadows,
     clouds: crate::clouds::Clouds,
+    pub contacts: crate::contact::Contacts,
     pub world: crate::world_mesh::WorldMesh,
     overlay: wgpu::Buffer,
     overlay_count: u32,
@@ -95,21 +96,26 @@ impl Gpu {
             label: Some("world and atmosphere"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                     include_str!("scene.wgsl"),
                     include_str!("atmosphere.wgsl"),
                     include_str!("terrain.wgsl"),
                     include_str!("water.wgsl"),
+                    include_str!("water_optics.wgsl"),
                     include_str!("clouds.wgsl"),
                     include_str!("building.wgsl"),
                     include_str!("stone.wgsl"),
-                    include_str!("foliage.wgsl")
+                    include_str!("foliage.wgsl"),
+                    include_str!("bark.wgsl"),
+                    include_str!("contact.wgsl"),
+                    include_str!("grass.wgsl")
                 )
                 .into(),
             ),
         });
         let shadows = crate::shadows::Shadows::new(&device);
         let clouds = crate::clouds::Clouds::new(&device, &queue);
+        let contacts = crate::contact::Contacts::new(&device);
         let shadow_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shadow projection"),
             bind_group_layouts: &[&layout],
@@ -117,7 +123,7 @@ impl Gpu {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&layout, &shadows.layout, &clouds.layout],
+            bind_group_layouts: &[&layout, &shadows.layout, &clouds.layout, &contacts.layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -245,6 +251,7 @@ impl Gpu {
             sky_pipeline,
             shadows,
             clouds,
+            contacts,
             shadow_pipeline,
             instances,
             device,
@@ -421,6 +428,7 @@ impl Gpu {
             pass.set_bind_group(0, &self.camera_group, &[]);
             pass.set_bind_group(1, &self.shadows.group, &[]);
             pass.set_bind_group(2, &self.clouds.group, &[]);
+            pass.set_bind_group(3, &self.contacts.group, &[]);
             self.world.render(
                 &mut pass,
                 &crate::visibility::Frustum::new(camera.view_projection(aspect)),

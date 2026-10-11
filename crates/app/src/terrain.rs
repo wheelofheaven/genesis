@@ -5,6 +5,7 @@ use genesis_sim_core::{
     spatial::{self, Position},
 };
 use glam::Vec3;
+mod contacts;
 pub mod ground_cover;
 pub mod lod;
 
@@ -136,6 +137,7 @@ pub struct Cache {
     patches: lod::Patches,
     pub rivers: Vec<Vertex>,
     pub ground_cover: ground_cover::Placements,
+    pub contacts: genesis_renderer::contact::Field,
 }
 impl Cache {
     #[cfg(test)]
@@ -183,6 +185,7 @@ impl Cache {
             patches,
             rivers: Vec::new(),
             ground_cover: ground_cover::placements(sim, key.eye()),
+            contacts: contacts::build(sim, key.eye()),
             context: crate::horizon::Cache::new(sim),
             samples,
             indices,

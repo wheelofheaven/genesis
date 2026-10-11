@@ -264,7 +264,12 @@ dataset provenance, and historical scenarios is in [Earth terrain](docs/earth-te
 ### Surface presentation and navigation
 
 Water is shaded using shelf depth, shallow bed colour, sky reflection, subtle
-animated waves, sun glints, and a moving shoreline wash. Close river surfaces sit
+animated waves, filtered sun highlights, and a moving shoreline wash. A refracted
+ray samples a procedural bed, with colour-dependent absorption revealing warmer
+gravel in shallow water. Sky reflections remain lit under direct sun shadows.
+Short ripples fade independently with distance; ocean crests bend across a slowly
+varying field. This is a single-pass optical approximation, without scene refraction
+or reflections of nearby objects. Close river surfaces sit
 above incised beds, intersect the banks, and encode actual visible depth. Damp
 alluvial banks, geology-tinted shallows and irregular downstream ripples distinguish
 streams from the sea. A shared slope field smooths reflections across bends and
@@ -495,12 +500,19 @@ eye height and overhead. Crown occlusion shades the interior, curved lighting
 normals soften the leaf cards, and sun-facing backlighting adds subtle translucency.
 This reuses the existing geometry and rendering passes. Close tree meshes stay below 18,000 vertices, and distant
 meshes below 1,500; these are geometry budgets, not frame-rate measurements.
+Bark follows each tapered branch, with irregular plate fissures, shallow lighting
+relief and separate muted palettes for pine, broadleaf and riparian forms. Detail
+fades with projected size; branch geometry and instance storage stay unchanged.
 Two 2048² sun-shadow maps cover 320 m and 1.28 km across around the camera focus,
 with filtered comparison samples and a blended transition. Foliage sway affects
 both maps. Their projections snap independently in light space to reduce crawling
 while panning. Wider shadows use simpler caster meshes and omit tiny ground cover;
 this remains bounded regional coverage, not planet-wide lighting. The wider layer
 adds 16 MiB of depth storage and another shadow pass.
+Nearby trees, shrubs and rocks also soften the ground lighting around their bases.
+A cached 256 m contact field adds about 1.33 MiB of texture storage, with filtered
+detail and a faded boundary. It follows exposed scenery and construction clearance;
+this is a footprint approximation, not ray-traced ambient occlusion.
 
 Adjacent scenery detail levels crossfade over 65–105 m and 260–380 m using
 complementary, time-independent pixel masks. Range culling fades over the final
@@ -510,8 +522,10 @@ These are dithered transitions, not mesh morphs; fine stippling can remain visib
 during a transition. Grass, bank plants and pebbles use a continuous 28–38 m
 camera-distance fade, with a 16 m cached margin to cover camera-key changes.
 Local canopy proximity favours fallen leaves beneath broadleaf trees, needles
-beneath pines and less grass under dense crowns. Litter follows the ground slope;
-grass colour varies with moisture and drought. Small stones also appear away from
+beneath pines and less grass under dense crowns. Grass, rushes and litter follow
+the ground slope and stay clear of exposed boulders and trunk bases. Grass has
+fine, varied blades, shaded roots and sun-dependent translucency; its colour
+varies with moisture and drought. Small stones also appear away from
 riverbanks with their local geological tint. These details are cosmetic, with no
 simulated leaf fall or decomposition.
 

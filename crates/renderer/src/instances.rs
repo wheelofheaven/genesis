@@ -8,19 +8,21 @@ pub struct Instance {
     pub position_scale: [f32; 4],
     pub tint_rotation: [f32; 4],
     /// Half-open dither interval [low, high); full coverage is [0, 1].
-    /// Material 12 (ground litter) instead stores world-space ground slopes
+    /// Materials 10 (blades) and 12 (litter) instead store world-space ground slopes
     /// (dh/dx, dh/dz); its vertex shader restores full coverage before fading.
     pub coverage: [f32; 2],
 }
-/// Scenery alone carries normals and leaf coordinates; regional terrain stays compact.
+/// Scenery carries normals and material coordinates; regional terrain stays compact.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SceneryVertex {
     pub position: [f32; 3],
     /// RGB tint and material tag. Leaves encode crown occlusion in the fraction:
     /// broadleaf 5..=5.15, needles 5.3..=5.45 (larger means less sky access).
+    /// Bark uses 6 + circumference_cells / 256, with 3..=128 cells.
     pub color: [f32; 4],
     pub normal: [f32; 3],
+    /// Leaf cutouts, blade (across, height), or bark (turns, axial prototype metres).
     pub uv: [f32; 2],
 }
 #[derive(Default, Debug)]
