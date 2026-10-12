@@ -5,6 +5,10 @@ with stable silhouettes, natural lighting and readable scientific overlays.
 Keep the renderer focused on this game and measure improvements on the target
 hardware. The simulation does not depend on presentation quality or visibility.
 
+See the [Anno-class graphics roadmap](rendering-roadmap.md) for the current
+capability assessment, proposed milestones and acceptance gates. The sections
+below record implemented work and its measurements, rather than a feature wishlist.
+
 ## Visual target
 
 The accepted references are Anno 1800, Breath of the Wild and Manor Lords. Our
