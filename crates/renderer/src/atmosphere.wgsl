@@ -11,21 +11,6 @@ fn sky_radiance(direction: vec3<f32>) -> vec3<f32> {
     return textureSampleLevel(sky_scattering, sky_lookup_sampler, uv, 0.0).rgb;
 }
 
-fn aerial_perspective(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
-    if camera.haze.x <= 0.0 { return color; }
-    let delta = world - camera.eye_sea_level.xyz;
-    let distance = length(delta) * 20.0;
-    let h0 = max((camera.eye_sea_level.y - camera.eye_sea_level.w) * 20.0, 0.0) / camera.haze.y;
-    let h1 = max((world.y - camera.eye_sea_level.w) * 20.0, 0.0) / camera.haze.y;
-    let dh = h1 - h0;
-    var density = exp(-h0);
-    if abs(dh) > 0.001 {
-        density = (exp(-h0) - exp(-h1)) / dh;
-    }
-    let transmission = exp(-max(distance - 25.0, 0.0) * camera.haze.x * density);
-    return mix(sky_radiance(normalize(delta + vec3<f32>(0.000001))), color, transmission);
-}
-
 struct SkyOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) ray: vec3<f32>,

@@ -1,10 +1,13 @@
 //! A periodic sun-transmission map in the cloud's moving coordinate system.
 //! Wind only changes sampling coordinates. Regenerate when the volume changes.
 use crate::atmosphere::FrameUniform;
+mod filter;
 
 pub(crate) struct CloudShadow {
     pub view: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
+    base: wgpu::TextureView,
+    filter: filter::Filter,
     empty_group: wgpu::BindGroup,
     key: Option<[f32; 4]>,
 }
@@ -22,7 +25,7 @@ impl CloudShadow {
                 height: 512,
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count: filter::LEVELS,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R16Float,
@@ -82,6 +85,11 @@ impl CloudShadow {
             cache: None,
         });
         Self {
+            base: texture.create_view(&wgpu::TextureViewDescriptor {
+                mip_level_count: Some(1),
+                ..Default::default()
+            }),
+            filter: filter::Filter::new(device, &texture),
             view: texture.create_view(&Default::default()),
             pipeline,
             empty_group,
@@ -95,7 +103,11 @@ impl CloudShadow {
         camera: &wgpu::BindGroup,
         clouds: &wgpu::BindGroup,
         frame: &FrameUniform,
-    ) {
+    ) -> bool {
+        // Unused maps retain their valid cache for an immediate return to the same weather.
+        if frame.clouds[1] <= 0. || frame.clouds[2] <= 0. || frame.cloud_motion[3] <= 0. {
+            return false;
+        }
         let key = [
             frame.clouds[0],
             frame.clouds[1],
@@ -103,13 +115,13 @@ impl CloudShadow {
             frame.cloud_motion[3],
         ];
         if self.key == Some(key) {
-            return;
+            return false;
         }
         self.key = Some(key);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("cloud volume shadow cache"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.view,
+                view: &self.base,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -126,5 +138,8 @@ impl CloudShadow {
         pass.set_bind_group(1, &self.empty_group, &[]);
         pass.set_bind_group(2, clouds, &[]);
         pass.draw(0..3, 0..1);
+        drop(pass);
+        self.filter.encode(encoder);
+        true
     }
 }

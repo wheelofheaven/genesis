@@ -17,7 +17,15 @@ pub struct WorldTarget<'a> {
     pub size: [u32; 2],
 }
 
+/// Work encoded this frame, available to capture diagnostics without GPU readback.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AtmosphereUpdates {
+    pub sky_lookup: bool,
+    pub cloud_shadows: bool,
+}
+
 pub struct Gpu {
+    pub atmosphere_updates: AtmosphereUpdates,
     pub device: wgpu::Device,
     timing: Option<crate::timing::Timing>,
     pub queue: wgpu::Queue,
@@ -100,10 +108,11 @@ impl Gpu {
             label: Some("world and atmosphere"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                     include_str!("frame.wgsl"),
                     include_str!("scene.wgsl"),
                     include_str!("atmosphere.wgsl"),
+                    include_str!("aerial.wgsl"),
                     include_str!("terrain.wgsl"),
                     include_str!("water.wgsl"),
                     include_str!("water_optics.wgsl"),
@@ -112,6 +121,7 @@ impl Gpu {
                     include_str!("cloud_shadow.wgsl"),
                     include_str!("building.wgsl"),
                     include_str!("stone.wgsl"),
+                    include_str!("microfacet.wgsl"),
                     include_str!("foliage.wgsl"),
                     include_str!("bark.wgsl"),
                     include_str!("contact.wgsl"),
@@ -224,6 +234,7 @@ impl Gpu {
             .contains(wgpu::Features::TIMESTAMP_QUERY)
             .then(|| crate::timing::Timing::new(&device));
         Ok(Self {
+            atmosphere_updates: Default::default(),
             timing,
             sky,
             sky_lookup,
@@ -341,8 +352,10 @@ impl Gpu {
         self.queue
             .write_buffer(&self.far_camera, 0, bytemuck::bytes_of(&far_uniform));
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.sky_lookup.encode(&mut encoder, &self.camera_group);
-        self.cloud_shadow.encode(
+        self.atmosphere_updates.sky_lookup =
+            self.sky_lookup
+                .encode(&mut encoder, &self.camera_group, &uniform);
+        self.atmosphere_updates.cloud_shadows = self.cloud_shadow.encode(
             &mut encoder,
             &self.camera_group,
             &self.clouds.group,

@@ -291,3 +291,10 @@ implementation integrates layer wind and shares the cloud volume with a cached
 surface-shadow projection. Future weather should drive the same inputs and unify
 wind across precipitation, vegetation and water; live sky controls are previews,
 not substitutes for deterministic regional weather state.
+
+
+Default cloud shadows should be gentle but perceptible across the landscape,
+leaving ambient light and the settlement readable. Prioritize established real-time
+rendering strategies: cache derived lighting, prefilter distant signals, bound
+volumetric work, and measure on the target GPU. Reduced shader work alone is not
+evidence of a gameplay frame-rate improvement.

@@ -1,6 +1,10 @@
-//! Small directional clear-sky radiance table, refreshed on the GPU each frame.
-//! World haze, cloud blending and water reflections all sample the same table.
+//! Small directional clear-sky radiance table, refreshed only when its inputs change.
+//! Cloud blending and water reflections sample this table; finite-segment aerial
+//! perspective uses the same optical parameters in a separate analytic integral.
+mod key;
+use key::Key;
 pub(crate) struct Lookup {
+    key: Option<Key>,
     pub view: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
 }
@@ -62,11 +66,22 @@ impl Lookup {
             cache: None,
         });
         Self {
+            key: None,
             view: texture.create_view(&Default::default()),
             pipeline,
         }
     }
-    pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, camera: &wgpu::BindGroup) {
+    pub fn encode(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        camera: &wgpu::BindGroup,
+        frame: &crate::atmosphere::FrameUniform,
+    ) -> bool {
+        let key = Key::new(frame);
+        if self.key == Some(key) {
+            return false;
+        }
+        self.key = Some(key);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("clear sky scattering table"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -85,5 +100,6 @@ impl Lookup {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, camera, &[]);
         pass.draw(0..3, 0..1);
+        true
     }
 }

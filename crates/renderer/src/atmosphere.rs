@@ -20,7 +20,7 @@ impl Default for CloudLayer {
         Self {
             height_metres: 1500.,
             cover: 0.46,
-            shadow_strength: 1.0,
+            shadow_strength: 0.28,
             thickness_metres: 1100.,
             extinction_per_metre: 0.008,
             wind_metres_per_second: Vec2::new(8., 4.),
@@ -38,6 +38,7 @@ pub struct Atmosphere {
     pub atmosphere_height_metres: f32,
     pub molecular_scale_height_metres: f32,
     pub aerosol_scale_height_metres: f32,
+    /// Regional haze extinction per metre; zero bypasses surface aerial perspective.
     pub density: f32,
     pub scale_height_metres: f32,
     pub sea_level: f32,
@@ -78,7 +79,7 @@ impl Atmosphere {
                 atmosphere.clouds.height_metres = 900.;
                 atmosphere.clouds.thickness_metres = 1800.;
                 atmosphere.clouds.extinction_per_metre = 0.012;
-                atmosphere.clouds.shadow_strength = 1.;
+                atmosphere.clouds.shadow_strength = 0.35;
                 atmosphere.clouds.wind_metres_per_second = Vec2::new(12., 6.);
                 atmosphere.density = 0.00016;
                 atmosphere.aerosol = 2.;
@@ -158,7 +159,7 @@ impl FrameUniform {
                 } else {
                     finite(atmosphere.clouds.cover, 0.46).clamp(0., 1.)
                 },
-                finite(atmosphere.clouds.shadow_strength, 0.4).clamp(0., 1.),
+                finite(atmosphere.clouds.shadow_strength, 0.28).clamp(0., 1.),
                 crate::clouds::TILE_METRES,
             ],
             // The integrated offset is shared by sky, reflections and cloud shadows.

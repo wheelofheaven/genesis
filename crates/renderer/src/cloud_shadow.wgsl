@@ -2,7 +2,7 @@
 
 fn cloud_sunlight(world_metres: vec3<f32>, footprint: f32) -> f32 {
     let top = camera.clouds.x + camera.cloud_motion.z;
-    if camera.clouds.y <= 0.0 || camera.cloud_motion.w <= 0.0 || world_metres.y >= top { return 1.0; }
+    if camera.clouds.z <= 0.0 || camera.clouds.y <= 0.0 || camera.cloud_motion.w <= 0.0 || world_metres.y >= top { return 1.0; }
     let sun = normalize(vec3<f32>(-0.5, 0.75, 0.3));
     if world_metres.y > camera.clouds.x {
         // Rare mountain/airborne receivers inside the layer need a partial integral.
@@ -18,12 +18,10 @@ fn cloud_sunlight(world_metres: vec3<f32>, footprint: f32) -> f32 {
     // Sampling in the integrated wind frame makes sky and shadow move together.
     let distance = (camera.clouds.x - world_metres.y) / sun.y;
     let uv = cloud_uv(world_metres.xz + sun.xz * distance);
-    // Angular sun radius and pixel footprint soften edges, without camera snapping.
-    let radius = max(footprint * 0.5, distance * 0.00465) / camera.clouds.w;
-    var transmission = 0.0;
-    for (var i = 0u; i < 4u; i += 1u) {
-        let offset = vec2<f32>(f32(i & 1u) * 2.0 - 1.0, f32(i >> 1u) * 2.0 - 1.0) * radius * 0.7071;
-        transmission += textureSampleLevel(cloud_transmission, cloud_sampler, uv + offset, 0.0).r;
-    }
-    return mix(1.0, transmission * 0.25, camera.clouds.z);
+    // Transmission mips prefilter broad cloud penumbrae. One trilinear lookup
+    // replaces four independent taps; larger screen footprints select coarser mips.
+    let diameter = max(max(footprint, distance * 0.0093), 62.5);
+    let lod = clamp(log2(diameter * 512.0 / camera.clouds.w), 0.0, 9.0);
+    let transmission = textureSampleLevel(cloud_transmission, cloud_sampler, uv, lod).r;
+    return mix(1.0, transmission, camera.clouds.z);
 }

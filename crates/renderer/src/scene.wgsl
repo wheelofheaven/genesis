@@ -186,6 +186,11 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
     let world_dy = dpdy(in.world);
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
+    // Evaluate derivatives before coverage discard or material divergence.
+    let smooth_normal = normalize(in.normal + vec3<f32>(0.00001));
+    let normal_dx = dpdx(smooth_normal);
+    let normal_dy = dpdy(smooth_normal);
+    let normal_variance = 0.25 * (dot(normal_dx, normal_dx) + dot(normal_dy, normal_dy));
     let face = cross(world_dx, world_dy);
     // Normalize before applying any fallback. At close range the cross product
     // can be much smaller than a fixed epsilon in our 20-metre world units.
@@ -199,6 +204,7 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
     var alpha = 1.0;
     var color = in.color.rgb;
     var transmission = vec3<f32>(0.0);
+    var specular = 0.0;
     if in.color.a >= 14.0 {
         // Coverage is resolved against the underlying terrain by world MSAA.
         // World anchoring keeps intersecting paths on the same material pattern.
@@ -242,7 +248,9 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
         } else if in.color.a < 7.0 {
             color = bark_material(in, world_dx, world_dy, uv_dx, uv_dy);
         } else {
-            color = stone_material(color, in.world * 20.0, n, local.y, in.color.a, pixel);
+            let stone = stone_material(color, in.world * 20.0, n, local.y, in.color.a, pixel, normal_variance);
+            color = stone.diffuse;
+            specular = stone.specular;
         }
     } else if in.color.a < 0.0 {
         color = water_material(in, pixel);
@@ -279,6 +287,8 @@ fn noise_slope(p: vec2<f32>) -> vec2<f32> {
                 color *= 1.0 - ground_occlusion(in.world, pixel) * (1.0 - direct * 0.65);
             }
             color += transmission * direct * vec3<f32>(1.08, 1.035, 0.95);
+            // Both geometry and cloud occlusion attenuate the sunlight lobe.
+            color += specular * direct * vec3<f32>(2.0, 1.86, 1.58);
         }
     }
     // Selection markings remain legible. Surface, scenery and water share haze.

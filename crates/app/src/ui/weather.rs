@@ -17,6 +17,10 @@ pub(super) fn show(ui: &mut egui::Ui, atmosphere: &mut Atmosphere) {
             }
         });
         ui.add(egui::Slider::new(&mut atmosphere.clouds.cover, 0.0..=1.0).text("Cloud cover"));
+        ui.add(
+            egui::Slider::new(&mut atmosphere.clouds.shadow_strength, 0.0..=1.0)
+                .text("Cloud shade"),
+        );
         let wind = atmosphere.clouds.wind_metres_per_second;
         let mut speed = wind.length();
         // Heading describes motion towards a compass point, not wind's source.

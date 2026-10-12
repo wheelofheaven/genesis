@@ -490,6 +490,9 @@ Rock meshes now sample one seeded weathered form across all detail levels, with
 rounded fracture edges, tilted faces and smooth surface normals. Limestone,
 sandstone and basalt retain distinct proportions and material responses; filtered
 triplanar grain and shallow relief avoid stretched detail on vertical faces.
+Dry stone also has view-dependent, rough dielectric sunlight reflections. Each
+geology has its own roughness; filtered normals keep distant highlights broad,
+and both geometry and cloud shadows suppress direct reflections.
 Use `--rock-capture /tmp/genesis-rock.png --rock limestone` (or `sandstone` / `basalt`)
 for a repeatable eye-height inspection of an exposed rock in the current region.
 Use `--region island` for basalt; the current Levant recipes contain limestone and sandstone.
@@ -543,17 +546,23 @@ interiors and wind drift. Packed shape detail keeps the density lookup compact;
 sunlight is integrated towards cloud top, with approximate scattered light in
 the shaded interior.
 A half-resolution sky pass is capped at 1024×768; terrain edges and the solar disk
-remain at display resolution. Sky, aerial perspective and water share the clear-sky
-lookup; water uses a cheaper version of the same cloud volume. Ground cloud shadows
-sample a cached sun-transmission map integrated through that volume, with soft edges
-and height-correct projection onto terrain, buildings, vegetation and water. Wind
+remain at display resolution. Sky and water share the clear-sky lookup; water uses
+a cheaper version of the same cloud volume. Surface aerial perspective integrates
+molecular, aerosol and regional haze layers analytically, preserving nearby detail
+and separating distant light extinction from added atmospheric light. Ground cloud shadows
+sample a cached, prefiltered sun-transmission map integrated through that volume.
+Gentle default shading and height-correct projection keep the moving shade visible
+on terrain, buildings, vegetation and water without darkening the landscape heavily. Wind
 advects sky, reflections and shadows together. Survey views disable clouds and aerial tint.
 This is an initial single-scattering and volumetric-cloud renderer, with approximate
 cloud lighting and soft/noisy distant edges. It is not yet a dynamic weather system.
 
 **Region → Sky and wind** offers live clear/fair/overcast previews, cloud cover,
-wind speed and a compass heading describing the direction clouds travel towards.
-Wind changes preserve cloud position; calm wind stops motion. These are visual
+wind speed, cloud-shade strength and a compass heading describing the direction
+clouds travel towards.
+Wind changes preserve cloud position; calm wind stops motion. Shadow mips are
+reused during wind movement and strength edits, and the atmospheric scattering
+lookup is refreshed only when altitude or its transport parameters change. These are visual
 controls, not simulated weather or saved climate state.
 
 `--weather clear|fair|overcast` selects a presentation preview; `fair` is the default.

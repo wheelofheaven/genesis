@@ -30,14 +30,16 @@ fn sky_profiles_resize_and_stay_finite_on_native_gpu() {
         ] {
             // Heights exercise inside/above the slab as well as ground viewing.
             camera.focus.y = eye;
-            profiles.push(render_hdr(
+            let pixels = render_hdr(
                 &mut gpu,
                 &camera,
                 Atmosphere::preview(name).expect("profile"),
                 1.,
                 width,
                 height,
-            ));
+            );
+            assert!(pixels.chunks_exact(4).any(|v| v[0] > 0 && v[2] > 0));
+            profiles.push(pixels);
         }
         assert_ne!(profiles[0], profiles[1]);
         assert_ne!(profiles[1], profiles[2]);
@@ -152,7 +154,6 @@ pub(super) fn render_hdr(
         );
         assert_eq!(pixel[3], 0x3c00);
     }
-    assert!(pixels.chunks_exact(4).any(|v| v[0] > 0 && v[2] > 0));
     drop(mapped);
     readback.unmap();
     pixels

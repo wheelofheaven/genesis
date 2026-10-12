@@ -944,9 +944,10 @@ A 128×64 RGBA16Float table integrates molecular and aerosol single scattering
 through a spherical atmosphere using 32 quadratically spaced samples. Elevation
 samples concentrate near the horizon. Planet radius, atmosphere height, molecular
 RGB optical depth, aerosol loading and both scale heights are explicit inputs;
-Earth-like values are defaults. Camera altitude updates the table each frame.
-Sky, cloud haze, water reflection and regional aerial perspective sample this same
-table. The sun is still fixed at the scene's existing daytime direction; solar
+Earth-like values are defaults. Camera altitude changes invalidate the cached table.
+Sky, cloud haze and water reflection sample this same table. Surface aerial
+perspective now uses the analytic finite-segment model described below, sharing
+its optical parameters. The sun is still fixed at the scene's existing daytime direction; solar
 attenuation uses a local plane-parallel approximation appropriate to that high sun.
 Higher scattering orders use a small artistic fill. Ozone, moving low sun, orbital
 views, night skies and a physical aerial-perspective volume remain future work.
@@ -1110,3 +1111,137 @@ On Apple M4 / Metal, the final diagnostic returned 20 valid samples per profile:
 clear median 0.228 ms (0.029–0.671), fair 2.365 ms (2.213–3.010), overcast 1.390 ms
 (1.308–1.636). These are diagnostic observations on the development machine, not
 controlled before/after measurements. Geometry submissions remain unchanged.
+
+
+## Gentle cloud shade and filtered shadow caching
+
+The default fair-weather surface shadow strength is now 0.28, with 0.35 for the
+overcast preview, replacing full direct-sun extinction. These are artistic
+surface-lighting controls, independent of the visible cloud density. Clouded areas
+keep their sky fill; fully opaque fair clouds reduce the current surface shader's
+red-channel light by at most about 18%. **Region → Sky and wind → Cloud shade**
+allows live adjustment, including zero. This deliberately prioritizes gentle,
+readable ground shade over fully physical solar extinction under thick cloud.
+
+The implementation follows established cached cloud-shadow-map and adjustable
+surface-strength strategies described in
+[Epic's volumetric cloud documentation](https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-clouds?application_version=4.27)
+and [cloud parameter reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-clouds-reference?application_version=4.27).
+The existing 512² Beer-transmission map remains generated from the same volume as
+the sky. It now has ten R16Float mip levels, totaling 699,050 bytes rather than
+524,288 bytes. Nine small reduction passes average transmission (not optical
+depth), preserving average illumination. They run only when the shadow map changes.
+The additional levels contain 87,381 texels; each reduction uses four source loads.
+Views, bindings and pipelines are allocated once, not per frame.
+
+Ordinary below-cloud receivers use one trilinear texture instruction rather than
+four separate filtered taps. LOD follows the greater of screen footprint, solar
+angular diameter at cloud height and a 62.5 m artistic softening footprint. This
+preserves broad moving shade at close range and filters away small shadow detail
+when zoomed out. Actual hardware traffic and speed depend on texture/cache behavior;
+this is not a fourfold performance claim. The rare receiver inside the cloud slab
+retains its bounded 12-step partial integral. Above-layer receivers stay sunlit.
+Zero-strength, clear, survey and zero-extinction frames bypass cloud-shadow work.
+The last valid map survives those bypasses, allowing immediate reuse on return to
+unchanged weather. Wind and strength changes never regenerate it.
+
+The clear-sky scattering LUT now caches its exact shader inputs: altitude relative
+to sea level, molecular and aerosol optical depth, planetary radius, atmosphere
+height and scale heights. Wind, horizontal travel, view direction and survey
+changes do not invalidate it. Altitude changes still refresh it; there is no
+height quantization or stale-light approximation. The fixed sun is unchanged. A
+future moving sun must be included in this cache key. Frame diagnostics expose
+which atmospheric caches were rebuilt without any ordinary-frame GPU readback.
+
+Validation: 90 app/renderer tests pass, with 11 native/manual tests opt-in. Three
+native Metal regressions pass for sky/resize/weather, wind-aligned ground shadows,
+and default-shade brightness/cache reuse. The new HDR readback test checks that
+fair shade remains within a 20% red-channel brightness reduction on the neutral
+receiver while affecting many pixels by more than 5%, preserving sunny gaps. It
+also verifies cache invalidation for altitude, coverage and aerosol changes, and
+cache reuse during wind, strength and survey edits. Workspace Clippy and formatting
+are clean. The fair landscape capture was visually inspected.
+
+A new optional `cloud_shadow_receiver_timing` diagnostic renders a neutral regional
+plane at 1920×1080 with 4× MSAA. After four warm-up frames it collects 20 samples,
+with cloud strength 0 and 0.28. Metal did not provide valid world-pass timestamps
+in either run. Synchronized encode/submit/readback medians for strength 0.28 were
+5.240 ms before and 5.256 ms after; they include all passes, CPU work and forced
+readback synchronization. Disabled-shadow medians were noisier (5.282 and 6.459 ms).
+These observations do not establish a timing improvement or gameplay FPS. The
+verified optimization is the removal of redundant cache generation and reduction
+of ordinary surface shadow lookups; in-game profiling remains necessary.
+
+## Finite-segment aerial perspective
+
+Surface haze previously interpolated toward the full horizon sky colour with a
+single grey transmission value. It now separates RGB extinction from atmospheric
+light added along the camera-to-surface segment. Molecules, aerosols and regional
+haze have independent exponential height profiles; wavelength-dependent molecular
+extinction uses the same planet parameters as the sky. The first 25 metres remain
+clear for material and silhouette readability, with a continuous transition beyond.
+All ordinary terrain, buildings, vegetation, paths and water use the same function.
+Scientific surveys explicitly bypass it, as does zero regional haze density.
+
+The production shader integrates each density column in closed form, including
+segments crossing sea level. Density saturates below sea level instead of growing
+without bound. A short Taylor expansion avoids cancellation for horizontal and
+nearly horizontal rays. Separate molecular and forward aerosol phase responses,
+solar attenuation and restrained artistic diffuse haze fill replace the former
+whole-sky tint. This independently written regional approximation follows the
+extinction-plus-inscattering decomposition explained by
+[Bruneton's atmospheric transport reference](https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html).
+It does not implement that reference's precomputed multiple-scattering solution.
+
+GPU work is bounded analytic arithmetic in the existing surface shader: no view
+ray march, additional texture, render pass, history buffer or CPU terrain work.
+It removes the previous aerial sky lookup but adds arithmetic, so this is not a
+measured speedup. World-pass timestamps were unavailable on the current Metal
+capture path. Solar illumination uses one representative atmospheric column along
+the segment; cloud/terrain shadows within the air, light shafts, multiple
+scattering and spherical/orbital aerial transport remain future work. Existing
+cloud shadows on surfaces retain their gentle defaults and cached filtering.
+
+Validation: 90 normal app/renderer tests and four native Metal regressions pass;
+workspace Clippy and formatting are clean. The new native test recovers RGB
+transmission from black/white receivers through the production world pipeline and
+compares it with independent 8,192-step numerical integration. It covers 20 m to
+5 km, high altitude, nearly horizontal rays, both directions across sea level,
+below-sea-level basins and survey bypass, with a 0.006 absolute tolerance for HDR
+half-float storage. Regional coastal and ground-level highland captures were
+visually inspected.
+
+## Rough dielectric stone lighting
+
+Limestone, sandstone and basalt now have a view-dependent direct-sun reflection
+in addition to their existing procedural diffuse treatment. A small shared shader
+evaluates GGX distribution, height-correlated Smith visibility and Schlick Fresnel
+using the standard equations described in
+[Filament's specular BRDF reference](https://google.github.io/filament/main/filament.html).
+This is independently implemented; no Filament engine or shader code is imported.
+
+Normal-incidence reflectance is 0.04. Perceptual roughness defaults are 0.70 for
+limestone, 0.86 for sandstone and 0.57 for basalt, with quiet variation from the
+existing weathering signal. These values are artistic dry-surface choices, not
+measurements of each rock. The same perturbed normal drives diffuse relief and
+specular lighting. The direct diffuse fraction is reduced by the reflected
+Fresnel fraction; the existing artistic ambient fill remains. This is a material
+step toward physically based shading, not a fully energy-conserving renderer or
+an environment-reflection/GI implementation.
+
+Screen-space normal variance broadens the lobe, and relief that becomes too small
+to resolve contributes to roughness instead of disappearing into a sharper
+highlight. Derivatives are evaluated before material branches and coverage
+discard. All work is bounded arithmetic: no new texture, render pass, geometry,
+instance format or per-frame CPU preparation. Other material types retain their
+lighting. Scientific surveys bypass the new response. Direct sunlight reflections
+are multiplied by both existing geometry and cloud visibility before aerial
+perspective and HDR display mapping.
+
+Native validation isolates reflections on black diffuse stone receivers through
+the production instanced pipeline. It verifies view dependence, material roughness
+ordering, restrained finite output, survey bypass and suppression by a real
+off-camera shadow caster. All five native atmosphere/material regressions pass.
+Limestone and island-basalt captures were visually inspected; the matching
+limestone world geometry remains 82,121,844 bytes. The post-change world-pass GPU
+counter was unavailable, so no performance improvement is claimed.

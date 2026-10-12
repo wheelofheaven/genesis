@@ -9,7 +9,12 @@ fn stone_gradient(p: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
         + vec3<f32>(z.x, z.y, 0.0) * weights.z;
 }
 
-fn stone_material(base: vec3<f32>, p: vec3<f32>, normal: vec3<f32>, height: f32, material: f32, pixel: f32) -> vec3<f32> {
+struct StoneLighting {
+    diffuse: vec3<f32>,
+    specular: f32,
+};
+fn stone_material(base: vec3<f32>, p: vec3<f32>, normal: vec3<f32>, height: f32,
+    material: f32, pixel: f32, normal_variance: f32) -> StoneLighting {
     let power = normal * normal * normal * normal;
     let weights = power / max(dot(power, vec3<f32>(1.0)), 0.00001);
     let patch_weight = 1.0 - smoothstep(0.3, 1.5, pixel);
@@ -43,7 +48,19 @@ fn stone_material(base: vec3<f32>, p: vec3<f32>, normal: vec3<f32>, height: f32,
         response *= 1.0 + (smoothstep(-0.65, 0.45, band) - 0.5) * strength * resolved;
     }
     let light = normalize(vec3<f32>(-0.5, 0.75, 0.3));
-    let diffuse = 0.38 + 0.62 * max(dot(n, light), 0.0);
     let contact = 0.80 + 0.20 * smoothstep(-0.2, 0.65, height);
-    return base * response * diffuse * contact;
+    var reflection = vec2<f32>(0.0, 1.0);
+    if camera.haze.z < 0.5 {
+        let view_delta = camera.eye_sea_level.xyz * 20.0 - p;
+        let view = view_delta / max(length(view_delta), 0.00001);
+        // Dry mineral surfaces: sandstone scatters broadly; basalt retains a
+        // somewhat tighter response. These are art-directed, not measured values.
+        let roughness = select(select(0.70, 0.86, material > 7.5), 0.57, material > 8.5);
+        let varied = roughness + (response - 0.94) * 0.35;
+        // Preserve unresolved relief as roughness when its normals filter away.
+        let variance = normal_variance + 0.012 * (1.0 - relief_weight * relief_weight);
+        reflection = dielectric_sun(n, view, light, varied, variance);
+    }
+    let diffuse = 0.38 + 0.62 * max(dot(n, light), 0.0) * reflection.y;
+    return StoneLighting(base * response * diffuse * contact, reflection.x * contact);
 }
