@@ -1,6 +1,7 @@
 //! Opt-in native GPU regression and representative CPU preparation audit.
 mod cloud_shadows;
 mod sky;
+mod sky_timing;
 use genesis_renderer::{
     geometry::Vertex,
     world_mesh::{WorldMesh, partition},

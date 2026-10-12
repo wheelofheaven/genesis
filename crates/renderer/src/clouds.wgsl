@@ -15,7 +15,8 @@ fn cloud_layer(direction: vec3<f32>, origin: vec3<f32>, angular_pixel: f32, step
     let step_length = (end - start) / f32(steps);
     let sun = normalize(vec3<f32>(-0.5, 0.75, 0.3));
     let alignment = dot(direction, sun);
-    let phase = 0.65 + 0.12 * cloud_phase(alignment, 0.65) + 0.08 * cloud_phase(alignment, -0.2);
+    let phase = 0.75 * cloud_phase(alignment, 0.65) + 0.25 * cloud_phase(alignment, -0.2);
+    let broad_phase = cloud_phase(alignment, 0.3);
     var transmission = 1.0;
     var light = vec3<f32>(0.0);
     var weighted_distance = 0.0;
@@ -28,13 +29,28 @@ fn cloud_layer(direction: vec3<f32>, origin: vec3<f32>, angular_pixel: f32, step
             let h = clamp((p.y - camera.clouds.x) / camera.cloud_motion.z, 0.0, 1.0);
             var optical_sun = density * camera.cloud_motion.z * (1.0 - h) * 0.5;
             if steps > 8u {
-                optical_sun = cloud_volume(p + sun * 60.0, max(footprint, 50.0)) * 120.0
-                    + cloud_volume(p + sun * 220.0, max(footprint, 120.0)) * 300.0
-                    + cloud_volume(p + sun * 640.0, max(footprint, 200.0)) * 600.0;
+                // Integrate the light path all the way to cloud top. Growing
+                // segments resolve nearby occlusion without fixed probe gaps.
+                let exit = max(camera.clouds.x + camera.cloud_motion.z - p.y, 0.0) / sun.y;
+                optical_sun = 0.0;
+                var previous = 0.0;
+                for (var light_step = 1u; light_step <= 4u; light_step += 1u) {
+                    let t = f32(light_step) * 0.25;
+                    let end = exit * t * t;
+                    let segment = end - previous;
+                    optical_sun += cloud_volume(p + sun * (previous + segment * 0.5),
+                        max(footprint, segment * 0.25)) * segment;
+                    previous = end;
+                }
             }
-            let sun_transmission = exp(-optical_sun * camera.cloud_motion.w);
-            let ambient = vec3<f32>(0.18, 0.23, 0.30) * (0.6 + 0.4 * h);
-            let source = ambient + vec3<f32>(1.4, 1.32, 1.20) * phase * (0.25 + 0.75 * sun_transmission);
+            let optical_depth = optical_sun * camera.cloud_motion.w;
+            // Two broad, attenuated scattering orders replace a constant grey
+            // interior fill. This is an approximation, not a multiple-scattering solver.
+            let scattered = phase * exp(-optical_depth)
+                + 0.35 * broad_phase * exp(-optical_depth * 0.45)
+                + 0.12 * exp(-optical_depth * 0.18);
+            let ambient = vec3<f32>(0.14, 0.18, 0.24) * (0.5 + 0.5 * h);
+            let source = ambient + vec3<f32>(1.8, 1.70, 1.55) * scattered;
             let opacity = 1.0 - exp(-density * camera.cloud_motion.w * step_length);
             let weight = transmission * opacity;
             light += source * weight;

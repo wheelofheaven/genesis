@@ -1058,3 +1058,55 @@ wind changes, exact calm/reverse behaviour, clear gaps between shadows, and cach
 invalidation when coverage/extinction changes. Landscape captures compare fair and
 clear skies; an eye-height capture checks the cloud appearance. The prior sky
 profile/resize/finite-output regression remains in place.
+
+
+## Cloud structure and interior light
+
+The single-channel cellular shape is now a packed 64³ RGBA8 volume. Its channels
+store three periodic cellular scales (4, 8 and 16 cells per 2 km tile) and a smooth
+body-variation field. Each mip averages channels independently. Seven levels total
+1,198,372 bytes, up from 299,593 bytes; the larger allocation trades bandwidth for
+fewer lookup instructions. Each density evaluation uses the coverage map and one
+3D fetch, replacing the earlier coverage plus two 3D fetches. Sky, water and the
+cached ground-shadow integral all use this same density function and wind frame.
+
+Smaller billows contribute to the silhouette, with height shaping applied before
+density remapping and erosion. This avoids multiplying a smooth vertical fade onto
+every already-solid cloud. Dense interiors stay connected; boundaries expose more
+shape variation. The condensation base and cloud top vary across the field. This
+is procedural art direction, not a fluid simulation or a new weather type.
+
+The lighting now integrates four growing segments to the top of the cloud along
+the sun ray, replacing three fixed-distance probes. A forward/backward phase
+mixture gives direction-dependent light, and two broader attenuated terms
+approximate redistributed light inside the volume instead of a constant grey
+sunlight floor. Sky fill and light intensities remain artistic; this is not a
+complete multiple-scattering solution. Water keeps its eight-step view march and
+cheaper column-light approximation. Sky remains at 64 view steps, half resolution,
+and its existing 1024×768 cap; there are no new render passes or temporal buffers.
+
+The design reference is Guerrilla's
+[Nubis authoring presentation](https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine),
+particularly its separation of procedural shape and lighting. Genesis uses its
+own smaller cellular/value-noise construction, not the Nubis generator or its
+Perlin-Worley implementation. Fair and overcast eye-height captures were inspected.
+Very distant edges still show noise; temporal reconstruction, additional cloud
+layers and sun motion remain future work.
+
+Validation: 89 app/renderer tests pass, with nine native/manual tests opt-in.
+Packed-volume tests check repeatability, periodicity, channel variation, mip sizes
+and independent channel means. Native Metal sky and ground-shadow regressions
+verify finite output, resize, profiles, wind movement, calm, reversal and clear
+weather. Workspace Clippy and formatting are clean.
+
+`mise exec -- cargo test -p genesis-app sky_render_timing -- --ignored --nocapture`
+is a new manual diagnostic: a fixed eye-height camera, 1920×1080 output, 960×540
+sky environment, four warm-up frames and 20 measured samples per profile. It reports
+only valid GPU sky-pass counters and has no timing assertions. Its results exclude
+the atmosphere lookup, cloud-shadow regeneration, composition, world and UI; it
+cannot establish gameplay FPS or a speedup over the previous renderer.
+
+On Apple M4 / Metal, the final diagnostic returned 20 valid samples per profile:
+clear median 0.228 ms (0.029–0.671), fair 2.365 ms (2.213–3.010), overcast 1.390 ms
+(1.308–1.636). These are diagnostic observations on the development machine, not
+controlled before/after measurements. Geometry submissions remain unchanged.

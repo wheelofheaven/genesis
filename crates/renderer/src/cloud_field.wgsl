@@ -22,13 +22,18 @@ fn cloud_volume_field(p: vec3<f32>, footprint: f32, drift: vec2<f32>) -> f32 {
     if cover <= 0.001 { return 0.0; }
     let q = vec3<f32>(p.x - drift.x, p.y, p.z - drift.y) / 2000.0;
     let lod = clamp(log2(max(footprint * 64.0 / 2000.0, 1.0)), 0.0, 6.0);
-    let lobe = textureSampleLevel(cloud_shape, cloud_sampler, q, lod).r;
-    let fine_lod = min(lod + 1.585, 6.0);
-    let detail = textureSampleLevel(cloud_shape, cloud_sampler, q * 3.0 + vec3<f32>(0.17, 0.43, 0.71), fine_lod).r;
-    let base = (1.0 - lobe) * 0.12;
-    let profile = smoothstep(base, base + 0.12, height) * (1.0 - smoothstep(0.35 + cover * 0.45, 1.0, height));
-    let body = smoothstep(0.02, 0.35, cover - (1.0 - lobe) * 0.70);
-    return max(body - (1.0 - detail) * 0.18, 0.0) * profile * (0.65 + 0.35 * lobe);
+    let shape = textureSampleLevel(cloud_shape, cloud_sampler, q, lod);
+    // Large lobes contain smaller billows. The packed channels preserve variation
+    // without a second 3D lookup at every view/light/shadow sample.
+    let billow = shape.r * 0.45 + shape.g * 0.35 + shape.b * 0.20;
+    let base = 0.02 + shape.a * 0.035;
+    let top = mix(0.48, 1.0, cover) * mix(0.82, 1.08, shape.a);
+    let profile = smoothstep(base, base + 0.12, height)
+        * (1.0 - smoothstep(top - 0.40, top, height));
+    let body = clamp((cover * profile - (1.0 - billow) * 0.65 - 0.04) * 5.0, 0.0, 1.0);
+    // Small-scale erosion acts on the boundary; dense interiors stay connected.
+    let erosion = (1.0 - shape.b) * 0.18 * (1.0 - body);
+    return max(body - erosion, 0.0) * (0.72 + shape.a * 0.28);
 }
 
 fn cloud_volume(p: vec3<f32>, footprint: f32) -> f32 {

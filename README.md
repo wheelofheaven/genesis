@@ -538,7 +538,10 @@ temporal anti-aliasing solution.
 
 The sky now samples a directional scattering lookup, with configurable molecular
 optical depth, aerosol loading, planet radius and atmospheric scale heights.
-Clouds occupy a finite volume with rounded lobes, shaded interiors and wind drift.
+Clouds occupy a finite volume with layered billows, eroded silhouettes, shaded
+interiors and wind drift. Packed shape detail keeps the density lookup compact;
+sunlight is integrated towards cloud top, with approximate scattered light in
+the shaded interior.
 A half-resolution sky pass is capped at 1024×768; terrain edges and the solar disk
 remain at display resolution. Sky, aerial perspective and water share the clear-sky
 lookup; water uses a cheaper version of the same cloud volume. Ground cloud shadows
