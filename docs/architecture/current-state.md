@@ -285,3 +285,23 @@ smoke. No performance claim, schema/content change or library upgrade.
 Next slices remain independent: structured outcomes for legacy seed/outpost actions,
 then measured cold-cache preparation or scoped GPU lifecycle recovery if selected.
 Absent gameplay systems are outside this refactor.
+
+## Edit-preparation measurement audit — 12 October 2026
+
+Published baseline `133d873` includes the existing stage profiler and adaptive
+terrain query optimization. The remaining measured gap is after a real committed
+edit: `View::ensure_terrain` rebuilds cache/picker, then urgent drawing extracts
+and partitions the scene. Existing diagnostics time initial construction or
+resident draws; neither isolates this action-to-prepared-geometry path.
+
+Add a CPU diagnostic using the actual Session queue/single-step and existing
+cache/picker/scene/partition stages on the generated coast. Compare both the
+previous presentation and a no-command control at the same logical tick, because
+ecology changes colors independently of terraforming. Estimate chunk upload
+bytes from the renderer's fingerprint criteria without opening a GPU. Report
+this as an estimate, excluding instance/contact uploads, driver work and display
+latency. Preserve rules, frame behavior and schemas. Acceptance: real commit and
+revision advancement, repeated presentation fingerprints, exact changed-cell
+count, bounded sample count, meaningful chunk-estimate regression, and normal CI.
+Use measured results to select the next optimization; do not claim responsiveness
+has improved merely because timing infrastructure was added.

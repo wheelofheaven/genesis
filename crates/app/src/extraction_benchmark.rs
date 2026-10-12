@@ -1,5 +1,6 @@
 //! CPU preparation diagnostic. Uses the worker's actual stages without a GPU,
 //! worker scheduling, uploads or simulation advancement in the timed workload.
+pub(crate) mod edits;
 use crate::{scene, survey::Survey, terrain};
 use genesis_renderer::{camera::Camera, geometry::Vertex, world_mesh::PreparedWorld};
 use genesis_sim_core::worldgen;

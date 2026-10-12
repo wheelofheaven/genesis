@@ -190,6 +190,28 @@ impl PreparedWorld {
                 .collect(),
         }
     }
+
+    /// Estimate vertex uploads if `previous` is fully resident, using the same
+    /// fingerprint/count criteria as `upload_prepared`. No GPU allocation or
+    /// instance/contact upload is measured. Removed chunks require no upload.
+    pub fn upload_estimate(&self, previous: &Self) -> UploadStats {
+        let mut stats = UploadStats {
+            chunks: self.chunks.len(),
+            ..Default::default()
+        };
+        for (key, (chunk, fingerprint)) in &self.chunks {
+            let unchanged = previous.chunks.get(key).is_some_and(|(old, hash)| {
+                hash == fingerprint
+                    && old.vertices.len() == chunk.vertices.len()
+                    && old.shadow_vertices == chunk.shadow_vertices
+            });
+            if !unchanged {
+                stats.changed += 1;
+                stats.bytes += chunk.vertices.len() * std::mem::size_of::<Vertex>();
+            }
+        }
+        stats
+    }
 }
 impl WorldMesh {
     pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, vertices: &[Vertex]) {
@@ -326,6 +348,26 @@ mod tests {
         let b = partition(&vertices);
         assert_ne!(a[&(0, 0, -1)].fingerprint(), b[&(0, 0, -1)].fingerprint());
         assert_eq!(a[&(0, 2, -1)].fingerprint(), b[&(0, 2, -1)].fingerprint());
+    }
+
+    #[test]
+    fn upload_estimate_accounts_for_reuse_edits_additions_and_removal() {
+        let mut vertices = triangle(0., 2.).to_vec();
+        vertices.extend(triangle(32., 2.));
+        let before = PreparedWorld::new(&vertices);
+        assert_eq!(before.upload_estimate(&before).bytes, 0);
+        vertices[0].color[0] += 0.1;
+        let edited = PreparedWorld::new(&vertices);
+        let stats = edited.upload_estimate(&before);
+        assert_eq!(
+            (stats.chunks, stats.changed, stats.bytes),
+            (2, 1, 3 * std::mem::size_of::<Vertex>())
+        );
+        vertices.extend(triangle(64., 2.));
+        let expanded = PreparedWorld::new(&vertices);
+        assert_eq!(expanded.upload_estimate(&edited).changed, 1);
+        let stats = edited.upload_estimate(&expanded);
+        assert_eq!((stats.chunks, stats.changed, stats.bytes), (2, 0, 0));
     }
     #[test]
     fn crossing_triangles_use_geometry_bounds_not_cell_bounds() {

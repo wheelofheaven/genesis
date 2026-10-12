@@ -568,6 +568,15 @@ fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args
         .first()
+        .is_some_and(|arg| arg == "--terrain-edit-benchmark")
+    {
+        if args.len() != 2 {
+            return Err("usage: genesis-app --terrain-edit-benchmark report.json".into());
+        }
+        return extraction_benchmark::edits::run(std::path::Path::new(&args[1]));
+    }
+    if args
+        .first()
         .is_some_and(|arg| arg == "--extraction-benchmark")
     {
         if args.len() != 2 {

@@ -53,8 +53,10 @@ Snapshot cloning measured roughly 0.5 ms, so replacing simulation storage or add
 4. **Make the landscape visually coherent.** Review sun, shadows, water, sky, wind, wetness and materials together. Prioritize shoreline coverage/elevation and readable flow cues over elaborate reflections. Weather and darkness must leave selection, surveys and construction usable.
 5. **Scale and polish the proven scene.** Improve LOD transitions, foliage/shadow stability, animation scheduling, resource residency and upload budgets against measured bottlenecks. More advanced draw submission, a general render graph, ray tracing and planetary terrain need separate evidence and scope.
 
-The next implementation slice is **terrain-edit preparation latency measurement**, followed by one measured local-update change.
-Stage-level profiling and the adaptive receiver-query optimization already exist; see the [completed cache report](architecture/cache-performance.md).
+The next implementation slice is **scoped terrain-cache invalidation**, using the [committed-edit baseline](architecture/terrain-edit-performance.md) as the full-rebuild reference.
+The benchmark now measures a real nine-sample edit through Session: only two of 924 prepared chunks differ from a rebuilt same-tick control, while CPU preparation takes roughly 261–526 ms across the three views on the development machine.
+Ordinary environmental recoloring also changes uploads, so distinguish geometry and appearance invalidation.
+Stage profiling and the adaptive receiver-query optimization remain in use; see the [cache report](architecture/cache-performance.md).
 Do not combine cache representation, hydrology rules, threading and rendering algorithms in one change.
 Keep explicit frame/pass resource ownership and the current GPU API versions.
 Asset/animation work can progress independently when selected; it does not make absent gameplay a prerequisite for terrain improvements.

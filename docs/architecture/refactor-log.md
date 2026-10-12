@@ -503,3 +503,40 @@ Python authoring tests pass two cases. Previous native save smoke remains valid.
 The missing [cache performance report](cache-performance.md) now documents the
 existing adaptive-query code and its retained before/after data without claiming
 a new benchmark run. Continue with real edit-preparation measurements next.
+
+## Committed-edit preparation diagnostic — 12 October 2026
+
+The integrated checkpoint was committed as `133d873` and pushed to `origin/main`.
+Continued development now adds `--terrain-edit-benchmark` through the existing
+CPU diagnostic module. It runs actual queued Session commands, then the cache,
+picker, scene and partition stages used by the urgent presentation path.
+`PreparedWorld::upload_estimate` exposes read-only chunk replacement accounting
+for the diagnostic; normal GPU submission is unchanged.
+
+Source audit and scope precede this change in `current-state.md`. The workload,
+method, raw data and limits are in [terrain-edit-performance.md](terrain-edit-performance.md).
+The baseline fixes seed 7319, a nine-sample terrain brush at tick one, surface
+view and three camera keys. Rebuilding a same-tick no-edit control is necessary
+to avoid conflating cached horizon colors with the terrain edit. An initial
+development run used a reused control cache; only the corrected control run is
+retained as the baseline.
+
+Result: median total CPU preparation is 261.447 ms regionally, 435.897 ms at
+management distance and 526.035 ms at inspection distance. Against a rebuilt
+same-tick control, the edit changes only two of 924 prepared chunks. Against
+tick-zero presentation, normal environmental changes and refresh increase this
+to 550. This identifies separate geometry and appearance invalidation needs;
+it is measurement infrastructure, not a claimed speedup.
+
+Validation: `mise run ci` passes 178 tests/doctests with 14 optional ignored,
+formatting and warning-free Clippy; `mise run build` passes. A new regression
+checks upload estimates for reuse, edits, additions and removals. The complete
+diagnostic exits 0, verifies command consumption, logical tick, revision and
+changed-cell/event agreement, picking coordinates and repeatable presentation
+fingerprints across 66 trials. The six native GPU checks passed for the preceding
+checkpoint; this slice changes no production drawing or host behavior.
+
+Schemas, content, rules, dependencies and platform support are unchanged.
+No actual GPU traffic or input-to-display latency is measured. Next implement
+scoped terrain invalidation with sampling/normal halos, LOD seam handling and
+matching river/picking publication, validating against this full reconstruction.

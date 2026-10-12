@@ -446,6 +446,21 @@ See the [measured extraction checkpoint](docs/architecture/extraction-performanc
 and [adaptive terrain query checkpoint](docs/architecture/cache-performance.md)
 for the workload, before/after evidence and limits.
 
+Measure CPU preparation after a committed nine-sample terrain edit at regional,
+management and inspection distances:
+
+```sh
+mise run build
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-terrain-edit.json
+```
+
+The diagnostic queues the real action through `Session`, steps once, and times
+cache, picker, scene and chunk preparation. It reports actual combined CPU timing
+and estimated world-vertex uploads, with a rebuilt same-tick no-edit control to
+separate terrain effects from ordinary environmental changes. No GPU/window is
+opened; this is not input-to-display latency or an FPS measurement.
+See [the edit-preparation baseline](docs/architecture/terrain-edit-performance.md).
+
 ## Next milestone
 
 Introduce one persistent person with needs, a daily routine, and an inspector
