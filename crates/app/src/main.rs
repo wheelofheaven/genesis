@@ -1,5 +1,8 @@
+mod benchmark;
 mod clock;
 mod cursor;
+mod dwelling;
+mod extraction_benchmark;
 mod frontend;
 mod ground;
 mod horizon;
@@ -9,8 +12,10 @@ mod interaction_smoke;
 mod landscape;
 mod menu_smoke;
 mod path_tool;
+mod persistence;
 #[cfg(test)]
 mod render_tests;
+mod save_smoke;
 mod scene;
 mod scenery_capture;
 mod selection;
@@ -56,6 +61,7 @@ struct App {
     error: Option<String>,
     capture: Option<PathBuf>,
     smoke: bool,
+    save_smoke: bool,
     survey_smoke: bool,
     world_smoke: bool,
     interaction_smoke: bool,
@@ -237,6 +243,14 @@ impl App {
             self.session.step_once();
             if self.session.sim.buildings.len() != count + 1 {
                 return Err("free building placement failed".into());
+            }
+            if self.save_smoke {
+                save_smoke::check(
+                    &mut self.session,
+                    self.capture
+                        .as_ref()
+                        .ok_or("save smoke needs a capture path")?,
+                )?;
             }
             self.session.set_placing(false);
             view.resize(0, 0);
@@ -552,6 +566,21 @@ impl ApplicationHandler for App {
 
 fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args
+        .first()
+        .is_some_and(|arg| arg == "--extraction-benchmark")
+    {
+        if args.len() != 2 {
+            return Err("usage: genesis-app --extraction-benchmark report.json".into());
+        }
+        return extraction_benchmark::run(std::path::Path::new(&args[1]));
+    }
+    if args.first().is_some_and(|arg| arg == "--render-benchmark") {
+        if args.len() != 2 {
+            return Err("usage: genesis-app --render-benchmark report.json".into());
+        }
+        return pollster::block_on(benchmark::run(std::path::Path::new(&args[1])));
+    }
     let mut app = App::default();
     if let Some(index) = args.iter().position(|arg| arg == "--weather") {
         app.atmosphere = genesis_renderer::atmosphere::Atmosphere::preview(
@@ -635,6 +664,7 @@ fn main() -> Result<()> {
                 || flag == "--landscape-capture"
                 || flag == "--seafloor-capture"
                 || flag == "--smoke-test"
+                || flag == "--save-test"
                 || flag == "--survey-test"
                 || flag == "--world-test"
                 || flag == "--interaction-test"
@@ -642,7 +672,8 @@ fn main() -> Result<()> {
                 || flag == "--menu-test" =>
         {
             app.capture = Some(PathBuf::from(path));
-            app.smoke = flag == "--smoke-test" || flag == "--survey-test";
+            app.smoke = flag == "--smoke-test" || flag == "--survey-test" || flag == "--save-test";
+            app.save_smoke = flag == "--save-test";
             app.survey_smoke = flag == "--survey-test";
             app.world_smoke = flag == "--world-test";
             app.interaction_smoke = flag == "--interaction-test";

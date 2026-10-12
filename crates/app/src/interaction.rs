@@ -5,13 +5,13 @@ use glam::Vec3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Object {
     Building(u64),
-    Path(usize),
+    Path(u64),
 }
 impl Object {
     pub fn label(self) -> String {
         match self {
             Self::Building(id) => format!("Dwelling {id}"),
-            Self::Path(i) => format!("Footpath {}", i + 1),
+            Self::Path(id) => format!("Footpath {id}"),
         }
     }
 }
@@ -51,16 +51,15 @@ pub fn pick(sim: &SimState, origin: Vec3, dir: Vec3, ground: Option<Vec3>) -> Op
         );
         sim.paths
             .iter()
-            .enumerate()
-            .filter_map(|(i, path)| {
+            .filter_map(|path| {
                 let d = path
                     .points
                     .windows(2)
                     .map(|s| paths::distance(p, paths::nearest(p, s[0], s[1])))
                     .fold(f32::INFINITY, f32::min);
-                (d <= path.width * 0.5 + metres(0.2)).then_some((d, i))
+                (d <= path.width * 0.5 + metres(0.2)).then_some((d, path.id))
             })
-            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
             .map(|(_, i)| Object::Path(i))
     })
 }
@@ -192,13 +191,14 @@ mod tests {
         );
         sim.buildings.clear();
         sim.paths.push(genesis_sim_core::settlement::Path {
+            id: 42,
             points: vec![Position::new(7., 8.), Position::new(9., 8.)],
             width: metres(1.2),
         });
         let ground = crate::terrain::point(&sim, Position::new(8., 8.));
         assert_eq!(
             pick(&sim, ground + Vec3::Y, -Vec3::Y, Some(ground)),
-            Some(Object::Path(0))
+            Some(Object::Path(42))
         );
         assert_eq!(
             pick(

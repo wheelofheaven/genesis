@@ -9,8 +9,9 @@ future exoplanets and their own environments and societies.
 Phantasy Star Online and Xenoblade Chronicles X inform the technological visual
 direction. Local settlements retain architecture appropriate to their setting.
 
-Read the [project vision](docs/vision.md) and the
-[custom Rust engine decision](docs/engine-decision.md).
+Read the [project vision](docs/vision.md), the
+[custom Rust engine decision](docs/engine-decision.md), and the
+[imported asset / renderer benchmark workflow](docs/assets.md).
 
 **Current status:** an orbital title screen leads through destination selection,
 regional scenarios, an expedition briefing, and a skippable settlement arrival.
@@ -107,6 +108,15 @@ wall time before the speed multiplier; excess whole-tick backlog is discarded.
 Under overload simulation slows relative to wall time without skipping simulation
 steps. Hidden or zero-sized windows suspend advancement.
 
+**F5** saves the current world and queued actions; **F9** loads it and pauses at
+the saved tick. On macOS the slot is
+`~/Library/Application Support/Genesis/world.json`, with the previous valid save
+at `world.json.bak`. Loading resets camera/selection and preserves the active world
+if validation fails. Saves are synchronous; the current main-menu Continue button
+still resumes the live session. New saves use schema v2 with durable object IDs;
+v1 worlds migrate on load. See [identity and compatibility](docs/architecture/durable-identity.md)
+and [save recovery](docs/architecture/saves-v1.md).
+
 ## Development
 
 ```sh
@@ -116,6 +126,18 @@ mise run fmt-check
 mise run build
 ```
 
+The CPU-only runner uses the same fixed-tick simulation as the application:
+
+```sh
+mise exec -- cargo run -p genesis-headless -- --scenario coast --seed 7319 --ticks 100
+mise exec -- cargo run -p genesis-headless -- --scenario fixture --ticks 100 --commands crates/sim_core/fixtures/coastal.commands.json
+```
+
+See [headless execution](crates/headless/README.md) for the command format and scope,
+and the [architecture assessment](docs/architecture/current-state.md) and
+[refactor checkpoint](docs/architecture/refactor-log.md) for findings and validation.
+The [architecture brief](docs/architecture/GENESIS_ENGINE_ARCHITECTURE.md) records the target direction.
+
 For a native GPU smoke test that exercises camera movement, pause, queued actions,
 stepping, free building placement, and resize before writing a PNG and exiting:
 
@@ -124,6 +146,9 @@ mise exec -- cargo run -- --smoke-test /tmp/genesis-foundation.png
 ```
 
 `--menu-capture /tmp/genesis-title.png` captures the title menu.
+`--save-test /tmp/genesis-save.png` also checks saved pending intent, reload and
+identical continuation, using a temporary sibling `.world.json` instead of the
+normal quicksave slot.
 `--menu-test /tmp/genesis-menu.png` checks the destination/region/briefing flow,
 small-window settings, asynchronous settlement creation, paused arrival, pause,
 and return/continue without losing the prior pause state. It captures each menu,
@@ -168,15 +193,15 @@ The scale bar measures horizontal distances at the camera focus; ground farther
 away appears smaller. Zoom remains anchored at the pointer's picked elevation,
 and the camera can move close enough to inspect individual homes.
 
-Dwellings now have 30 cm wall shells with recessed plank doors and shutters,
-timber lintels, stone sills, and individual foundation stones. Plaster, masonry,
-timber and roof earth have separate filtered material responses; face lighting
-follows the building's rotation. Cached ambient visibility adds contact depth
-around reveals, sills, beams and parapets, while preserving direct sunlight.
-Adaptive mesh subdivisions carry this detail without a new rendering pass;
-mouse picking retains the original simpler geometry. These remain procedural stand-ins with closed
-doors and no playable interiors. `--house-capture /tmp/genesis-house.png` gives a
-repeatable eye-height view of the first dwelling's front.
+Dwellings use an imported, project-owned GLB fixture with recessed plank doors,
+shutters, timber lintels, stone sills and separate plaster/stone/wood/roof maps.
+Three indexed LODs reduce the shell from 6,168 to 168 triangles. Shared sun/cloud
+shadows and cached diffuse sky lighting shade the materials; the procedural
+foundation still conforms to terrain. Picking, surveys and placement previews
+retain separate simpler geometry. Doors remain closed, with no playable interiors.
+`--house-capture /tmp/genesis-house.png` gives a repeatable eye-height view.
+**F6** reloads the dwelling files during development; see the
+[asset authoring and benchmark workflow](docs/assets.md).
 
 The 384 × 320 region therefore spans **7.68 × 6.40 km**, sixteen times the previous
 map area. This is a working geometry convention, not a claim of historical house accuracy or calibrated hydrology:
@@ -358,6 +383,10 @@ consumption are not implemented. Exposed formations do not yet discharge water.
 - `crates/renderer`: wgpu resources, procedural geometry, and camera navigation.
 - `crates/app`: winit lifecycle, input, fixed clock, egui inspector, and a read-only
   adapter from simulation state to render geometry.
+- `crates/headless`: CPU-only scenario/action playback and JSON metrics using the
+  same `sim_core::runtime::Simulation` as the application.
+- `crates/storage`: native save encoding, staged loads and recoverable file writes,
+  shared by the game and headless host; no graphics dependencies.
 
 The renderer can be reconstructed from simulation state. Simulation rules remain
 in `sim_core`; the application schedules ticks and delivers ordered actions.
@@ -399,6 +428,23 @@ Reproduce with:
 ```sh
 mise exec -- cargo test -p genesis-app pointer_timing -- --ignored --nocapture
 ```
+
+Measure worker snapshot, terrain cache, picker, scene extraction and spatial
+partitioning separately on the generated coast:
+
+```sh
+mise run build
+target/debug/genesis-app --extraction-benchmark /private/tmp/genesis-extraction.json
+```
+
+This CPU preparation diagnostic opens no window or GPU. It runs two fixed camera
+positions and surface/water surveys, with 2 warmups and 20 measured samples per
+stage. It reports timings and presentation vertex fingerprints, not frame rate.
+Cold-cache timings also separate topology, height/normal sampling, ground cover,
+contacts, horizon and river geometry.
+See the [measured extraction checkpoint](docs/architecture/extraction-performance.md)
+and [adaptive terrain query checkpoint](docs/architecture/cache-performance.md)
+for the workload, before/after evidence and limits.
 
 ## Next milestone
 

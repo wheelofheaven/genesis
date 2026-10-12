@@ -62,9 +62,12 @@ pub fn coastal_outpost() -> SimState {
         };
         points.push(Position::new(at(|p| p.x), at(|p| p.z)));
     }
-    state.paths.push(Path {
-        points,
-        width: crate::settlement::Building::PATH_WIDTH,
-    });
+    if let Some(id) = state.path_ids.allocate() {
+        state.paths.push(Path {
+            id,
+            points,
+            width: crate::settlement::Building::PATH_WIDTH,
+        });
+    }
     state
 }

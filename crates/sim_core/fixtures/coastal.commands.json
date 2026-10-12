@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "commands": [
+    { "tick": 1, "action": { "Terraform": { "x": 15, "y": 12, "radius": 2, "strength": 0.4 } } },
+    { "tick": 2, "action": { "PlaceBuilding": { "position": { "x": 25.31, "z": 20.27 }, "rotation": 0.47 } } },
+    { "tick": 2, "action": { "PlaceBuilding": { "position": { "x": 25.31, "z": 20.27 }, "rotation": 0.47 } } },
+    { "tick": 3, "action": { "DrillWell": { "position": { "x": 18.25, "z": 21.5 } } } },
+    { "tick": 50, "action": { "SetWellActive": { "id": 1, "active": false } } }
+  ]
+}

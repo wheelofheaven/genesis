@@ -12,7 +12,7 @@ pub struct River {
     /// Local bank-to-bank widths, aligned with points. Empty in legacy data.
     #[serde(default)]
     pub widths: Vec<f32>,
-    #[serde(default)]
+    #[serde(skip)]
     pub bounds: Option<[f32; 4]>,
 }
 pub struct Drainage {

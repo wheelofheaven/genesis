@@ -318,6 +318,21 @@ fn rotate_and_light(
     }
 }
 
+pub(crate) fn support(sim: &SimState, out: &mut Vec<Vertex>, b: &Building) {
+    let heights = b.footprint().map(|p| terrain::point(sim, p).y);
+    let high = heights.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let low = heights.into_iter().fold(f32::INFINITY, f32::min);
+    let start = out.len();
+    foundation(out, (high - low) * 20. + 0.10);
+    rotate_and_light(
+        &mut out[start..],
+        b,
+        terrain::point(sim, b.position),
+        high,
+        None,
+    );
+}
+
 pub(crate) fn house(sim: &SimState, out: &mut Vec<Vertex>, b: &Building) {
     let heights = b.footprint().map(|p| terrain::point(sim, p).y);
     let high = heights.into_iter().fold(f32::NEG_INFINITY, f32::max);

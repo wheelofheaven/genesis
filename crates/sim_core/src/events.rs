@@ -4,8 +4,22 @@ use serde::{Deserialize, Serialize};
 /// Used for expedition log, UI feedback, and debugging.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimEvent {
+    TerrainChanged {
+        x: i32,
+        y: i32,
+        changed_cells: usize,
+    },
+    TerrainUnchanged {
+        x: i32,
+        y: i32,
+    },
+    TerraformRejected {
+        x: i32,
+        y: i32,
+        reason: crate::rules::TerraformError,
+    },
     PathBuilt {
-        index: usize,
+        id: u64,
     },
     PathRejected {
         reason: crate::paths::PathError,

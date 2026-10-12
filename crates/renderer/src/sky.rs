@@ -1,5 +1,6 @@
 //! Reduced-resolution sky radiance, composited behind full-resolution terrain.
 //! No temporal history: camera movement, resize and weather edits cannot ghost.
+mod irradiance;
 mod lookup;
 pub(crate) use lookup::Lookup;
 pub(crate) struct Sky {

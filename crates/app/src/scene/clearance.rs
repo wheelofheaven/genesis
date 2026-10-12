@@ -141,6 +141,7 @@ mod tests {
             rotation: 0.7,
         }];
         sim.paths = vec![Path {
+            id: 0,
             points: vec![Position::new(5., 9.), Position::new(11., 9.)],
             width: metres(1.2),
         }];

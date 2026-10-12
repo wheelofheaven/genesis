@@ -62,8 +62,8 @@ pub fn object(
                 v.position[1] = high + Building::WALL_HEIGHT + metres(0.51);
             }
         }
-        Object::Path(i) => {
-            if let Some(path) = sim.paths.get(i) {
+        Object::Path(id) => {
+            if let Some(path) = sim.paths.iter().find(|p| p.id == id) {
                 scene::highlight(
                     sim,
                     cache,

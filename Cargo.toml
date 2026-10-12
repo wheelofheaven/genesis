@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/sim_core", "crates/renderer", "crates/app"]
+members = ["crates/sim_core", "crates/renderer", "crates/app", "crates/headless", "crates/storage"]
 default-members = ["crates/app"]
 exclude = ["legacy", "experiments/engine-lab"]
 
@@ -23,6 +23,7 @@ egui-wgpu = "=0.33.3"
 egui-winit = { version = "=0.33.3", default-features = false, features = ["x11", "wayland"] }
 genesis-renderer = { path = "crates/renderer" }
 genesis-sim-core = { path = "crates/sim_core" }
+genesis-storage = { path = "crates/storage" }
 
 [profile.dev]
 opt-level = 1

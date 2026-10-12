@@ -182,9 +182,7 @@ impl Frontend {
         let Some(rx) = &self.loading else { return };
         match rx.try_recv() {
             Ok(sim) => {
-                let revision = session.terrain_revision.wrapping_add(1);
-                *session = Session::from_sim(sim);
-                session.terrain_revision = revision;
+                session.replace_sim(sim);
                 session.mode = self.mode;
                 if self.mode == Mode::WorldBuilder {
                     session.landscape_tools = true;

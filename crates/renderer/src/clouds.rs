@@ -11,7 +11,12 @@ pub(crate) struct Clouds {
 }
 
 impl Clouds {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, sky: &wgpu::TextureView) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        sky: &wgpu::TextureView,
+        irradiance: &wgpu::TextureView,
+    ) -> Self {
         let levels = mip_chain();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("periodic cloud density"),
@@ -147,6 +152,16 @@ impl Clouds {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -176,6 +191,10 @@ impl Clouds {
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&sky_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(irradiance),
                 },
             ],
         });

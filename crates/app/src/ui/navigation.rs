@@ -193,6 +193,7 @@ pub fn help(ctx: &egui::Context, open: &mut bool) -> Option<egui::Rect> {
                         ("Shift-click", "Build and keep placing"),
                         ("Esc", "Cancel the active tool"),
                         ("Space / 1, 2, 3", "Pause / change speed"),
+                        ("F5 / F9", "Save world / load saved world"),
                     ] {
                         ui.label(egui::RichText::new(key).strong().color(TEXT));
                         ui.label(egui::RichText::new(action).color(MUTED));

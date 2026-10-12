@@ -4,8 +4,11 @@ pub mod config;
 pub mod ecology;
 pub mod events;
 pub mod grid;
+mod identity;
 pub mod paths;
 pub mod rules;
+pub mod runtime;
+pub mod save;
 pub mod scenarios;
 pub mod settlement;
 pub mod spatial;
@@ -18,10 +21,10 @@ use actions::Action;
 use config::SimConfig;
 use events::SimEvent;
 use grid::Grid;
-use rules::{apply_terraform, update_climate, update_life, update_water_depth};
+use rules::{try_apply_terraform, update_climate, update_life, update_water_depth};
 
 /// The complete simulation state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SimState {
     pub grid: Grid,
     pub config: SimConfig,
@@ -34,6 +37,10 @@ pub struct SimState {
     pub paths: Vec<settlement::Path>,
     pub subsurface: subsurface::Subsurface,
     pub geography: worldgen::Geography,
+    #[serde(default)]
+    pub(crate) building_ids: identity::Allocator,
+    #[serde(default)]
+    pub(crate) path_ids: identity::Allocator,
 }
 
 impl SimState {
@@ -44,6 +51,8 @@ impl SimState {
         let subsurface = subsurface::Subsurface::new(config.width, config.height);
         Self {
             geography: worldgen::Geography::default(),
+            building_ids: identity::Allocator::new(),
+            path_ids: identity::Allocator::new(),
             subsurface,
             grid,
             config,
@@ -70,14 +79,24 @@ impl SimState {
                     y,
                     radius,
                     strength,
-                } => {
-                    apply_terraform(&mut self.grid, *x, *y, *radius, *strength);
-                }
+                } => match try_apply_terraform(&mut self.grid, *x, *y, *radius, *strength) {
+                    Ok(0) => events.push(SimEvent::TerrainUnchanged { x: *x, y: *y }),
+                    Ok(changed_cells) => events.push(SimEvent::TerrainChanged {
+                        x: *x,
+                        y: *y,
+                        changed_cells,
+                    }),
+                    Err(reason) => events.push(SimEvent::TerraformRejected {
+                        x: *x,
+                        y: *y,
+                        reason,
+                    }),
+                },
                 Action::SeedFungus { x, y, radius } => {
-                    self.seed_life(*x, *y, *radius, true);
+                    rules::seed_life(&mut self.grid, *x, *y, *radius, true);
                 }
                 Action::SeedPlants { x, y, radius } => {
-                    self.seed_life(*x, *y, *radius, false);
+                    rules::seed_life(&mut self.grid, *x, *y, *radius, false);
                 }
                 Action::DrillWell { position } => {
                     match self.subsurface.validate_well(
@@ -86,10 +105,10 @@ impl SimState {
                         &self.buildings,
                         *position,
                     ) {
-                        Ok(()) => {
-                            let id = self.subsurface.drill(*position);
-                            events.push(SimEvent::WellDrilled { id });
-                        }
+                        Ok(()) => match self.subsurface.drill(*position) {
+                            Ok(id) => events.push(SimEvent::WellDrilled { id }),
+                            Err(reason) => events.push(SimEvent::WellRejected { reason }),
+                        },
                         Err(reason) => events.push(SimEvent::WellRejected { reason }),
                     }
                 }
@@ -111,8 +130,14 @@ impl SimState {
                 }
                 Action::BuildPath { waypoints, width } => {
                     match paths::validate(self, waypoints, *width) {
-                        Ok(path) => {
-                            let index = self.paths.len();
+                        Ok(mut path) => {
+                            let Some(id) = self.path_ids.allocate() else {
+                                events.push(SimEvent::PathRejected {
+                                    reason: paths::PathError::IdentityExhausted,
+                                });
+                                continue;
+                            };
+                            path.id = id;
                             // Construction clears vegetation/rocks across the walking corridor.
                             self.geography.cover.retain(|plant| {
                                 !paths::on_path(
@@ -122,20 +147,27 @@ impl SimState {
                                 )
                             });
                             self.paths.push(path);
-                            events.push(SimEvent::PathBuilt { index });
+                            events.push(SimEvent::PathBuilt { id });
                         }
                         Err(reason) => events.push(SimEvent::PathRejected { reason }),
                     }
                 }
                 Action::PlaceBuilding { position, rotation } => {
-                    let building = settlement::Building {
-                        id: self.buildings.len() as u64 + 1,
+                    let mut building = settlement::Building {
+                        id: 0,
                         position: *position,
                         rotation: rotation.rem_euclid(std::f32::consts::TAU),
                     };
                     match self.validate_building(&building) {
                         Ok(()) => {
-                            events.push(SimEvent::BuildingPlaced { id: building.id });
+                            let Some(id) = self.building_ids.allocate() else {
+                                events.push(SimEvent::BuildingRejected {
+                                    reason: settlement::PlacementError::IdentityExhausted,
+                                });
+                                continue;
+                            };
+                            building.id = id;
+                            events.push(SimEvent::BuildingPlaced { id });
                             self.geography.cover.retain(|plant| {
                                 paths::distance(plant.position, building.position)
                                     >= units::metres(if plant.kind.tree() { 6. } else { 4. })
@@ -219,32 +251,6 @@ impl SimState {
             Err(settlement::PlacementError::Occupied)
         } else {
             Ok(())
-        }
-    }
-
-    /// Seed fungus or plants in a radius.
-    fn seed_life(&mut self, cx: i32, cy: i32, radius: u32, is_fungus: bool) {
-        let r = radius.min(self.grid.width.max(self.grid.height)) as i32;
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if self.grid.boundary == grid::Boundary::Clamp
-                    && !self.grid.contains(cx + dx, cy + dy)
-                {
-                    continue;
-                }
-                if dx * dx + dy * dy > r * r {
-                    continue;
-                }
-                let cell = self.grid.get_mut(cx + dx, cy + dy);
-                if cell.water_depth > 0.0 {
-                    continue; // Can't seed underwater.
-                }
-                if is_fungus {
-                    cell.fungus = (cell.fungus + 0.3).min(1.0);
-                } else {
-                    cell.plants = (cell.plants + 0.3).min(1.0);
-                }
-            }
         }
     }
 

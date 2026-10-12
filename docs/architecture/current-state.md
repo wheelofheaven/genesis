@@ -1,0 +1,287 @@
+# Architecture assessment — 12 October 2026
+
+## Scope and baseline
+
+This is a source audit of `main` at `c055969d47663308a5452e32188843ae700c4279`, including the owner's uncommitted rendering and asset work.
+It precedes the first implementation slice; the outcome is recorded in [the refactor log](refactor-log.md).
+Instructions inspected: workspace and repository `AGENTS.md`, `.claude/CLAUDE.md`, workspace `.claude` overview/conventions/project context, `docs/engine-decision.md`, and `docs/vision.md`.
+The accepted custom Rust/wgpu decision supersedes historical Bevy requirements.
+No engine or dependency migration is needed.
+
+The working tree already contains changes to 23 tracked files and untracked dwelling assets/import, rendering benchmark, contact/sky code, asset documentation, and Python authoring scripts.
+Preserve these; do not stage or commit them with this slice.
+Checkpoints here are focused diffs and documented validation, following the repository's conventional-commit practice if a commit is subsequently requested.
+Generated Cargo output belongs in ignored `target/`; smoke captures/logs belong in `/private/tmp`.
+
+## Dependency and ownership map
+
+| Boundary | Existing owner and evidence |
+| --- | --- |
+| Workspace/toolchain | `Cargo.toml`: app, renderer, sim_core; app is default member; legacy and engine-lab excluded. `mise.toml`: Rust 1.93.1, edition 2024, native development/test/build tasks. No main-workspace CI workflow or target-specific build script found. |
+| Simulation | `crates/sim_core/src/lib.rs`: `SimState`, action execution, ordered rule stages; depends only on serde 1.0.228 and rand 0.8.5. CPU-only, no authoritative GPU solver. |
+| Domain stores | `grid.rs`: contiguous environmental samples; `settlement.rs`: continuous buildings/paths; `subsurface.rs`: columns, deposits, wells; `worldgen/`: region generation and geography. `catalog.rs` and `ecology.rs`: compiled planet/scenario/ecological definitions. No ECS. |
+| Interactive owner | `crates/app/src/session.rs`: owns one `SimState`, ordered pending actions and an eight-event UI log; `clock.rs`: host pacing, 100 ms ticks. `main.rs`: winit application lifecycle/input/redraw and shutdown. |
+| Extraction/client | `scene.rs`, `terrain/`, `landscape/`, `water/`, `interaction.rs`, `ui/`: immutable simulation reads mapped into geometry, picking and inspectors. `view/preparation.rs`: immutable cloned input for disposable background terrain work. |
+| Renderer/host | `crates/renderer/`: GPU resources and explicit render passes, no sim_core dependency. `crates/app/src/view.rs`: surface creation/acquisition/configuration, window and egui composition. |
+| Pinned graphics | `Cargo.lock`: wgpu 27.0.1, winit 0.30.13, glam 0.30.10, egui/egui-wgpu/egui-winit 0.33.3. Existing owner work adds gltf 1.4.1; image 0.25.9 and serde_json 1.0.151 already resolve. No upgrades proposed. |
+| Assets | Procedural terrain/scenery plus owner's dwelling GLB/PNG pipeline in `crates/app/src/dwelling.rs`, `crates/renderer/src/assets/`, `scripts/build_dwelling.py`, `assets/models/`; F6 visual reload retains the previous asset on failure. |
+| Storage | `frontend/settings.rs`: preferences parsed with defaults, temporary file then rename. No world save/load, schema, compatibility fixtures, or save promises implemented. Serde derives on component records are not a complete save format. |
+
+## Feature preservation ledger
+
+“Working” below means supported by the existing source/tests; native visual verification is recorded separately rather than inferred from compilation.
+
+| Feature | Baseline status | Evidence/reproduction |
+| --- | --- | --- |
+| Camera/controls | Working | Camera/input tests; native `--smoke-test` route exercises orbit, pan, zoom and focus behavior. |
+| Generated worlds | Working procedural implementation | `worldgen::generate_scenario`, recipe 9, default seed 7319, 384 × 320 field; bounded coast/highlands, wrapped island; generated regions remain synthetic. |
+| Selection/picking | Working | CPU terrain picker and stable building-ID lookup; paths use vector indices; interaction/picking tests. |
+| Placement/paths | Working | Preview plus execution validation, rotated continuous footprints, path construction and clearance; ordered duplicate-placement test. |
+| Construction | Partial | Accepted buildings appear immediately; no materials, worker progress, cancellation or demolition mechanics. |
+| Resources | Partial | Conservative aquifer withdrawal, prescribed recharge and recovered water; research proxy from legacy outposts. No inventories, transfers between households, production or trade. |
+| People | Intentionally absent at this checkpoint | Dwellings are not simulated inhabitants; no jobs, needs or navigation agents. Future product priority. |
+| Environment | Partial | Deterministic climate/life proxies, sampled physical terrain and generated drainage. Rivers/drainage are generation snapshots; terrain edits do not recompute hydrological connectivity. Visual weather controls do not drive domain rain. |
+| Interface | Working prototype | Menu/expedition, settings, pause/speed/single-step, survey, placement and HUD tests; UI log retains eight events. |
+| Assets/rendering | Working evolving implementation | Existing procedural meshes plus uncommitted imported dwelling work; ignored GPU tests require explicit native execution. |
+| Persistence | Intentionally absent for worlds | Continue retains the live session only. Preferences have load/save tests, not world saves. |
+| Platforms | macOS verified baseline | Apple M4/Metal, macOS 26.5.1, 16 GB, aarch64-apple-darwin, Rust 1.93.1. Browser/console/XR are unimplemented host paths; Linux/Windows not verified here. Legacy remains excluded and unbuilt. |
+
+## Traced paths and findings
+
+Building input flows through `Session::build_hovered` → `queue(Action::PlaceBuilding)` → `Session::tick` → `SimState::step` → `validate_building` → building/cover commit → `BuildingPlaced` or `BuildingRejected` → session selection/message/dirty state → scene/instance extraction in `View`.
+Execution revalidates occupancy after each preceding action; a preview cannot bypass it.
+No resource debit is involved because construction materials are absent.
+
+Terraform input queues `Action::Terraform`; `rules/terraform.rs` applies finite bounded elevation changes, then `step` updates sea-depth/climate/life and subsurface behavior.
+The session increments its terrain revision, and extraction/picking refresh from the committed terrain.
+Underground datum stays fixed; existing buildings and generated rivers are not repositioned/re-solved as coupled terrain consequences.
+Those are existing model limitations, not regressions to repair during this extraction.
+
+The implemented resource transfer is aquifer → recovered well water in `Subsurface::step`.
+Recharge occurs first; wells then withdraw in vector order through sampled taps, bounded by stored volume, and increment `Well::recovered` from the actual extracted amount.
+The conservation test disables recharge and compares total stock loss with recovery.
+There is no household resource transfer or world save/load cycle to trace.
+The separate preferences cycle is `Settings::load/parse` → UI apply → `save/encode` → temporary write/rename; it does not contain simulation data.
+
+Confirmed architecture gaps and retained strengths:
+
+- World advancement is already isolated. The missing reusable piece is the running-world boundary: the app owns tick policy, mutable public state, and pending input; the existing scale-audit example only generates worlds.
+- The app uses fixed 0.1-second steps, while `SimState::step(dt, actions)` and mutable state remain suitable for fixture/generator setup. `time: f64` is the only running-world time record; `SimConfig::tick_dt` does not control the app clock. Preserve numerical dt/order and add an integer boundary counter without rewriting rules.
+- Building/well IDs use length + 1; path references are vector indices. Currently append-only, so no demonstrated runtime deletion bug; future deletion/repacking/saves must first establish durable allocation/references.
+- Production UI operations inspected enqueue actions; broad mutable access is a capability risk, not evidence that the UI currently implements a second rules engine. A read-only running-world view can enforce the existing intent.
+- `View` already separates immutable scene extraction and GPU submission. One scene request is held at a time; its worker sends one result, tagged by terrain revision, camera bucket, survey and edit epoch. Tests reject obsolete edits/views. Retain this working equivalent; no new job system or delta protocol is justified.
+- Extraction clones a whole `SimState` for a dispatched worker, not every frame; reuse/throttling already exist. No performance change is justified without measurement.
+- Resize skips zero-sized surfaces; lost/outdated surfaces reconfigure, timeout skips the frame. Full device-loss reconstruction is not implemented or verified. Preserve current paths; don't combine lifecycle redesign with simulation extraction.
+- Current clock caps wall input at 250 ms and eight ticks per frame; dropped wall-time debt slows simulation, never skips committed logical steps. Hidden windows suspend it. Preserve this documented pacing behavior; no offline progress is promised.
+
+Coordinates retain x/z horizontal, y vertical, world units = 20 metres, rotations in radians, bounded continental region edges and wrapped legacy/island samples (`units.rs`, `spatial.rs`, `surface.rs`).
+Time and resource volumes remain prototype units; don't reinterpret them as calibrated SI models.
+Rules execute serially: ordered actions → water depth → climate → life → subsurface recharge/withdrawal → research → stability/events → time.
+Later stages see earlier writes; generation uses zero-duration steps to initialize derived fields and place fixtures.
+Generation randomness comes from explicit seed/noise inputs; ongoing rules have no worker-timed randomness.
+Determinism here means the same build, target, initial state and tick-assigned action order; no cross-architecture or future-version replay promise.
+
+## Validation baseline
+
+- `mise run ci`: passed, including formatting, warning-free Clippy and 143 tests (14 ignored). There was a temporary pause before renderer test output; the original process eventually completed successfully in 75.60 s.
+- `mise run test` outside the sandbox: also passed; exact suite totals and native smoke results are recorded in the refactor log. No source failure was found.
+- `mise run build`: passes (existing incremental cache).
+- Native `target/debug/genesis-app --smoke-test /private/tmp/genesis-architecture-before.png`: passed on Metal; capture visually inspected. The checkpoint log records the repeated post-change check.
+- No known failing assertion found. Ignored tests and device loss/browser/legacy execution are not claimed as tested.
+
+## Retained scenario and first slices
+
+Use the existing `scenarios::coastal_outpost` for the fast gameplay regression: 48 × 40, seed 42, geography version 0, six dwellings and an authored path, no people.
+Run 100 fixed ticks, with terraform at tick 1, a dwelling and duplicate request at tick 2, drilling at tick 3, stop pumping at tick 50; store commands with explicit ticks and file order.
+Native visual route is the existing `--smoke-test` (scripted camera/pause/terraform/build/zero-size/resize), dev profile, 1280 × 800 startup then 760 × 540 logical pixels, current default quality and existing assets.
+Also exercise generated coast seed 7319, recipe 9, through the CPU runner; this is environmental/settlement work, not a populated economy benchmark.
+
+1. **Adopted slice:** add a small running-world owner in sim_core, with immutable reads, the existing fixed dt and integer completed ticks; wire Session to it and add a CPU-only runner with scenario/seed/ticks, assigned-tick action playback and metrics. Preserve `SimState::step` for setup/legacy consumers. Acceptance: original numerical state/events match, same-time conflicts retain order, frame partitions match headless execution, app/native smoke and normal checks pass, runner dependency tree excludes graphical/Bevy crates.
+2. **Next:** protect world meaning with a modest versioned save record and staged validation before ID/deletion/storage changes. Acceptance: world round-trip plus future behavior, failed loads retain the active world, allocator/reference policy explicit. This slice does not introduce saves or claim save compatibility.
+3. **Later:** close demonstrated command/terrain consistency gaps and profile worker snapshots on the existing generated scenario before changing extraction. Acceptance: narrow invariant tests and comparable timings for any optimization. Keep existing renderer and worker validation.
+
+No new gameplay, scheduler, ECS, hydrology, threading, or performance optimization is part of the adopted slice.
+Content IDs/manifests and non-macOS hosting remain follow-up decisions when their corresponding work is selected.
+
+## Second slice: persistence audit, 12 October 2026
+
+The first checkpoint's 147 tests/doctests, Clippy and formatting were rerun with `mise run ci` and pass before persistence edits.
+There is still no world save to migrate; preferences are separate.
+`SimState` holds all current consequential state, with no in-flight authoritative jobs or ongoing random generator beyond the stored seed.
+Pending app commands must be saved separately because they have not yet reached `Simulation::advance`.
+Channel bins and river bounding boxes are reconstructible; environmental proxy fields are retained exactly to avoid recomputation changing the saved boundary.
+The sub-metre surface still uses the compiled noise/geometry implementation; compatibility must therefore identify rules/content, not just generator seed.
+
+Adopt schema v1, a shared CPU-only host storage crate, headless load/save and app quicksave/quickload.
+Validate staged records, dimensions, finite/ranged values, IDs, references and bounded counts before cache reconstruction or replacing a session.
+Retain append-only building/well IDs and path vector order; explicitly validate their existing allocator assumptions rather than adding deletion or repacking in this slice.
+Persist a host-assigned world identifier independently of the scenario seed, and pending actions without executing them for saving.
+Use sibling temporary files and a prior-file backup for native commits.
+Acceptance: exact continuation across a save with pumping/pending placement, malformed loads preserve active state, failed writes preserve the old file, schema fixture loads, generated region cache queries match, and normal/native checks pass.
+
+## Durable identity slice audit (12 October 2026)
+
+The preceding save checkpoint passed `mise run ci` (153 tests/doc checks,
+14 ignored), workspace build, and native save/reload smoke. Source inspection
+now finds `SimState::step` assigning buildings `len + 1`, `Subsurface::drill`
+assigning wells `len + 1`, and `PathBuilt`/app `Object::Path` carrying vector
+indices. Removing the final object would reuse its identity; repacking paths
+would redirect selection. Well withdrawal arbitration also follows vector order.
+No deletion mechanic is being added. Existing numeric building/well IDs and
+all geometry/placement rules will be retained. The next slice persists monotonic
+allocators, adds path IDs, resolves presentation references by ID, and preserves
+well arbitration in ascending ID order. Save v1 must migrate before replacement;
+malformed or inconsistent v2 identity data must fail. Acceptance covers highest-ID
+removal, stale references, reordering, allocation exhaustion, and continued
+creation after save/load, plus the existing native interaction/save smoke.
+
+## Terrain command audit, 12 October 2026
+
+The durable-identity baseline passed 159 tests/doctests, Clippy, formatting,
+workspace build, and native interaction/save checks. Before terrain edits,
+inspection traced `rules/terraform.rs` → `SimState::step` → `Session::tick` →
+revision-tagged scene preparation. Three concrete gaps are present: brush input
+has no structured outcome, bounded-world `cx + dx`/`cy + dy` can overflow for
+extreme command coordinates, and the host advances terrain revision from queued
+intent even if the command changes nothing. The original brush mutates each cell
+as it walks the stencil, preventing validation of the entire patch before commit.
+
+The source also constrains the useful scope. `spatial::sample` uses a 4×4 cubic
+B-spline, not a bilinear grid. `surface::vertex_height` derives current ground;
+`scene/buildings.rs` intentionally handles exposed foundations after edits.
+`surface/channels::level` samples current elevation so channel presentation follows
+edits; generated routes and rainfall/drainage remain fixed scenario data, not a
+live hydrology solver. Existing footpaths retain centerlines and derive ground
+heights. Aquifer formations keep fixed underground elevations; submerged wells
+stop pumping. No structural damage, path routing, river rerouting or displaced
+water simulation exists. Blanket exclusion zones would change useful sandbox
+behavior without an established product rule.
+
+Adopt the smallest command-boundary slice: bounded sparse staging, finite input
+and safe coordinate validation, an all-at-once elevation commit, explicit command
+outcomes, and host invalidation only on a real commit. Preserve brush falloff,
+clamping, wrapping (including repeated visits on small grids), cropped bounded
+brushes, normal construction interactions and existing time/rule ordering.
+Acceptance includes no partial terrain effects on rejected commands, extreme
+coordinates, wrapping and bounded edges, same-tick command ordering, no-op cache
+behavior, save continuation and native terrain interaction. Foundation damage
+and channel routing policy remain documented follow-ups rather than silently
+implemented gameplay changes.
+
+## World replacement and derived-work audit, 12 October 2026
+
+The staged-terrain checkpoint passed 167 tests/doctests, formatting, Clippy,
+workspace build, native save smoke and exact fixture-state comparison. Inspection
+of `view.rs`, `view/preparation.rs`, `Session::load_from/regenerate`, frontend
+loading and executable setup finds a working single-request design: workers own
+cloned immutable input, terrain revision advances on every current replacement,
+and edit epochs prevent an older completion overwriting urgent publication.
+No stale-world overwrite was reproduced. Geometry, picking, contacts, scenery
+and dwelling caches already rebuild when replacement advances terrain revision.
+
+The concrete maintainability gap is duplicated replacement invalidation in load,
+regeneration and frontend arrival. Raw completion access and the one-worker slot
+are also managed manually in `View`; existing tests check tag comparisons and
+mesh generation but do not drive delayed completion across an actual staged
+load. Preserve the existing revision as the world/terrain invalidation generation
+rather than adding a redundant epoch or replacing the renderer.
+
+The adopted slice centralizes replacement, puts admission and completion
+validation behind one small preparation owner, and uses a capacity-one result
+channel. Acceptance: a delayed old-world result cannot publish after loading the
+same save, repeated replacements cannot create a worker backlog, pending failed
+loads retain the valid world/work identity, and the next admitted result rebuilds
+matching terrain and picking. Native load/regeneration routes and existing
+camera/survey/edit guards remain usable. No scheduling or domain rule change is
+needed.
+
+## CPU extraction audit — 12 October 2026
+
+`view/preparation.rs` clones `SimState` only on successful worker admission,
+then builds `terrain::Cache`, optional `terrain::Picker`, `scene::mesh`, and
+`PreparedWorld`. Cache reuse skips geometry and picking but still recolors the
+scene and partitions vertices. One outstanding request already bounds this work.
+There is no evidence yet that changing simulation storage or adding threading
+would improve this path.
+
+`terrain::colored_vertex` requests a full subsurface `Reading` for its `rock`
+field. That query also interpolates six numerical fields and derives a water
+level. This is an avoidable-work hypothesis, subject to compiler optimization
+and measurement. Preserve the exact weighted-tap rock selection and tie behavior
+if a narrower query proves useful. No domain rule or save change is required.
+
+The existing `benchmark.rs` measures rendering and bundled initial preparation.
+Retain it. A separate `--extraction-benchmark` diagnostic measures the existing
+worker stages with a generated coast (seed 7319), region and settlement LOD,
+surface and water surveys. It runs CPU code without opening graphics, but belongs
+to the graphical app package; it is not the graphics-independent headless target.
+The workload contains existing dwellings/paths/environment, no invented people
+or economy. Require comparable timings and identical presentation vertex bits
+before retaining an optimization. Snapshot representation, scheduling and
+rendering quality remain unchanged in this slice.
+
+## Cold terrain-cache audit — 12 October 2026
+
+The preceding measured checkpoint found cold `terrain::Cache::at` construction
+at roughly 290 ms (regional camera) and 490 ms (settlement camera) in the native
+development profile. Its stages are adaptive topology, heights/normals, ground
+cover, contact baking, horizon context and rivers. Before selecting another
+optimization, extend the existing extraction diagnostic to time these actual
+stages. Retain the same seeded workload and compare presentation fingerprints.
+Timing must remain a host-side observer; it must never affect simulation or
+choose LOD, geometry, scheduling or cache contents. No new threading or authority
+is needed. Keep the existing dirty renderer/assets untouched.
+
+The staged baseline identifies river geometry as the largest component: median
+167.172 ms regionally and 190.444 ms near the settlement. Source tracing from
+`water::rivers` through `Sheet::add` reaches `Cache::indexed_triangles_in`, which
+queries every finest-lattice cell in a ribbon triangle's bounding box and then
+deduplicates coarse patches. Adopt a local traversal change: skip horizontally
+to each patch edge and vertically to the earliest edge found across that row.
+Keep the same receiver IDs, sorted visitation, inclusive bounds and negative-edge
+clamping. No spatial index, cache retention or water algorithm change is needed.
+Verify against the old exhaustive traversal at mixed LOD and map boundaries,
+then compare the full generated mesh fingerprints and timings.
+
+## Continuation audit: life-seeding command boundary, 12 October 2026
+
+Re-inspected workspace/repository instructions, engine decision, vision, manifests,
+existing architecture records, fixed runtime, action execution, terrain brush,
+save validation/storage, playback, host clock and session feedback.
+The owner brief already exists in full at `GENESIS_ENGINE_ARCHITECTURE.md`; retain it.
+Current `main` remains `c055969d47663308a5452e32188843ae700c4279`, with 82 dirty/untracked
+status entries at entry, including all six previous checkpoints and asset work.
+These are the baseline, not new changes in this continuation. No staging or commit.
+
+Current ownership supersedes the initial historical table above: five workspace
+packages include CPU-only `headless` and native `storage`; `Session` owns a read-only
+`runtime::Simulation`; schema 2 saves support v1 migration and persisted allocators.
+The feature ledger otherwise remains applicable: people, staged construction,
+inventories/trade and live river routing are absent; world persistence is now working
+with staged load and native backup replacement. Existing supported target remains
+macOS; other hosts and full GPU recovery are unverified. Dependencies are unchanged.
+
+Fresh `mise run test`, `mise run fmt-check`, and `mise run clippy` pass: 172 tests/doc
+checks, 14 optional tests ignored. No baseline assertion or lint failure.
+Pinned/active Rust is 1.93.1 on aarch64-apple-darwin. Existing fixture seed 42,
+100 ticks and `coastal.commands.json` remain the representative domain workload.
+
+Finding: `SimState::seed_life` adds `cx + dx` and `cy + dy` in i32 before boundary
+validation and indexing. Both public seed actions accept arbitrary i32 coordinates
+from headless playback; debug builds can panic, while unchecked overflow can choose
+the wrong wrapped sample. Terraform's widened addressing already avoids this.
+The seed radius is capped by map extent; water eligibility uses the previously
+committed depth, and repeated wrapped visits deliberately accumulate coverage.
+
+Adopt a small rule extraction into `rules/seeding.rs`, using widened coordinates,
+wrapping before offsets and bounded-region clipping. Retain the 0.3 per-visit
+increment, saturation, underwater exclusion, radius cap and existing silent no-op
+behavior. Do not redesign all command events or change same-tick water ordering.
+Acceptance: reproduce overflow before the fix; cover extreme coordinates on both
+topologies, negative/cropped boundaries, repeated visits, saturation and water;
+prove pending seed continuation through storage; run established checks and native
+smoke. No performance claim, schema/content change or library upgrade.
+
+Next slices remain independent: structured outcomes for legacy seed/outpost actions,
+then measured cold-cache preparation or scoped GPU lifecycle recovery if selected.
+Absent gameplay systems are outside this refactor.

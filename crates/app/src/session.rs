@@ -1,13 +1,15 @@
 //! Application session owning simulation, pending commands, and presentation choices.
-use crate::clock::{Clock, TICK};
+use crate::clock::Clock;
 use genesis_sim_core::{
-    SimState, actions::Action, events::SimEvent, settlement::Building, spatial::Position,
+    SimState, actions::Action, events::SimEvent, runtime::Simulation, settlement::Building,
+    spatial::Position,
 };
 use std::{collections::VecDeque, time::Duration};
 
 pub struct Session {
     pub mode: crate::frontend::Mode,
-    pub sim: SimState,
+    pub sim: Simulation,
+    pub world_id: String,
     pub clock: Clock,
     pub selected: (i32, i32),
     pub position: Position,
@@ -40,6 +42,9 @@ impl Default for Session {
 }
 impl Session {
     pub fn from_sim(sim: SimState) -> Self {
+        Self::from_runtime(Simulation::new(sim))
+    }
+    fn from_runtime(sim: Simulation) -> Self {
         let position = sim.buildings.first().map_or(
             Position::new(sim.grid.width as f32 / 2., sim.grid.height as f32 / 2.),
             |b| b.position,
@@ -49,6 +54,7 @@ impl Session {
             mode: crate::frontend::Mode::Settlement,
             region_choice,
             sim,
+            world_id: genesis_storage::new_world_id(),
             clock: Clock::default(),
             selected: (position.x.round() as i32, position.z.round() as i32),
             position,
@@ -74,16 +80,44 @@ impl Session {
     }
 }
 impl Session {
+    /// Activate a generated world and reset client state. Every replacement
+    /// advances the view generation, even when seed and object counts match.
+    pub fn replace_sim(&mut self, sim: SimState) {
+        let mut next = Self::from_sim(sim);
+        next.mode = self.mode;
+        self.replace(next);
+    }
+
+    fn replace(&mut self, mut next: Self) {
+        next.terrain_revision = self.terrain_revision + 1;
+        *self = next;
+    }
+
+    pub fn save_to(&self, path: &std::path::Path) -> genesis_storage::Result<()> {
+        let snapshot =
+            genesis_sim_core::save::Snapshot::capture(&self.sim, &self.world_id, &self.pending)?;
+        genesis_storage::store(path, &snapshot)
+    }
+
+    pub fn load_from(&mut self, path: &std::path::Path) -> genesis_storage::Result<()> {
+        let restored = genesis_storage::load(path)?;
+        let mut next = Self::from_runtime(restored.simulation);
+        next.world_id = restored.world_id;
+        next.pending = restored.pending;
+        next.mode = self.mode;
+        next.clock.paused = true;
+        next.message = "World loaded · paused".into();
+        self.replace(next);
+        Ok(())
+    }
+
     pub fn regenerate(&mut self, seed: u64) {
-        let revision = self.terrain_revision + 1;
         let mode = self.mode;
-        *self = Self::from_sim(genesis_sim_core::worldgen::generate_scenario(
+        self.replace_sim(genesis_sim_core::worldgen::generate_scenario(
             seed,
             self.region_choice,
             mode == crate::frontend::Mode::Settlement,
         ));
-        self.mode = mode;
-        self.terrain_revision = revision;
         self.world_tools = true;
         self.message = format!("New region · seed {seed}");
     }
@@ -104,18 +138,28 @@ impl Session {
         }
     }
     fn tick(&mut self) {
-        if self
+        self.urgent_redraw |= self
             .pending
             .iter()
-            .any(|a| matches!(a, Action::Terraform { .. }))
-        {
-            self.terrain_revision += 1;
-        }
-        self.urgent_redraw |= !self.pending.is_empty();
-        let events = self.sim.step(TICK.as_secs_f32(), &self.pending);
+            .any(|a| !matches!(a, Action::Terraform { .. }));
+        let events = self.sim.advance(&self.pending);
         self.pending.clear();
         for event in events {
             match &event {
+                SimEvent::TerrainChanged { .. } => {
+                    self.terrain_revision += 1;
+                    self.urgent_redraw = true;
+                    self.message = "Ground reshaped".into();
+                    self.message_is_error = false;
+                }
+                SimEvent::TerrainUnchanged { .. } => {
+                    self.message = "Ground unchanged".into();
+                    self.message_is_error = false;
+                }
+                SimEvent::TerraformRejected { reason, .. } => {
+                    self.message = reason.to_string();
+                    self.message_is_error = true;
+                }
                 SimEvent::WellDrilled { id } => {
                     self.terrain_revision += 1;
                     self.message = format!("Borehole {id} online");
@@ -133,9 +177,9 @@ impl Session {
                     self.message_is_error = false;
                 }
 
-                SimEvent::PathBuilt { index } => {
+                SimEvent::PathBuilt { id } => {
                     self.terrain_revision += 1;
-                    let object = crate::interaction::Object::Path(*index);
+                    let object = crate::interaction::Object::Path(*id);
                     self.select_object(Some(object), self.position);
                     self.message = format!("{} built", object.label());
                     self.message_is_error = false;
@@ -228,17 +272,17 @@ impl Session {
                 .iter()
                 .find(|b| b.id == id)
                 .map(|b| b.position),
-            Some(Object::Path(i)) => self
+            Some(Object::Path(id)) => self
                 .sim
                 .paths
-                .get(i)
+                .iter()
+                .find(|p| p.id == id)
                 .and_then(|p| p.points.get(p.points.len() / 2))
                 .copied(),
             None => None,
-        }
-        .unwrap_or(ground);
-        self.select(p);
-        self.selected_object = object;
+        };
+        self.select(p.unwrap_or(ground));
+        self.selected_object = object.filter(|_| p.is_some());
     }
     pub fn set_hovered_object(&mut self, object: Option<crate::interaction::Object>) {
         if self.hovered_object != object {
@@ -294,6 +338,68 @@ impl Session {
 mod tests {
     use super::*;
     #[test]
+    fn path_selection_tracks_identity_across_repacking_and_rejects_removed_targets() {
+        use crate::interaction::Object;
+        let mut sim = genesis_sim_core::scenarios::coastal_outpost();
+        let original = sim.paths[0].clone();
+        let middle = original.points[original.points.len() / 2];
+        let mut other = original.clone();
+        other.id = 42;
+        other.points = vec![Position::new(4., 4.), Position::new(5., 5.)];
+        sim.paths.insert(0, other);
+        let mut session = Session::from_sim(sim.clone());
+        session.select_object(Some(Object::Path(original.id)), Position::new(0., 0.));
+        assert_eq!(session.position, middle);
+        assert_eq!(session.selected_object, Some(Object::Path(original.id)));
+        sim.paths.retain(|p| p.id != original.id);
+        let mut session = Session::from_sim(sim);
+        let ground = Position::new(1., 1.);
+        session.select_object(Some(Object::Path(original.id)), ground);
+        assert_eq!(session.position, ground);
+        assert_eq!(session.selected_object, None);
+    }
+
+    #[test]
+    fn saved_session_restores_pending_intent_and_failed_load_keeps_active_world() {
+        let dir = std::env::temp_dir().join(format!(
+            "genesis-session-save-{}",
+            genesis_storage::new_world_id()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("world.json");
+        let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
+        session.clock.paused = true;
+        session.step_once();
+        session.queue(Action::PlaceBuilding {
+            position: Position::new(25.31, 20.27),
+            rotation: 0.47,
+        });
+        let world_id = session.world_id.clone();
+        session.save_to(&path).unwrap();
+        assert_eq!(session.sim.completed_ticks(), 1);
+        assert_eq!(session.pending_count(), 1);
+        session.step_once();
+        let revision = session.terrain_revision;
+        assert_eq!(session.sim.buildings.len(), 7);
+        session.load_from(&path).unwrap();
+        assert_eq!(session.world_id, world_id);
+        assert_eq!(session.sim.completed_ticks(), 1);
+        assert_eq!(session.sim.buildings.len(), 6);
+        assert_eq!(session.pending_count(), 1);
+        assert!(
+            session.clock.paused && session.urgent_redraw && session.terrain_revision > revision
+        );
+        session.step_once();
+        assert_eq!(session.sim.buildings.len(), 7);
+        assert_eq!(session.pending_count(), 0);
+        let before = format!("{:?}", session.sim);
+        std::fs::write(&path, b"{truncated").unwrap();
+        assert!(session.load_from(&path).is_err());
+        assert_eq!(format!("{:?}", session.sim), before);
+        assert_eq!(session.world_id, world_id);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn hover_and_repeat_building_are_responsive_without_rebuilding_the_world() {
         let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
         session.clock.paused = true;
@@ -318,6 +424,56 @@ mod tests {
         session.build_hovered(false);
         assert_eq!(session.pending_count(), 0);
     }
+    #[test]
+    fn terrain_invalidation_follows_commits_not_queued_intent() {
+        let mut sim = genesis_sim_core::scenarios::coastal_outpost();
+        sim.grid.boundary = genesis_sim_core::grid::Boundary::Clamp;
+        let mut s = Session::from_sim(sim);
+        s.clock.paused = true;
+        s.urgent_redraw = false;
+        let revision = s.terrain_revision;
+        s.queue(Action::Terraform {
+            x: i32::MAX,
+            y: 0,
+            radius: 3,
+            strength: 1.,
+        });
+        s.step_once();
+        assert_eq!(s.terrain_revision, revision);
+        assert!(!s.urgent_redraw);
+        assert!(s.message_is_error);
+        s.queue(Action::Terraform {
+            x: 15,
+            y: 12,
+            radius: 2,
+            strength: 0.,
+        });
+        s.step_once();
+        assert_eq!(s.terrain_revision, revision);
+        assert!(!s.urgent_redraw);
+        assert!(!s.message_is_error);
+        s.queue(Action::Terraform {
+            x: 15,
+            y: 12,
+            radius: 2,
+            strength: 0.4,
+        });
+        s.queue(Action::Terraform {
+            x: i32::MAX,
+            y: 0,
+            radius: 3,
+            strength: 1.,
+        });
+        s.step_once();
+        assert_eq!(s.terrain_revision, revision + 1);
+        assert!(
+            s.urgent_redraw,
+            "a later rejection cannot hide an earlier commit"
+        );
+        assert!(s.message_is_error);
+        assert_eq!(s.pending_count(), 0);
+    }
+
     #[test]
     fn queued_actions_survive_pause_and_are_consumed_exactly_once() {
         let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
@@ -344,6 +500,25 @@ mod tests {
     fn frame_partition_produces_identical_simulation_state() {
         let mut a = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
         let mut b = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
+        let mut headless = Simulation::new(genesis_sim_core::scenarios::coastal_outpost());
+        let actions = [
+            Action::DrillWell {
+                position: Position::new(18.25, 21.5),
+            },
+            Action::Terraform {
+                x: 15,
+                y: 12,
+                radius: 2,
+                strength: 0.4,
+            },
+        ];
+        for action in &actions {
+            a.queue(action.clone());
+            b.queue(action.clone());
+        }
+        for tick in 0..10 {
+            headless.advance(if tick == 0 { &actions } else { &[] });
+        }
         for _ in 0..100 {
             a.advance(Duration::from_millis(10));
         }
@@ -351,6 +526,10 @@ mod tests {
             b.advance(Duration::from_millis(100));
         }
         assert_eq!(a.sim.time, b.sim.time);
+        assert_eq!(a.sim.completed_ticks(), 10);
+        assert_eq!(a.sim.completed_ticks(), headless.completed_ticks());
+        assert_eq!(format!("{:?}", *a.sim), format!("{:?}", *headless));
+        assert_eq!(format!("{:?}", *b.sim), format!("{:?}", *headless));
         for (a, b) in a.sim.grid.cells().iter().zip(b.sim.grid.cells()) {
             assert_eq!(a.fungus, b.fungus);
             assert_eq!(a.plants, b.plants);

@@ -97,7 +97,8 @@ pub fn advance(
                 return Err(format!("path failed: {}", session.message).into());
             }
             session.set_path_tool(false);
-            session.select_object(Some(Object::Path(count)), session.position);
+            let id = session.sim.paths.last().ok_or("built path missing")?.id;
+            session.select_object(Some(Object::Path(id)), session.position);
             let p = session.position;
             input.cursor = Some(pointer(view, camera, terrain::point(&session.sim, p))?);
         }

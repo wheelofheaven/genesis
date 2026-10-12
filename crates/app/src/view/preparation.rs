@@ -19,14 +19,14 @@ pub(super) struct Ready {
     pub world: PreparedWorld,
 }
 
-pub(super) struct Pending {
-    pub tag: Tag,
-    pub receiver: mpsc::Receiver<Ready>,
+struct Pending {
+    tag: Tag,
+    receiver: mpsc::Receiver<Ready>,
 }
 
 impl Pending {
-    pub fn spawn(sim: SimState, tag: Tag, cache: Option<Arc<terrain::Cache>>) -> Self {
-        let (sender, receiver) = mpsc::channel();
+    fn spawn(sim: SimState, tag: Tag, cache: Option<Arc<terrain::Cache>>) -> Self {
+        let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let picker_needed = cache.is_none();
             let cache = cache.unwrap_or_else(|| Arc::new(terrain::Cache::at(&sim, tag.key)));
@@ -41,85 +41,56 @@ impl Pending {
         });
         Self { tag, receiver }
     }
+}
 
-    pub fn matches(&self, current: Tag, urgent: bool) -> bool {
-        !urgent && self.tag == current
+/// Owns one outstanding request, including a completed but unconsumed result.
+/// Stale work keeps the slot until completion; replacement never detaches it
+/// and starts an unbounded chain of workers. No pending input queue is retained.
+#[derive(Default)]
+pub(super) struct Preparation {
+    pending: Option<Pending>,
+}
+
+pub(super) enum Completion {
+    Waiting,
+    Ready(Ready),
+    Discarded,
+}
+
+impl Preparation {
+    pub fn is_idle(&self) -> bool {
+        self.pending.is_none()
+    }
+
+    /// Refuse admission before cloning the input when the worker slot is busy.
+    pub fn request(
+        &mut self,
+        sim: &SimState,
+        tag: Tag,
+        cache: Option<Arc<terrain::Cache>>,
+    ) -> bool {
+        if !self.is_idle() {
+            return false;
+        }
+        self.pending = Some(Pending::spawn(sim.clone(), tag, cache));
+        true
+    }
+
+    /// Only validated results escape to the GPU/picking publisher. A failed or
+    /// stale completion releases the slot and asks the view to refresh.
+    pub fn poll(&mut self, current: Tag, urgent: bool) -> Completion {
+        let Some(pending) = &self.pending else {
+            return Completion::Waiting;
+        };
+        let completion = match pending.receiver.try_recv() {
+            Ok(ready) if !urgent && pending.tag == current => Completion::Ready(ready),
+            Ok(_) | Err(mpsc::TryRecvError::Disconnected) => Completion::Discarded,
+            Err(mpsc::TryRecvError::Empty) => return Completion::Waiting,
+        };
+        self.pending = None;
+        completion
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stale_work_cannot_replace_edits_surveys_or_camera_detail() {
-        let tag = Tag {
-            revision: 1,
-            key: terrain::lod::Key([0; 3]),
-            survey: Survey::default(),
-            epoch: 7,
-        };
-        let (_sender, receiver) = mpsc::channel();
-        let pending = Pending { tag, receiver };
-        assert!(pending.matches(tag, false));
-        assert!(!pending.matches(tag, true));
-        assert!(!pending.matches(Tag { revision: 2, ..tag }, false));
-        assert!(!pending.matches(
-            Tag {
-                key: terrain::lod::Key([1; 3]),
-                ..tag
-            },
-            false
-        ));
-        assert!(!pending.matches(Tag { epoch: 8, ..tag }, false));
-        assert!(!pending.matches(
-            Tag {
-                survey: Survey {
-                    water: true,
-                    ..tag.survey
-                },
-                ..tag
-            },
-            false
-        ));
-    }
-
-    #[test]
-    fn worker_keeps_colour_refresh_on_the_same_cache_and_builds_matching_picker_for_movement() {
-        let mut sim = SimState::new(genesis_sim_core::config::SimConfig {
-            width: 8,
-            height: 8,
-            ..Default::default()
-        });
-        sim.geography.version = 9;
-        for cell in sim.grid.cells_mut() {
-            cell.elevation = 2.;
-        }
-        let tag = Tag {
-            revision: 0,
-            key: terrain::lod::Key([0, 1, 0]),
-            survey: Survey::default(),
-            epoch: 0,
-        };
-        let fresh = Pending::spawn(sim.clone(), tag, None)
-            .receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .expect("terrain worker");
-        assert_eq!(fresh.cache.key, tag.key);
-        let picker = fresh.picker.expect("new terrain needs new picking data");
-        let hit = picker
-            .pick(glam::Vec3::new(0.1, 5., 0.1), -glam::Vec3::Y, false)
-            .expect("new terrain is pickable");
-        assert!((hit.x - 4.1).abs() < 1e-5 && (hit.z - 4.1).abs() < 1e-5);
-        sim.step(0.1, &[]);
-        let refresh = Pending::spawn(sim, tag, Some(Arc::clone(&fresh.cache)))
-            .receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .expect("colour worker");
-        assert!(Arc::ptr_eq(&fresh.cache, &refresh.cache));
-        assert!(
-            refresh.picker.is_none(),
-            "colours must not rebuild picking data"
-        );
-    }
-}
+mod tests;

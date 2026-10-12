@@ -1,7 +1,7 @@
 //! Wall-time scheduling only; simulation rules remain in sim_core.
 use std::time::Duration;
 
-pub const TICK: Duration = Duration::from_millis(100);
+pub use genesis_sim_core::runtime::TICK;
 pub const MAX_TICKS_PER_FRAME: usize = 8;
 
 #[derive(Debug)]

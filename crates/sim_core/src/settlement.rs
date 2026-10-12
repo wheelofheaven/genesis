@@ -35,6 +35,9 @@ impl Building {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Path {
+    /// Persistent identity; zero only for uncommitted preview geometry.
+    #[serde(default)]
+    pub id: u64,
     pub points: Vec<Position>,
     pub width: f32,
 }
@@ -46,6 +49,7 @@ pub enum PlacementError {
     Occupied,
     InvalidPosition,
     Watercourse,
+    IdentityExhausted,
 }
 impl std::fmt::Display for PlacementError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -56,6 +60,7 @@ impl std::fmt::Display for PlacementError {
             Self::Occupied => "Keep buildings, paths and boreholes clear",
             Self::InvalidPosition => "Invalid position or rotation",
             Self::Watercourse => "Keep the watercourse clear",
+            Self::IdentityExhausted => "Dwelling identity capacity exhausted",
         })
     }
 }

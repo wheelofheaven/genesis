@@ -1,11 +1,14 @@
 # Rendering direction and measurements
 
-Genesis should look convincing from a person's eye level through a regional view,
-with stable silhouettes, natural lighting and readable scientific overlays.
+Genesis targets a scalable, stylized renderer for a changing, inhabited landscape.
+The normal settlement-management view is the primary readability benchmark; close
+inspection, eye-level play and valley overview remain essential companion views.
+Prioritize terrain, water, vegetation, camera behavior and interaction, with stable
+silhouettes, coherent lighting and readable scientific overlays.
 Keep the renderer focused on this game and measure improvements on the target
 hardware. The simulation does not depend on presentation quality or visibility.
 
-See the [Anno-class graphics roadmap](rendering-roadmap.md) for the current
+See the [renderer roadmap](rendering-roadmap.md) for the current
 capability assessment, proposed milestones and acceptance gates. The sections
 below record implemented work and its measurements, rather than a feature wishlist.
 
@@ -1249,3 +1252,37 @@ off-camera shadow caster. All five native atmosphere/material regressions pass.
 Limestone and island-basalt captures were visually inspected; the matching
 limestone world geometry remains 82,121,844 bytes. The post-change world-pass GPU
 counter was unavailable, so no performance improvement is claimed.
+
+
+## Imported dwelling and resident benchmark (October 12, 2026)
+
+A static GLB path now supplies indexed, instanced, texture-backed dwellings with
+three LODs. It shares sun shadows, cloud transmission, aerial depth and a cached
+diffuse sky-irradiance lookup with the existing forward renderer. The original
+procedural foundation, survey shell and picking proxy remain in use. F6 provides
+a manual asset reload; startup embeds the project-owned fixtures.
+
+The new `--render-benchmark report.json` command runs three stationary views and
+a continuous settlement-to-eye-level descent at 1920×1080. It records available
+counters honestly, including missing world-pass timings, and saves reference PNGs.
+See [the full import contract, baseline measurements and limitations](assets.md).
+
+### Dwelling edges and foundation contact
+
+The imported fixture now has bevelled exposed edges, staggered stone courses
+around all four walls, aligned timber grain and bounded per-building palette
+variation. A soft wall-segment stamp joins the existing ground-occlusion cache;
+rotation and terrain/building invalidation use the same presentation data as the
+foundation mesh. No new GPU pass is required. See [asset refinement measurements
+and limits](assets.md#dwelling-detail-and-ground-contact-refinement).
+
+### Offline local occlusion for imported architecture
+
+Imported materials now support a separate UV1 occlusion atlas. The authoring
+script bakes short-range ambient visibility around openings, joinery and roof
+intersections; rendering applies it only to diffuse sky fill. Tiled albedo stays
+unlit and retains its metre-scale UV0 mapping. Identical textures share storage
+across material slots and LODs; AO uploads use single-channel R8. This adds no
+triangles, passes or material texture samples. Atlas filtering, proxy limitations,
+resource accounting and regression commands are documented in [the asset
+workflow](assets.md#offline-architectural-ambient-visibility).

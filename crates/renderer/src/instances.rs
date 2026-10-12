@@ -230,6 +230,17 @@ impl Instances {
             pass.draw(0..batch.vertices, 0..count);
         }
     }
+    pub fn main_stats(&self) -> ShadowStats {
+        let mut stats = ShadowStats::default();
+        for batch in &self.batches {
+            if batch.count > 0 {
+                stats.batches += 1;
+                stats.instances += u64::from(batch.count);
+                stats.vertices += u64::from(batch.vertices) * u64::from(batch.count);
+            }
+        }
+        stats
+    }
     pub fn shadow_stats(&self, cascade: usize) -> ShadowStats {
         let mut stats = ShadowStats::default();
         for batch in &self.batches {

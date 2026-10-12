@@ -69,14 +69,20 @@ pub fn seed(sim: &mut SimState) {
             center.x + angle.cos() * radius,
             center.z + angle.sin() * radius,
         );
-        let b = Building {
-            id: sim.buildings.len() as u64 + 1,
+        let mut b = Building {
+            id: 0,
             position: p,
             rotation: angle + unit(sim.config.seed, i) * 0.5,
         };
         if sim.validate_building(&b).is_err() {
             continue;
         }
+        // Reserve the dwelling ID locally; commit it only after its route is valid.
+        let mut building_ids = sim.building_ids;
+        let Some(id) = building_ids.allocate() else {
+            return;
+        };
+        b.id = id;
         // Only join a short, dry, gentle walk; do not bridge rivers by accident.
         if !sim.buildings.is_empty() {
             let nearest = sim
@@ -109,7 +115,8 @@ pub fn seed(sim: &mut SimState) {
             {
                 continue;
             }
-            let path = Path {
+            let mut path = Path {
+                id: 0,
                 points,
                 width: Building::PATH_WIDTH,
             };
@@ -121,8 +128,13 @@ pub fn seed(sim: &mut SimState) {
             {
                 continue;
             }
+            let Some(id) = sim.path_ids.allocate() else {
+                return;
+            };
+            path.id = id;
             sim.paths.push(path);
         }
+        sim.building_ids = building_ids;
         sim.buildings.push(b);
         if sim.buildings.len() == 6 {
             break;

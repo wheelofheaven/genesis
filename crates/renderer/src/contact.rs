@@ -1,5 +1,7 @@
 //! A bounded, world-anchored ground occlusion field. Presentation proxies only.
 use glam::Vec2;
+mod walls;
+pub use walls::Wall;
 
 pub const SIZE: u32 = 1024;
 pub const TEXEL_METRES: f32 = 0.25;
@@ -20,12 +22,23 @@ pub struct Field {
 
 impl Field {
     pub fn bake(center: Vec2, footprints: impl IntoIterator<Item = Footprint>) -> Self {
+        Self::bake_with_walls(center, footprints, [])
+    }
+
+    pub fn bake_with_walls(
+        center: Vec2,
+        footprints: impl IntoIterator<Item = Footprint>,
+        walls: impl IntoIterator<Item = Wall>,
+    ) -> Self {
         // Integer texel shifts preserve every shared sample when the camera moves.
         let origin =
             (center / TEXEL_METRES).floor() * TEXEL_METRES - Vec2::splat(EXTENT_METRES * 0.5);
         let mut values = vec![0; (SIZE * SIZE) as usize];
         for footprint in footprints {
             stamp(&mut values, origin, footprint);
+        }
+        for wall in walls {
+            walls::stamp(&mut values, origin, wall);
         }
         let mut levels = vec![values];
         let mut size = SIZE as usize;

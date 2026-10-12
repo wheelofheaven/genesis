@@ -5,6 +5,7 @@ mod key;
 use key::Key;
 pub(crate) struct Lookup {
     key: Option<Key>,
+    pub irradiance: super::irradiance::Irradiance,
     pub view: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
 }
@@ -65,9 +66,12 @@ impl Lookup {
             multiview: None,
             cache: None,
         });
+        let view = texture.create_view(&Default::default());
+        let irradiance = super::irradiance::Irradiance::new(device, &view);
         Self {
+            irradiance,
             key: None,
-            view: texture.create_view(&Default::default()),
+            view,
             pipeline,
         }
     }
@@ -100,6 +104,8 @@ impl Lookup {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, camera, &[]);
         pass.draw(0..3, 0..1);
+        drop(pass);
+        self.irradiance.encode(encoder);
         true
     }
 }

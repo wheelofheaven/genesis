@@ -36,6 +36,7 @@ pub(super) fn entrance(sim: &SimState, b: &Building) -> Option<Vec<Position>> {
         })
         .collect();
     Some(paths::samples(&genesis_sim_core::settlement::Path {
+        id: 0,
         points,
         width: Building::ENTRANCE_WIDTH,
     }))
@@ -285,6 +286,7 @@ mod tests {
             }
         }
         let path = genesis_sim_core::settlement::Path {
+            id: 0,
             points: vec![Position::new(2.6, 3.1), Position::new(5.2, 4.4)],
             width: metres(1.2),
         };
@@ -333,6 +335,7 @@ mod tests {
             }
         }
         let path = genesis_sim_core::settlement::Path {
+            id: 0,
             points: vec![Position::new(2.6, 3.1), Position::new(5.2, 4.4)],
             width: metres(4.),
         };
@@ -396,6 +399,7 @@ mod tests {
             rotation: 0.,
         };
         sim.paths = vec![genesis_sim_core::settlement::Path {
+            id: 0,
             points: vec![Position::new(4., 9.), Position::new(12., 9.)],
             width: metres(1.2),
         }];

@@ -1,8 +1,87 @@
-# Roadmap to Anno-class visual quality
+# Genesis renderer roadmap
+
+## Current direction — 12 October 2026
+
+Build **a scalable, stylized renderer for a changing, inhabited landscape**.
+The primary visual benchmark is the normal settlement-management view.
+Close inspection, including the established eye-level requirement, and valley overview remain essential companion views.
+Terrain, water, vegetation, camera behavior and interaction receive first priority.
+This direction updates the delivery priorities below; the earlier assessment against `d81ed33` is retained as historical evidence, not a current source inventory.
+Rust, the custom wgpu renderer and simulation independence remain binding.
+
+| Quality | Acceptance intent |
+| --- | --- |
+| Readable | Terrain, buildings, paths, people and resources communicate their function at management distance; close-up detail alone cannot pass the scene. |
+| Responsive | Moving the camera, hovering, selecting and previewing construction avoid recurrent stalls; measure edit and camera-transition spikes as well as steady frames. |
+| Dynamic | Changed terrain, water, cover and settlement state produce coherent visible updates, including dependent borders and picking. |
+| Scalable | Visible importance controls mesh, texture, foliage, animation, shadow, effect and label detail; camera visibility never decides simulation outcomes. |
+| Faithful | Presentation represents committed domain state; decorative motion does not imply an unimplemented resource flow or activity. |
+| Maintainable | Materials, lighting, assets and passes can evolve without rewriting domain rules or storing GPU objects in saves. |
+
+Keep the existing forward renderer and explicit passes.
+Keep deliberate CPU/GPU upload layouts, capability checks, optional timing counters, SDR presentation and correct color handling.
+Preserve the separation of simulation, game presentation and GPU ownership described in the [architecture brief](architecture/GENESIS_ENGINE_ARCHITECTURE.md).
+Global/camera-relative coordinates remain a future boundary: current region-centered f32 rendering is not a planetary precision implementation.
+Do not change persistent coordinates or save identities to move the render origin.
+
+### Current implementation and demonstrated gaps
+
+Source review includes `app/src/terrain.rs`, `terrain/lod.rs`, `water/`, `view.rs`, `view/preparation.rs`, `benchmark.rs`, and `renderer/src/world_mesh.rs`, `instances.rs`, `assets/` and `camera.rs`.
+Paths are relative to `crates/`.
+The [asset workflow](assets.md) and [extraction measurements](architecture/extraction-performance.md) supply the existing measured evidence; this documentation update did not rerun benchmarks.
+
+| Area | Retain | Remaining work |
+| --- | --- | --- |
+| Terrain and interaction | Adaptive continuous terrain, shared surface queries, triangle picking, conforming paths/water, validated placement, chunk culling and fingerprint-based upload reuse | A terrain revision still rebuilds the whole CPU cache and picker synchronously in `View::ensure_terrain`; urgent scene extraction is also synchronous. GPU upload reuse does not establish local CPU rebuilds. |
+| Derived work | One outstanding background preparation, immutable input, revision/view/edit guards and matched terrain/water publication | Local invalidation with sampling halos and bounded publication/upload work; retain the stale-result guards and correct picking while changing this path. |
+| Water | Coast and river geometry, channel beds, confluence handling, depth/shore treatment and optical shading | Generated rivers are not a live volume/flow solver. Canals, reservoir storage, flooding and changing flow need authoritative domain support before their visuals can claim those meanings. |
+| Vegetation and architecture | Instanced scenery, foliage LOD, static imported dwelling with three LODs, material textures and transactional F6 reload | Species/content variety, smoother transitions and incremental updates; decorative vegetation must remain distinct from future harvestable identities. |
+| People and building activity | Stable domain building identities and simulation-validated placement | No represented inhabitants, production construction stages or skinned character pipeline. Current GLB import explicitly rejects skinning/animation. Do not certify an inhabited settlement using decorative actors. |
+| Light and atmosphere | Sun shadows, shared sky fill, cloud shade, haze, HDR intermediate and tone mapping | Stable motion at all view scales, coherent future weather inputs, local-light/night budgets and readability. Current weather previews are presentation settings. |
+| Diagnostics and lifecycle | Resident render benchmark, CPU extraction benchmark, native interaction/resize checks, bounded scene worker | Full interaction/streaming frame traces, memory/upload budgets and complete device reconstruction. A resident benchmark excludes interactive streaming and simulation. |
+
+The existing M4 development-profile extraction report measured cold cache medians of 288.573 ms at regional view and 485.658 ms near the settlement.
+Those are isolated CPU construction timings, not frame times or a new performance result.
+They make terrain preparation a concrete responsiveness investigation before expanding effects.
+Snapshot cloning measured roughly 0.5 ms, so replacing simulation storage or adding a new thread system is not justified by this evidence.
+
+### Updated delivery order
+
+1. **Verify existing foundations under interaction.** Keep the authored assets, depth/color conventions, CPU picking and benchmarks. Extend measurement to cache stages and a repeatable moving-camera/edit route, with actual resolution, profile, seed, quality, CPU/GPU timing availability and upload bytes. Use existing stage hooks where present. The provisional M4/1080p/60 FPS target below remains a target, not an achieved result or minimum hardware promise.
+2. **Make local landscape changes responsive and coherent.** Carry affected regions from committed edits into scoped cache rebuilding, including neighboring samples, river/ground contact and picking dependencies. Retain stable seams, bounded work and stale-result rejection. A small edit should not require a whole-map CPU rebuild; verify unchanged regions and compare equivalent before/after timings before accepting the optimization.
+3. **Connect an inhabited settlement as domain mechanics arrive.** Add character import/animation and activity cues against persistent people and actual tasks; show construction/growth states only when owned by the simulation. Continue improving instanced vegetation and a coherent building kit. Authoring fixtures may use synthetic state only when clearly labelled.
+4. **Make the landscape visually coherent.** Review sun, shadows, water, sky, wind, wetness and materials together. Prioritize shoreline coverage/elevation and readable flow cues over elaborate reflections. Weather and darkness must leave selection, surveys and construction usable.
+5. **Scale and polish the proven scene.** Improve LOD transitions, foliage/shadow stability, animation scheduling, resource residency and upload budgets against measured bottlenecks. More advanced draw submission, a general render graph, ray tracing and planetary terrain need separate evidence and scope.
+
+The next implementation slice is **terrain-edit preparation latency measurement**, followed by one measured local-update change.
+Stage-level profiling and the adaptive receiver-query optimization already exist; see the [completed cache report](architecture/cache-performance.md).
+Do not combine cache representation, hydrology rules, threading and rendering algorithms in one change.
+Keep explicit frame/pass resource ownership and the current GPU API versions.
+Asset/animation work can progress independently when selected; it does not make absent gameplay a prerequisite for terrain improvements.
+
+### Acceptance scene and motion review
+
+The integrated target is a growing settlement beside an actively changing irrigation system.
+It becomes an acceptance gate when people, growth, work and irrigation exist in the authoritative simulation; this renderer direction does not authorize implementing those systems as a checklist.
+Until then, use the actual coastal starter settlement, real terrain/placement/well commands and documented limitations.
+Pumping aquifer water is not an irrigation distribution loop.
+
+Use a repeatable route through settlement management, close inspection and valley overview, including a slow orbit, forest zoom, water pan, crowded-object selection and a local edit across a terrain patch boundary.
+Add following a working person when that mechanic exists.
+Review silhouettes, shimmer, shadow stability, LOD transitions, depth flicker, exposure and stalls in motion, alongside captures.
+The route should verify terrain/picking/preview agreement, valid/invalid cues using more than color alone, and continued domain behavior while off-screen.
+Roof/vegetation occlusion handling and citizen selection remain explicit interaction requirements when applicable.
+
+Record cold and warm behavior, median and tail CPU costs, available per-pass GPU timings, upload volume, visible instances/draws and memory where measurable.
+Missing counters remain unavailable, never zero.
+No new FPS, dense-population, browser, WebGL fallback, console or device-recovery claim follows from this roadmap.
+
+## Earlier visual-quality assessment
 
 Assessment: October 12, 2026, against renderer commit `d81ed33`.
-Status: proposed implementation sequence, not a claim of feature parity or an
-accepted hardware requirement. Existing product and custom-engine decisions stand.
+The static GLB dwelling and resident settlement benchmark were subsequently implemented; see [workflow, baseline and remaining gates](assets.md).
+The capability table and six-stage plan below preserve that assessment and its detailed art/quality gates.
+Use the current source inventory and updated delivery order above when choosing new work.
 
 ## Outcome
 
@@ -177,14 +256,8 @@ changes and origin shifts. Evaluate ghosting as carefully as aliasing.
 Gate: each weather/time combination has coherent sky, surface, water and local
 lighting; low-quality modes preserve gameplay cues; surveys remain trustworthy.
 
-## Recommended next implementation
+## Remaining decisions
 
-Deliver the benchmark fixture and the first imported, material-backed dwelling
-with shared sun/skylight. This unlocks visible gains across architecture,
-vegetation and terrain, and makes subsequent renderer work judgeable against real
-content. It is a stronger next milestone than another isolated shader embellishment.
-
-Unresolved decisions: final hardware/resolution targets, asset-production workflow
-and capacity, desired maximum visible settlement density, and how far eye-level
-interiors belong in the first playable slice. Keep these explicit rather than
-silently assuming a high-end GPU or a full AAA art team.
+Final hardware/resolution targets, asset-production capacity, maximum visible settlement density and the extent of eye-level interiors remain open.
+Use the current delivery order above rather than repeating the already implemented first dwelling/benchmark work.
+Keep the earlier art and quality gates as references, and preserve the scope and limitations documented in [the asset workflow](assets.md).

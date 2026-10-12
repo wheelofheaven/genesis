@@ -208,6 +208,7 @@ mod tests {
             rotation: 0.,
         });
         sim.paths.push(genesis_sim_core::settlement::Path {
+            id: 0,
             points: vec![Position::new(6., 7.5), Position::new(10., 7.5)],
             width: metres(2.),
         });

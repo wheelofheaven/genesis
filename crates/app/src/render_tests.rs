@@ -1,5 +1,6 @@
 //! Opt-in native GPU regression and representative CPU preparation audit.
 mod aerial;
+mod assets;
 mod cloud_shadow_timing;
 mod cloud_shadows;
 mod sky;

@@ -46,6 +46,7 @@ pub struct Gpu {
     far_camera: wgpu::Buffer,
     far_camera_group: wgpu::BindGroup,
     pub instances: crate::instances::Instances,
+    pub assets: crate::assets::Assets,
 }
 
 impl Gpu {
@@ -107,9 +108,10 @@ impl Gpu {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("world and atmosphere"),
             source: wgpu::ShaderSource::Wgsl(
-                format!(
-                    "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                [
                     include_str!("frame.wgsl"),
+                    include_str!("sunlight.wgsl"),
+                    include_str!("sky_radiance.wgsl"),
                     include_str!("scene.wgsl"),
                     include_str!("atmosphere.wgsl"),
                     include_str!("aerial.wgsl"),
@@ -125,13 +127,19 @@ impl Gpu {
                     include_str!("foliage.wgsl"),
                     include_str!("bark.wgsl"),
                     include_str!("contact.wgsl"),
-                    include_str!("grass.wgsl")
-                )
+                    include_str!("grass.wgsl"),
+                ]
+                .join("\n")
                 .into(),
             ),
         });
         let sky_lookup = crate::sky::Lookup::new(&device, &layout);
-        let clouds = crate::clouds::Clouds::new(&device, &queue, &sky_lookup.view);
+        let clouds = crate::clouds::Clouds::new(
+            &device,
+            &queue,
+            &sky_lookup.view,
+            &sky_lookup.irradiance.view,
+        );
         let cloud_shadow =
             crate::clouds::shadow::CloudShadow::new(&device, &layout, &clouds.layout);
         let shadows = crate::shadows::Shadows::new(&device, &cloud_shadow.view);
@@ -229,11 +237,13 @@ impl Gpu {
             &shadow_layout,
             &shader,
         );
+        let assets = crate::assets::Assets::new(&device, &layout, &shadows.layout, &clouds.layout);
         let timing = device
             .features()
             .contains(wgpu::Features::TIMESTAMP_QUERY)
             .then(|| crate::timing::Timing::new(&device));
         Ok(Self {
+            assets,
             atmosphere_updates: Default::default(),
             timing,
             sky,
@@ -422,6 +432,7 @@ impl Gpu {
                 true,
             );
             self.instances.render_shadow(&mut pass, cascade);
+            self.assets.render(&mut pass, Some(cascade));
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -464,6 +475,7 @@ impl Gpu {
             pass.set_vertex_buffer(0, self.overlay.slice(..));
             pass.draw(0..self.overlay_count, 0..1);
             self.instances.render(&mut pass);
+            self.assets.render(&mut pass, None);
             // Reverse-depth zero lets early depth rejection shade only open sky.
             self.sky.composite(&mut pass, &self.camera_group);
         }

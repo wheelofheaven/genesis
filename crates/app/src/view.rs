@@ -12,7 +12,7 @@ use std::{
 };
 use winit::{event::WindowEvent, window::Window};
 mod preparation;
-use preparation::{Pending, Tag};
+use preparation::{Completion, Preparation, Tag};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -31,7 +31,7 @@ pub struct View {
     picker: Option<(u64, terrain::Picker)>,
     last_world_upload: Instant,
     terrain_cache: Option<(u64, Arc<terrain::Cache>)>,
-    scene_pending: Option<Pending>,
+    scene_preparation: Preparation,
     scene_epoch: u64,
     refresh_needed: bool,
     terrain_changed: bool,
@@ -44,6 +44,8 @@ pub struct View {
     ground_batches: [usize; terrain::ground_cover::BATCHES],
     occupied: Vec<egui::Rect>,
     path_tool_active: bool,
+    dwelling_placements: Vec<genesis_renderer::instances::Instance>,
+    dwelling_revision: Option<(u64, usize)>,
 }
 
 impl View {
@@ -71,6 +73,7 @@ impl View {
         // UNORM view; keep the world's lighting and frosting in linear light.
         config.view_formats = vec![config.format.remove_srgb_suffix()];
         let mut gpu = Gpu::new(&adapter).await?;
+        crate::dwelling::load(&mut gpu, None)?;
         surface.configure(&gpu.device, &config);
         let tone_map = genesis_renderer::tonemap::ToneMap::new(
             &gpu,
@@ -107,6 +110,8 @@ impl View {
         let ground_batches = terrain::ground_cover::meshes()
             .map(|mesh| gpu.instances.add_scenery(&gpu.device, &mesh));
         Ok(Self {
+            dwelling_placements: Vec::new(),
+            dwelling_revision: None,
             ground_batches,
             foliage_batches,
             scenery: None,
@@ -116,7 +121,7 @@ impl View {
             path_tool_active: false,
             picker: None,
             terrain_cache: None,
-            scene_pending: None,
+            scene_preparation: Preparation::default(),
             scene_epoch: 0,
             refresh_needed: false,
             terrain_changed: false,
@@ -154,6 +159,22 @@ impl View {
     }
 
     pub fn input(&mut self, event: &WindowEvent, playing: bool) -> bool {
+        if let WindowEvent::KeyboardInput { event, .. } = event
+            && event.state == winit::event::ElementState::Pressed
+            && !event.repeat
+            && event.physical_key
+                == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F6)
+        {
+            let directory =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/models/dwelling");
+            match crate::dwelling::load(&mut self.gpu, Some(&directory)) {
+                Ok(()) => eprintln!("Reloaded dwelling LODs and materials"),
+                Err(error) => {
+                    eprintln!("Dwelling reload rejected; retaining previous asset: {error}")
+                }
+            }
+            return true;
+        }
         // A focused toolbar button must not swallow camera keys or turn Space
         // into an accidental second build. There are no text editors in this HUD.
         if let WindowEvent::KeyboardInput { event, .. } = event
@@ -198,41 +219,29 @@ impl View {
             survey: session.survey,
             epoch: self.scene_epoch,
         };
-        if let Some(pending) = &self.scene_pending {
-            match pending.receiver.try_recv() {
-                Ok(ready) => {
-                    if pending.matches(tag, session.urgent_redraw) {
-                        if let Some(picker) = ready.picker {
-                            self.picker = Some((revision, picker));
-                            self.terrain_changed = true;
-                            self.terrain_prepared = true;
-                        }
-                        self.gpu.world.upload_prepared(
-                            &self.gpu.device,
-                            &self.gpu.queue,
-                            &ready.world,
-                        );
-                        self.terrain_cache = Some((revision, ready.cache));
-                        self.last_world_upload = Instant::now();
-                    } else {
-                        self.refresh_needed = true;
-                    }
-                    self.scene_pending = None;
+        match self.scene_preparation.poll(tag, session.urgent_redraw) {
+            Completion::Ready(ready) => {
+                if let Some(picker) = ready.picker {
+                    self.picker = Some((revision, picker));
+                    self.terrain_changed = true;
+                    self.terrain_prepared = true;
                 }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.scene_pending = None;
-                    self.refresh_needed = true;
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                self.gpu
+                    .world
+                    .upload_prepared(&self.gpu.device, &self.gpu.queue, &ready.world);
+                self.terrain_cache = Some((revision, ready.cache));
+                self.last_world_upload = Instant::now();
             }
+            Completion::Discarded => self.refresh_needed = true,
+            Completion::Waiting => {}
         }
-        if self.scene_pending.is_none()
+        if self.scene_preparation.is_idle()
             && self
                 .terrain_cache
                 .as_ref()
                 .is_some_and(|(_, c)| c.key != key)
         {
-            self.scene_pending = Some(Pending::spawn(session.sim.clone(), tag, None));
+            self.scene_preparation.request(&session.sim, tag, None);
         }
     }
 
@@ -384,11 +393,11 @@ impl View {
                 self.last_world_upload = Instant::now();
                 session.dirty = false;
                 session.urgent_redraw = false;
-            } else if self.scene_pending.is_none()
+            } else if self.scene_preparation.is_idle()
                 && let Some((revision, cache)) = &self.terrain_cache
             {
-                self.scene_pending = Some(Pending::spawn(
-                    session.sim.clone(),
+                self.scene_preparation.request(
+                    &session.sim,
                     Tag {
                         revision: *revision,
                         key: cache.key,
@@ -396,12 +405,29 @@ impl View {
                         epoch: self.scene_epoch,
                     },
                     Some(Arc::clone(cache)),
-                ));
+                );
                 self.last_world_upload = Instant::now();
                 session.dirty = false;
             }
         }
         let aspect = self.config.width as f32 / self.config.height as f32;
+        let revision = (session.terrain_revision, session.sim.buildings.len());
+        if self.dwelling_revision != Some(revision) {
+            self.dwelling_placements = crate::dwelling::placements(&session.sim);
+            self.dwelling_revision = Some(revision);
+        }
+        self.gpu.assets.prepare(
+            &self.gpu.device,
+            &self.gpu.queue,
+            if front.surface_backdrop() && !session.survey.active() {
+                &self.dwelling_placements
+            } else {
+                &[]
+            },
+            camera,
+            aspect,
+            self.config.height,
+        );
         let matrix = camera.view_projection(aspect);
         if front.surface_backdrop() && self.scenery_camera != Some(matrix) {
             if let Some(scenery) = &self.scenery {

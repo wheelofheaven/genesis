@@ -19,8 +19,8 @@ pub fn selection(ui: &mut egui::Ui, session: &Session) {
                 "F focuses this dwelling. G inspects it from the ground.",
             );
         }
-        Object::Path(i) => {
-            if let Some(path) = session.sim.paths.get(i) {
+        Object::Path(id) => {
+            if let Some(path) = session.sim.paths.iter().find(|p| p.id == id) {
                 muted(ui, "Unpaved footpath");
                 ui.separator();
                 ui.label(format!(

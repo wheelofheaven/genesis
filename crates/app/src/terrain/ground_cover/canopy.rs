@@ -98,6 +98,7 @@ mod tests {
         assert_eq!(canopy(&sim).at(center), (0., false));
         sim.buildings.clear();
         sim.paths.push(genesis_sim_core::settlement::Path {
+            id: 0,
             points: vec![Position::new(3., 4.), Position::new(5., 4.)],
             width: metres(1.2),
         });

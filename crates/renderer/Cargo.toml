@@ -9,3 +9,4 @@ wgpu.workspace = true
 glam.workspace = true
 bytemuck.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
+gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names"] }

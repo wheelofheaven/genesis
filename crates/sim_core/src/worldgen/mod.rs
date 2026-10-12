@@ -29,7 +29,7 @@ pub struct Geography {
     #[serde(default)]
     pub climate: crate::ecology::Climate,
     pub rivers: Vec<River>,
-    #[serde(default)]
+    #[serde(skip)]
     pub channels: crate::surface::channels::Index,
     pub cover: Vec<Cover>,
 }

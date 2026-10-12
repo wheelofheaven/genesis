@@ -19,6 +19,8 @@ impl Input {
         matches!(
             code,
             KeyCode::Space
+                | KeyCode::F5
+                | KeyCode::F9
                 | KeyCode::Digit1
                 | KeyCode::Digit2
                 | KeyCode::Digit3
@@ -67,6 +69,13 @@ impl Input {
             return;
         }
         match code {
+            KeyCode::F5 => crate::persistence::quicksave(session),
+            KeyCode::F9 => {
+                if crate::persistence::quickload(session) {
+                    crate::terrain::home_camera(&session.sim, camera);
+                    self.clear();
+                }
+            }
             KeyCode::Space => session.clock.paused = !session.clock.paused,
             KeyCode::Digit1 => session.clock.set_speed(1),
             KeyCode::Digit2 => session.clock.set_speed(4),

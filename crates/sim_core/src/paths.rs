@@ -18,6 +18,7 @@ pub enum PathError {
     Occupied,
     Watercourse,
     Duplicate,
+    IdentityExhausted,
 }
 impl std::fmt::Display for PathError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -30,6 +31,7 @@ impl std::fmt::Display for PathError {
             Self::Occupied => "Route around dwellings and boreholes",
             Self::Watercourse => "A bridge is needed to cross this watercourse",
             Self::Duplicate => "This path already exists",
+            Self::IdentityExhausted => "Footpath identity capacity exhausted",
         })
     }
 }
@@ -124,6 +126,7 @@ pub fn route(waypoints: &[Position], width: f32) -> Result<Path, PathError> {
         controls = next;
     }
     Ok(Path {
+        id: 0,
         points: controls,
         width,
     })
@@ -151,7 +154,11 @@ pub fn samples(path: &Path) -> Vec<Position> {
 /// Preview and committed actions use exactly the same terrain/obstacle checks.
 pub fn validate(sim: &SimState, waypoints: &[Position], width: f32) -> Result<Path, PathError> {
     let path = route(waypoints, width)?;
-    if sim.paths.contains(&path) {
+    if sim
+        .paths
+        .iter()
+        .any(|existing| existing.points == path.points && existing.width == path.width)
+    {
         return Err(PathError::Duplicate);
     }
     let radius = width * 0.5;
@@ -314,7 +321,7 @@ mod tests {
         b.step(0.1, &[action.clone(), action]);
         assert_eq!(a.paths, b.paths);
         assert_eq!(a.paths.len(), 1);
-        assert!(matches!(events[0], SimEvent::PathBuilt { index: 0 }));
+        assert!(matches!(events[0], SimEvent::PathBuilt { id: 1 }));
         assert!(matches!(
             events[1],
             SimEvent::PathRejected {

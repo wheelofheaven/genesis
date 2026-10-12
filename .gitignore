@@ -15,3 +15,6 @@ Cargo.lock
 
 # mise
 .mise.local.toml
+
+# Python asset-authoring helpers
+/scripts/__pycache__/

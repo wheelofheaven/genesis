@@ -1,0 +1,11 @@
+[package]
+name = "genesis-headless"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+genesis-sim-core.workspace = true
+genesis-storage.workspace = true
+serde.workspace = true
+serde_json = "1"

@@ -102,6 +102,7 @@ pub enum WellError {
     NoAquifer,
     Occupied,
     UnknownWell,
+    IdentityExhausted,
 }
 impl std::fmt::Display for WellError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -111,6 +112,7 @@ impl std::fmt::Display for WellError {
             Self::NoAquifer => "No usable aquifer at this location",
             Self::Occupied => "Too close to a dwelling or another borehole",
             Self::UnknownWell => "Borehole not found",
+            Self::IdentityExhausted => "Borehole identity capacity exhausted",
         })
     }
 }
@@ -121,6 +123,8 @@ pub struct Subsurface {
     pub columns: Vec<Column>,
     pub deposits: Vec<Deposit>,
     pub wells: Vec<Well>,
+    #[serde(default)]
+    pub(crate) well_ids: crate::identity::Allocator,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Reading {
@@ -143,6 +147,10 @@ impl Reading {
     }
 }
 impl Subsurface {
+    /// Dimensions of the canonical column field, used for staged save validation.
+    pub(crate) fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             width,
@@ -161,6 +169,7 @@ impl Subsurface {
             ],
             deposits: Vec::new(),
             wells: Vec::new(),
+            well_ids: crate::identity::Allocator::new(),
         }
     }
     /// Deterministic synthetic formations initialized after the terrain fixture.
@@ -259,6 +268,18 @@ impl Subsurface {
         ]
         .map(|(x, z, w)| ((z * self.width + x) as usize, w))
     }
+    /// Dominant column's rock, without interpolating aquifer quantities.
+    /// Uses the same clamped footprint and last-equal-weight tie as `reading`.
+    pub fn rock_at(&self, p: Position) -> Rock {
+        self.rock_from_taps(&self.taps(p))
+    }
+    fn rock_from_taps(&self, taps: &[(usize, f32); 4]) -> Rock {
+        let nearest = taps
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map_or(0, |t| t.0);
+        self.columns[nearest].rock
+    }
     pub fn reading(&self, p: Position) -> Reading {
         let taps = self.taps(p);
         let sample = |f: fn(&Column) -> f32| {
@@ -266,16 +287,12 @@ impl Subsurface {
                 .map(|(i, w)| f(&self.columns[*i]) * w)
                 .sum::<f32>()
         };
-        let nearest = taps
-            .iter()
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .map_or(0, |t| t.0);
         let top = sample(|c| c.aquifer_top);
         let base = sample(|c| c.aquifer_base);
         let capacity = sample(|c| c.capacity);
         let stored = sample(|c| c.stored);
         Reading {
-            rock: self.columns[nearest].rock,
+            rock: self.rock_from_taps(&taps),
             top,
             base,
             water_level: base + (top - base) * if capacity > 0. { stored / capacity } else { 0. },
@@ -317,8 +334,11 @@ impl Subsurface {
         Ok(())
     }
     /// Caller validates with validate_well in the action handler.
-    pub(crate) fn drill(&mut self, p: Position) -> u64 {
-        let id = self.wells.len() as u64 + 1;
+    pub(crate) fn drill(&mut self, p: Position) -> Result<u64, WellError> {
+        let id = self
+            .well_ids
+            .allocate()
+            .ok_or(WellError::IdentityExhausted)?;
         self.wells.push(Well {
             id,
             position: p,
@@ -326,7 +346,7 @@ impl Subsurface {
             recovered: 0.,
             last_yield: 0.,
         });
-        id
+        Ok(id)
     }
     /// Fixed-order conservative withdrawals from the sampled column footprint.
     fn withdraw(&mut self, p: Position, amount: f32) -> f32 {
@@ -350,6 +370,10 @@ impl Subsurface {
                 c.stored = (c.stored + recharge).min(c.capacity);
             }
         }
+        // Stable arbitration when wells share scarce water, even after repacking.
+        if !self.wells.is_sorted_by_key(|w| w.id) {
+            self.wells.sort_unstable_by_key(|w| w.id);
+        }
         for i in 0..self.wells.len() {
             let p = self.wells[i].position;
             let rate = if self.wells[i].active && spatial::elevation(grid, p) > sea + 0.08 {
@@ -367,6 +391,36 @@ impl Subsurface {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rock_query_preserves_clamped_edges_and_weight_ties() {
+        use super::{Rock, Subsurface};
+        use crate::spatial::Position;
+        let mut field = Subsurface::new(2, 2);
+        for (column, rock) in field.columns.iter_mut().zip([
+            Rock::Basalt,
+            Rock::Sandstone,
+            Rock::Sandstone,
+            Rock::Limestone,
+        ]) {
+            column.rock = rock;
+        }
+        for (x, z, expected) in [
+            (-5., -3., Rock::Basalt),
+            (0.49, 0.49, Rock::Basalt),
+            (0.5, 0., Rock::Sandstone),
+            (0., 0.5, Rock::Sandstone),
+            (0.5, 0.5, Rock::Limestone),
+            (0.49, 0.5, Rock::Sandstone),
+            (0.5, 0.49, Rock::Sandstone),
+            (1., -2., Rock::Sandstone),
+            (-2., 1., Rock::Sandstone),
+            (8., 9., Rock::Limestone),
+        ] {
+            let p = Position::new(x, z);
+            assert_eq!(field.rock_at(p), expected, "{p:?}");
+            assert_eq!(field.reading(p).rock, expected, "{p:?}");
+        }
+    }
     use super::*;
     use crate::{actions::Action, events::SimEvent, scenarios};
     #[test]

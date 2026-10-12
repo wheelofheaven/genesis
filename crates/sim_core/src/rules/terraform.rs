@@ -3,26 +3,66 @@ use crate::{
     units::{MAX_ELEVATION, MIN_ELEVATION},
 };
 
-/// Apply a terraform action: modify elevation within a radius.
-/// Positive strength raises land, negative lowers it.
-pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength: f32) {
-    if !strength.is_finite() {
-        return;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// A rejected brush request has no elevation effects. Normal tick systems still run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerraformError {
+    NonFiniteStrength,
+    OutsideMap,
+    EmptyGrid,
+}
+
+impl std::fmt::Display for TerraformError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NonFiniteStrength => "Terrain strength must be finite",
+            Self::OutsideMap => "Choose ground inside the region",
+            Self::EmptyGrid => "Terrain has no environmental samples",
+        })
     }
-    let cx = if grid.boundary == Boundary::Wrap {
-        cx.rem_euclid(grid.width as i32)
-    } else {
-        cx
+}
+
+/// Legacy setup helper. Live actions use the fallible operation and emit outcomes.
+pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength: f32) {
+    let _ = try_apply_terraform(grid, cx, cy, radius, strength);
+}
+
+/// Validate and stage one brush, then commit its complete elevation patch.
+/// Returns the number of distinct samples whose final elevation changed.
+/// There is no externally held plan that can be applied to a newer world.
+/// Water depth/climate/life are updated by the existing later tick stages.
+pub fn try_apply_terraform(
+    grid: &mut Grid,
+    cx: i32,
+    cy: i32,
+    radius: u32,
+    strength: f32,
+) -> Result<usize, TerraformError> {
+    if !strength.is_finite() {
+        return Err(TerraformError::NonFiniteStrength);
+    }
+    let (w, h) = (i64::from(grid.width), i64::from(grid.height));
+    if w == 0 || h == 0 {
+        return Err(TerraformError::EmptyGrid);
+    }
+    // Widen before adding offsets: even extreme external coordinates are safe.
+    let (cx, cy) = match grid.boundary {
+        Boundary::Wrap => (i64::from(cx).rem_euclid(w), i64::from(cy).rem_euclid(h)),
+        Boundary::Clamp => (i64::from(cx), i64::from(cy)),
     };
-    let cy = if grid.boundary == Boundary::Wrap {
-        cy.rem_euclid(grid.height as i32)
-    } else {
-        cy
-    };
-    let r = radius.min(grid.width.max(grid.height)) as i32;
+    let r = i64::from(radius.min(grid.width.max(grid.height)));
+    if grid.boundary == Boundary::Clamp && (cx + r < 0 || cy + r < 0 || cx - r >= w || cy - r >= h)
+    {
+        return Err(TerraformError::OutsideMap);
+    }
+    let mut patch = BTreeMap::new();
+    let mut intersects = false;
     for dy in -r..=r {
         for dx in -r..=r {
-            if grid.boundary == Boundary::Clamp && !grid.contains(cx + dx, cy + dy) {
+            let (x, y) = (cx + dx, cy + dy);
+            if grid.boundary == Boundary::Clamp && (x < 0 || y < 0 || x >= w || y >= h) {
                 continue;
             }
             let dist_sq = (dx * dx + dy * dy) as f32;
@@ -30,17 +70,34 @@ pub fn apply_terraform(grid: &mut Grid, cx: i32, cy: i32, radius: u32, strength:
             if dist_sq > radius_sq {
                 continue;
             }
-            // Falloff: stronger at center, weaker at edges.
+            intersects = true;
             let falloff = if r == 0 {
                 1.0
             } else {
                 1.0 - (dist_sq / radius_sq).sqrt()
             };
-            let cell = grid.get_mut(cx + dx, cy + dy);
-            cell.elevation =
-                (cell.elevation + strength * falloff).clamp(MIN_ELEVATION, MAX_ELEVATION);
+            let index = (y.rem_euclid(h) * w + x.rem_euclid(w)) as usize;
+            // Wrapped brushes may visit one sample repeatedly. Preserve the
+            // original stencil order and per-visit clamping, staging each result.
+            let old = patch
+                .get(&index)
+                .copied()
+                .unwrap_or(grid.cells()[index].elevation);
+            let new = (old + strength * falloff).clamp(MIN_ELEVATION, MAX_ELEVATION);
+            if new.to_bits() != old.to_bits() {
+                patch.insert(index, new);
+            }
         }
     }
+    if !intersects {
+        return Err(TerraformError::OutsideMap);
+    }
+    patch.retain(|&index, value| value.to_bits() != grid.cells()[index].elevation.to_bits());
+    let changed = patch.len();
+    for (index, elevation) in patch {
+        grid.cells_mut()[index].elevation = elevation;
+    }
+    Ok(changed)
 }
 
 /// Recompute water depth for all cells given the current sea level.
@@ -51,43 +108,4 @@ pub fn update_water_depth(grid: &mut Grid, sea_level: f32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn brush_stays_finite_and_bounded_even_for_zero_radius() {
-        let mut grid = Grid::new(8, 8);
-        apply_terraform(&mut grid, 3, 3, 0, 2.);
-        assert_eq!(grid.get(3, 3).elevation, 1.);
-        for strength in [f32::NAN, f32::INFINITY, f32::MAX, -f32::MAX] {
-            apply_terraform(&mut grid, 3, 3, 2, strength);
-            assert!(grid.cells().iter().all(|c| c.elevation.is_finite()
-                && (MIN_ELEVATION..=MAX_ELEVATION).contains(&c.elevation)));
-        }
-    }
-
-    #[test]
-    fn test_terraform_raises_center() {
-        let mut grid = Grid::new(16, 16);
-        let before = grid.get(8, 8).elevation;
-        apply_terraform(&mut grid, 8, 8, 2, 1.0);
-        assert!(grid.get(8, 8).elevation > before);
-    }
-
-    #[test]
-    fn test_terraform_falloff() {
-        let mut grid = Grid::new(16, 16);
-        apply_terraform(&mut grid, 8, 8, 3, 1.0);
-        let center = grid.get(8, 8).elevation;
-        let edge = grid.get(8 + 2, 8).elevation;
-        assert!(center > edge, "Center should be higher than edge");
-    }
-
-    #[test]
-    fn test_water_depth_clamped() {
-        let mut grid = Grid::new(4, 4);
-        grid.get_mut(0, 0).elevation = 5.0; // Well above sea level
-        update_water_depth(&mut grid, 0.0);
-        assert_eq!(grid.get(0, 0).water_depth, 0.0);
-    }
-}
+mod tests;

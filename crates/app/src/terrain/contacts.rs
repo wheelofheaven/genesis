@@ -1,5 +1,5 @@
 //! Cosmetic ground occlusion from the same exposed scenery used by the renderer.
-use genesis_renderer::contact::{EXTENT_METRES, Field, Footprint};
+use genesis_renderer::contact::{EXTENT_METRES, Field, Footprint, Wall};
 use genesis_sim_core::{SimState, ecology::CoverKind, units::metres, worldgen::noise::unit};
 use glam::{Vec2, Vec3};
 
@@ -46,7 +46,30 @@ pub(super) fn build(sim: &SimState, eye: Vec3) -> Field {
             });
         }
     }
-    Field::bake(center, footprints)
+    let mut walls = Vec::new();
+    for building in &sim.buildings {
+        let p = super::point(sim, building.position);
+        if p.y < sim.sea_level
+            || (Vec2::new(p.x, p.z) * 20. - center).abs().max_element() > EXTENT_METRES * 0.5 + 8.
+        {
+            continue;
+        }
+        let corners = building.footprint().map(|p| {
+            Vec2::new(
+                p.x - sim.grid.width as f32 * 0.5,
+                p.z - sim.grid.height as f32 * 0.5,
+            ) * 20.
+        });
+        for i in 0..4 {
+            walls.push(Wall {
+                a: corners[i],
+                b: corners[(i + 1) % 4],
+                reach: 0.7,
+                strength: 0.32,
+            });
+        }
+    }
+    Field::bake_with_walls(center, footprints, walls)
 }
 
 #[cfg(test)]
@@ -58,6 +81,30 @@ mod tests {
         spatial::Position,
         worldgen::Cover,
     };
+
+    #[test]
+    fn dwelling_contact_tracks_rotated_footprint_and_removal() {
+        let mut sim = SimState::new(SimConfig {
+            width: 8,
+            height: 8,
+            ..Default::default()
+        });
+        for cell in sim.grid.cells_mut() {
+            cell.elevation = 2.;
+        }
+        let b = Building {
+            id: 1,
+            position: Position::new(4., 4.),
+            rotation: 0.6,
+        };
+        let (s, c) = b.rotation.sin_cos();
+        let wall = Vec2::new(c, s) * 3.25;
+        sim.buildings.push(b);
+        assert!(build(&sim, Vec3::ZERO).at(wall) > 0);
+        assert_eq!(build(&sim, Vec3::ZERO).at(Vec2::ZERO), 0);
+        sim.buildings.clear();
+        assert_eq!(build(&sim, Vec3::ZERO).at(wall), 0);
+    }
 
     #[test]
     fn ground_contact_disappears_with_hidden_removed_or_submerged_scenery() {
@@ -90,6 +137,7 @@ mod tests {
         assert_eq!(contact(&sim), 0);
         sim.buildings.clear();
         sim.paths.push(Path {
+            id: 0,
             points: vec![Position::new(3., 4.), Position::new(5., 4.)],
             width: metres(1.2),
         });

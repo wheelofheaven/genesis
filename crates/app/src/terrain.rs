@@ -8,6 +8,8 @@ use glam::Vec3;
 mod contacts;
 pub mod ground_cover;
 pub mod lod;
+#[cfg(test)]
+mod query_tests;
 
 #[cfg(test)]
 pub(crate) fn detail(sim: &SimState) -> u32 {
@@ -55,7 +57,7 @@ pub(crate) fn colored_vertex(
     let inland = ((v.y - sim.sea_level - 0.07) / 0.6).clamp(0., 1.);
     let sand = Vec3::new(0.55, 0.48, 0.34);
     let slope = (1. - normal.y).clamp(0., 1.);
-    let stone = match sim.subsurface.reading(p).rock {
+    let stone = match sim.subsurface.rock_at(p) {
         genesis_sim_core::subsurface::Rock::Limestone => Vec3::new(0.53, 0.49, 0.39),
         genesis_sim_core::subsurface::Rock::Sandstone => Vec3::new(0.48, 0.33, 0.21),
         genesis_sim_core::subsurface::Rock::Basalt => Vec3::new(0.22, 0.23, 0.21),
@@ -147,7 +149,16 @@ impl Cache {
         Self::at(sim, lod::Key::at(camera.eye()))
     }
     pub fn at(sim: &SimState, key: lod::Key) -> Self {
+        Self::at_profiled(sim, key, |_| {})
+    }
+    /// Observe completed CPU stages; timing never participates in cache choices.
+    pub(crate) fn at_profiled(
+        sim: &SimState,
+        key: lod::Key,
+        mut completed: impl FnMut(&'static str),
+    ) -> Self {
         let (points, indices, patches) = lod::topology(sim, key);
+        completed("topology");
         let height = |p: Position| {
             let simplify = lod::channel_simplification(sim, key.eye(), p);
             if simplify == 0. || sim.geography.version == 0 {
@@ -181,12 +192,19 @@ impl Cache {
                 )
             })
             .collect();
+        completed("samples");
+        let ground_cover = ground_cover::placements(sim, key.eye());
+        completed("ground_cover");
+        let contacts = contacts::build(sim, key.eye());
+        completed("contacts");
+        let context = crate::horizon::Cache::new(sim);
+        completed("horizon");
         let mut cache = Self {
             patches,
             rivers: Vec::new(),
-            ground_cover: ground_cover::placements(sim, key.eye()),
-            contacts: contacts::build(sim, key.eye()),
-            context: crate::horizon::Cache::new(sim),
+            ground_cover,
+            contacts,
+            context,
             samples,
             indices,
             key,
@@ -194,6 +212,7 @@ impl Cache {
         let mut rivers = Vec::new();
         crate::water::rivers(sim, &cache, &mut rivers);
         cache.rivers = rivers;
+        completed("rivers");
         cache
     }
     fn patch(&self, p: Position) -> Option<(u32, &std::ops::Range<usize>)> {
@@ -209,7 +228,7 @@ impl Cache {
         self.patch(p).map_or(1, |(s, _)| 32 / s)
     }
     /// Nearby visible triangles for small conforming surface decals. Query the
-    /// finest lattice, deduplicate adaptive patches, then visit their triangles.
+    /// adaptive patches, then visit their triangles in stable receiver order.
     pub(crate) fn triangles_in(
         &self,
         min: Position,
@@ -226,15 +245,40 @@ impl Cache {
         mut visit: impl FnMut(usize, [Vec3; 3]),
     ) {
         let mut ranges = std::collections::BTreeMap::new();
-        for z in (min.z * 32.).floor() as i32..=(max.z * 32.).floor() as i32 {
-            for x in (min.x * 32.).floor() as i32..=(max.x * 32.).floor() as i32 {
-                if let Some((_, range)) = self.patch(Position::new(
+        let min_x = (min.x * 32.).floor() as i32;
+        let min_z = (min.z * 32.).floor() as i32;
+        let max_x = (max.x * 32.).floor() as i32;
+        let max_z = (max.z * 32.).floor() as i32;
+        if min_x > max_x || min_z > max_z {
+            return;
+        }
+        // patch() clamps negative lattice coordinates to the edge. Keep that
+        // behavior, including entirely negative rectangles, without revisiting
+        // the edge for every negative cell. i64 leaves room for the exclusive end.
+        let start_x = i64::from(min_x.max(0));
+        let end_x = i64::from(max_x.max(0)) + 1;
+        let end_z = i64::from(max_z.max(0)) + 1;
+        let mut z = i64::from(min_z.max(0));
+        while z < end_z {
+            let mut x = start_x;
+            let mut next_z = end_z;
+            while x < end_x {
+                if let Some((size, range)) = self.patch(Position::new(
                     (x as f32 + 0.5) / 32.,
                     (z as f32 + 0.5) / 32.,
                 )) {
                     ranges.insert(range.start, range.end);
+                    let size = i64::from(size);
+                    x = (x / size + 1) * size;
+                    // Every patch on this row remains unchanged until its far
+                    // edge. The earliest edge is the next row needing a query.
+                    next_z = next_z.min((z / size + 1) * size);
+                } else {
+                    x += 1;
+                    next_z = z + 1;
                 }
             }
+            z = next_z;
         }
         for (start, end) in ranges {
             for id in start..end {

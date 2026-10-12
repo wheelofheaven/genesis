@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "rules": "genesis:rules/1",
+  "content": "genesis:builtin/1",
+  "world_id": "fixture-v1",
+  "completed_ticks": 0,
+  "pending": [{"BuildOutpost":{"x":0,"y":0}}],
+  "state": {
+    "grid": {"width":1,"height":1,"boundary":"Wrap","cells":[
+      {"rainfall":0.0,"drainage":0.0,"elevation":-1.0,"water_depth":1.0,"temp":0.5,"moisture":0.5,"fertility":0.0,"toxicity":0.0,"biome":"Ocean","fungus":0.0,"plants":0.0}
+    ]},
+    "config":{"width":1,"height":1,"sea_level":0.0,"seed":42,"tick_dt":1.0},
+    "sea_level":0.0,"time":0.0,"stability_score":0.0,
+    "outposts":[],"research_points":0.0,"buildings":[],"paths":[],
+    "subsurface":{"width":1,"height":1,"columns":[
+      {"rock":"Basalt","aquifer_top":-3.0,"aquifer_base":-10.0,"capacity":0.0,"stored":0.0,"recharge":0.0,"permeability":0.0}
+    ],"deposits":[],"wells":[]},
+    "geography":{"version":0,"region":"Island","climate":{"sea_level_temperature":18.0,"moisture_scale":1.08,"summer_drought":0.7},"rivers":[],"cover":[]}
+  }
+}

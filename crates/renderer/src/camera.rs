@@ -63,6 +63,11 @@ impl Camera {
             Self::FIELD_OF_VIEW
         }
     }
+    /// Conservative projected diameter of a sphere, in physical pixels.
+    pub fn projected_diameter(&self, center: Vec3, radius: f32, height: u32) -> f32 {
+        let depth = (self.eye() - center).dot(self.direction());
+        radius * height as f32 / ((depth - radius).max(0.001) * (self.field_of_view() * 0.5).tan())
+    }
     pub fn view_projection(&self, aspect: f32) -> Mat4 {
         let distance = self.distance();
         // Reversed floating-point depth retains thin surface details across

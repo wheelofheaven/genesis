@@ -173,7 +173,7 @@ mod tests {
         s.step_once();
         assert_eq!(s.sim.paths.len(), 1);
         assert!(s.path.points.is_empty());
-        assert_eq!(s.selected_object, Some(crate::interaction::Object::Path(0)));
+        assert_eq!(s.selected_object, Some(crate::interaction::Object::Path(1)));
         s.step_once();
         assert_eq!(s.sim.paths.len(), 1);
         s.set_hover(Some(Position::new(7., 7.)));

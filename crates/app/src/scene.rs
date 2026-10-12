@@ -75,7 +75,11 @@ pub fn mesh(
         );
     }
     for b in &sim.buildings {
-        house(sim, &mut out, b);
+        if layers.active() {
+            house(sim, &mut out, b);
+        } else {
+            buildings::support(sim, &mut out, b);
+        }
         if let Some(points) = paths::entrance(sim, b) {
             paths::surface(
                 sim,
