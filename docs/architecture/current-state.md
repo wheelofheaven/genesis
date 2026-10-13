@@ -337,3 +337,34 @@ This slice is implemented and measured in the scoped-refresh entry of
 regional/inspection CPU preparation improve, while the topology-changing management
 case retains full reconstruction. See [the comparison](terrain-edit-performance.md)
 for raw timings, fallback cost, memory tradeoffs and next steps.
+
+## Changed-LOD neighborhood audit — 13 October 2026
+
+Starting from clean `579c016`, the previous local-refresh benchmark identifies
+management-view fallback when an edited root changes its dyadic splits. Inspected
+`terrain/lod.rs`, `terrain/refresh.rs`, `terrain.rs`, receiver queries and
+`water/sheet.rs`: split choice depends on each root's own elevation and camera;
+triangulation depends on leaf corner membership, including neighboring roots.
+Triangulation does not insert new corners into that membership set, so seam
+invalidation needs one root halo, not recursive world-wide propagation.
+
+Adopted slice: retain ordered leaves, replace changed root splits, triangulate the
+changed roots and one-root seam neighborhood using corners from a second ring,
+and compact/remap the flat vertex/index storage in original triangle order.
+Reuse unaffected sample geometry and picker buckets. The existing wider geometry
+halo covers seam changes and continues to govern water invalidation. Camera/world
+changes retain full reconstruction. Receiver order must remain identical because
+water unions and interpolated shading depend on that order.
+
+Acceptance: exact ordered triangles, water/scene vertices and picking against full
+reconstruction after refinement and coarsening, boundaries, adjacent edits and
+repeated edits; no orphan accumulation; current CI/native paths; comparable
+before/after measurements. No rules, save/content formats or dependencies change.
+The flat assembly scan remains global and will be reported rather than described
+as a fully local pipeline.
+
+Implemented result: management-view preparation now uses local seam reconstruction,
+with exact full-reference output and 35.4% lower measured median CPU preparation.
+See [the checkpoint log](refactor-log.md) and [timings/memory limits](terrain-edit-performance.md).
+The retained ordered leaves cost additional memory, while flat buffer assembly and
+other extraction stages remain global. Saves and simulation behavior are unchanged.

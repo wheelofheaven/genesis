@@ -723,6 +723,9 @@ fn main() -> Result<()> {
         app.session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
     }
     crate::terrain::home_camera(&app.session.sim, &mut app.camera);
+    if app.world_smoke {
+        world_smoke::configure_camera(&app.session, &mut app.camera)?;
+    }
     if args
         .first()
         .is_some_and(|flag| flag == "--settlement-capture" || flag == "--landscape-capture")

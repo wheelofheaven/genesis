@@ -132,7 +132,9 @@ pub fn triangles(sim: &SimState, mut visit: impl FnMut([Position; 3])) {
     }
 }
 
-fn sample_geometry(sim: &SimState, key: lod::Key, p: Position) -> (Position, Vec3, Vec3, f32) {
+type Sample = (Position, Vec3, Vec3, f32);
+
+fn sample_geometry(sim: &SimState, key: lod::Key, p: Position) -> Sample {
     let height = |p: Position| {
         let simplify = lod::channel_simplification(sim, key.eye(), p);
         if simplify == 0. || sim.geography.version == 0 {
@@ -164,9 +166,10 @@ fn sample_geometry(sim: &SimState, key: lod::Key, p: Position) -> (Position, Vec
 /// Geometry and baked normals survive ecological ticks and water animation.
 pub struct Cache {
     context: crate::horizon::Cache,
-    samples: Vec<(Position, Vec3, Vec3, f32)>,
+    samples: Vec<Sample>,
     indices: Arc<Vec<[usize; 3]>>,
     elevations: Vec<f32>,
+    leaves: Arc<Vec<lod::Leaf>>,
     pub key: lod::Key,
     patches: Arc<lod::Patches>,
     pub rivers: Arc<Vec<Vertex>>,
@@ -174,6 +177,10 @@ pub struct Cache {
     pub contacts: genesis_renderer::contact::Field,
 }
 impl Cache {
+    /// Retained ordered-leaf allocation, excluding shared topology and samples.
+    pub(crate) fn lod_storage_bytes(&self) -> usize {
+        self.leaves.capacity() * std::mem::size_of::<lod::Leaf>()
+    }
     #[cfg(test)]
     pub fn new(sim: &SimState) -> Self {
         let mut camera = genesis_renderer::camera::Camera::default();
@@ -189,7 +196,12 @@ impl Cache {
         key: lod::Key,
         mut completed: impl FnMut(&'static str),
     ) -> Self {
-        let (points, indices, patches) = lod::topology(sim, key);
+        let lod::Topology {
+            points,
+            triangles: indices,
+            patches,
+            leaves,
+        } = lod::topology(sim, key);
         completed("topology");
         let samples = points
             .into_iter()
@@ -204,6 +216,7 @@ impl Cache {
         completed("horizon");
         let mut cache = Self {
             patches: Arc::new(patches),
+            leaves: Arc::new(leaves),
             elevations: sim.grid.cells().iter().map(|c| c.elevation).collect(),
             rivers: Arc::new(Vec::new()),
             ground_cover,

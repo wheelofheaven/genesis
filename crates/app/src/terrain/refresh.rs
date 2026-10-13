@@ -1,5 +1,6 @@
 //! Local geometry refresh for a complete terrain-only revision range.
-//! Topology changes retain the full-build fallback so seams never lag the edit.
+//! Changed LOD roots rebuild their shared seams before publication.
+mod topology;
 use super::*;
 use genesis_sim_core::grid::{Boundary, SampleBounds};
 
@@ -60,34 +61,46 @@ impl Affected {
 
 impl Cache {
     /// The caller must establish a same-world, terrain-only revision chain.
-    /// New camera keys or altered root splits reconstruct the full reference.
+    /// New camera keys reconstruct the full reference; changed splits rebuild locally.
     pub(crate) fn refresh(
         &self,
         sim: &SimState,
         key: lod::Key,
         bounds: SampleBounds,
     ) -> (Self, Option<Affected>) {
-        if key != self.key || !lod::same_splits(sim, key, &self.elevations, bounds) {
+        if key != self.key || self.elevations.len() != sim.grid.cells().len() {
             return (Self::at(sim, key), None);
         }
         let affected = Affected::new(sim, bounds);
+        let changed = lod::changed_splits(sim, key, &self.elevations, bounds);
+        let geometry = if changed.is_empty() {
+            topology::Geometry {
+                samples: self
+                    .samples
+                    .iter()
+                    .map(|&sample| {
+                        if affected.contains(sample.0) {
+                            sample_geometry(sim, key, sample.0)
+                        } else {
+                            sample
+                        }
+                    })
+                    .collect(),
+                indices: Arc::clone(&self.indices),
+                patches: Arc::clone(&self.patches),
+                leaves: Arc::clone(&self.leaves),
+            }
+        } else {
+            topology::rebuild(self, sim, affected, changed)
+        };
         let mut cache = Self {
             context: crate::horizon::Cache::new(sim),
-            samples: self
-                .samples
-                .iter()
-                .map(|&sample| {
-                    if affected.contains(sample.0) {
-                        sample_geometry(sim, key, sample.0)
-                    } else {
-                        sample
-                    }
-                })
-                .collect(),
-            indices: Arc::clone(&self.indices),
+            samples: geometry.samples,
+            indices: geometry.indices,
+            patches: geometry.patches,
+            leaves: geometry.leaves,
             elevations: sim.grid.cells().iter().map(|c| c.elevation).collect(),
             key,
-            patches: Arc::clone(&self.patches),
             rivers: Arc::clone(&self.rivers),
             // Density/tint and exposed scenery can change with the ordinary tick.
             ground_cover: ground_cover::placements(sim, key.eye()),

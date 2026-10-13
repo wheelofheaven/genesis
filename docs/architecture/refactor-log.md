@@ -604,3 +604,69 @@ and is built/tested by the workspace checks. No FPS claim: synchronous edit
 preparation still exceeds a frame budget. Next handle the changed LOD-root seam
 neighborhood locally, then target remaining horizon/color and extraction costs
 with matching full-reference checks.
+
+## Local terrain LOD transitions — 13 October 2026
+
+Starting checkpoint: clean `579c016` on `main`. Read workspace/local instructions,
+`.claude/CLAUDE.md`, accepted engine/vision documents and the previous measurement
+record. The source audit in `current-state.md` identifies the one-root seam
+dependency in `terrain/lod.rs`; `water/sheet.rs` depends on ordered receivers.
+
+`terrain/refresh/topology.rs` now reconstructs changed LOD roots plus their seam
+neighbors and compacts flat storage while preserving ordered triangles. `Cache`
+retains ordered leaves; `lod.rs` shares its existing triangulation routine between
+full and scoped construction. Outside that neighborhood, triangle connectivity
+and surface samples are reused. Existing water and picker invalidation halos cover
+the new seams, and revision/epoch publication guards remain intact. Camera/world
+changes retain full reconstruction. No simulation code or GPU pipeline changed.
+
+The benchmark now records retained leaf allocation bytes. The native world script
+starts at the same management camera and applies the same 0.4-strength edit before
+world replacement, exercising the previously falling-back path. No intentional
+playable behavior changes; the altered camera/edit strength apply only to this
+scripted diagnostic.
+
+The before/after comparison reduces management-view total median CPU preparation
+from 433.081 to 279.629 ms (35.4%), and p95 from 470.349 to 299.686 ms (36.3%).
+All three benchmark views now refresh locally, preserving the original full mesh
+fingerprints and predicted uploads. Regional/inspection changes are recorded but
+not attributed to this algorithm because their split layouts already stayed fixed.
+Raw reports, exact commands and limitations are in
+[terrain-edit-performance.md](terrain-edit-performance.md).
+
+Retained leaf allocations add about 1.5–6 MiB per measured cache. Global remapping,
+horizon rebuild, scene extraction and partitioning remain; the result is not yet
+frame-budget terrain editing. Repeated refinement/coarsening tests compare live
+sample counts and ordered geometry with a fresh full cache to prevent abandoned
+vertex accumulation. Vertex storage indices are disposable and may be repacked;
+receiver triangle ordering is preserved.
+
+Validation:
+
+- Baseline `mise run ci`: 184 tests/doctests pass. Final `mise run ci`: 185 pass,
+  14 optional app tests ignored; formatting and warning-free Clippy pass.
+  `mise run build` passes.
+- Full-reference tests cover terrain samples, ordered receiver triangles, scene/
+  water vertices, ground cover, picker buckets/rays, camera fallback, map edges,
+  repeated refinement/coarsening, and changed seams in unedited neighboring roots.
+- Both 66-trial benchmarks exit 0; the after run also checks fresh full extraction
+  and oblique picking in all three views outside timings.
+- `target/debug/genesis-app --world-test /private/tmp/genesis-lod-world.png`:
+  exit 0 on Apple M4/Metal; management-view edit, replacement, drilling and surveys.
+  The edited management capture was visually inspected.
+- `target/debug/genesis-app --interaction-test /private/tmp/genesis-lod-interaction.png`:
+  exit 0; selection, previews, construction and path picking. Capture inspected.
+
+- `target/debug/genesis-app --save-test /private/tmp/genesis-lod-save.png`:
+  exit 0 on Apple M4/Metal; pending drilling survives save/load and exact
+  continuation, placement and resize/suspend checks pass. Capture inspected;
+  the user quicksave slot is untouched.
+- `git diff --check` passes. Logs/captures stay under `/private/tmp/genesis-lod-*`;
+  only code, documentation and raw benchmark reports enter this checkpoint.
+
+No save/event/command schema, content, domain rule or dependency changes. The
+workspace continues to build/test its independent headless simulation. Native
+macOS is verified; other hosts and device-loss recovery remain unverified. Next
+small renderer slice: retain unchanged horizon geometry while refreshing its
+palette, with before/after evidence and full-reference output checks. The living
+settlement remains the next separate product feature.

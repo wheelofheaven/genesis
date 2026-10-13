@@ -76,8 +76,20 @@ fn vertices(a: &[Vertex], b: &[Vertex]) {
 
 fn equivalent(sim: &SimState, cache: &Cache, picker: &Picker) {
     let full = Cache::at(sim, cache.key);
-    assert_eq!(cache.samples, full.samples);
-    assert_eq!(cache.indices, full.indices);
+    // Vertex storage can be compacted differently; every canonical sample and
+    // ordered receiver triangle must still be exactly the full-build result.
+    let samples = |c: &Cache| {
+        c.samples
+            .iter()
+            .map(|&s| ((s.0.x.to_bits(), s.0.z.to_bits()), s))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    assert_eq!(cache.samples.len(), full.samples.len(), "no orphan samples");
+    assert_eq!(samples(cache), samples(&full));
+    assert_eq!(cache.indices.len(), full.indices.len());
+    for (a, b) in cache.indices.iter().zip(full.indices.iter()) {
+        assert_eq!(a.map(|i| cache.samples[i]), b.map(|i| full.samples[i]));
+    }
     assert_eq!(cache.patches, full.patches);
     vertices(&cache.rivers, &full.rivers);
     for survey in [
@@ -154,17 +166,19 @@ fn local_edits_match_full_geometry_water_colors_and_picking() {
 }
 
 #[test]
-fn camera_and_changed_lod_splits_fall_back_to_full_build() {
+fn changed_lod_splits_refresh_locally_and_camera_changes_rebuild() {
     let mut sim = fixture(Boundary::Clamp);
     let key = lod::Key::at(Vec3::new(0., 2.1, 0.));
     let cache = Cache::at(&sim, key);
     let bounds = edit(&mut sim, 32, 24, 50.);
     let (next, affected) = cache.refresh(&sim, key, bounds);
+    assert!(affected.is_some());
     assert!(
-        affected.is_none(),
-        "large elevation change changes root LOD"
+        !Arc::ptr_eq(&cache.indices, &next.indices),
+        "changed topology rebuilt"
     );
-    equivalent(&sim, &next, &Picker::from_cache(&sim, &next));
+    let picker = Picker::from_cache(&fixture(Boundary::Clamp), &cache);
+    equivalent(&sim, &next, &picker.refresh(&sim, &next, affected.unwrap()));
     let (moved, affected) = next.refresh(&sim, lod::Key::at(Vec3::new(0., 100., 0.)), bounds);
     assert!(affected.is_none());
     equivalent(&sim, &moved, &Picker::from_cache(&sim, &moved));
@@ -182,5 +196,56 @@ fn close_detail_and_legacy_geometry_keep_exact_surface_samples() {
         let (next, affected) = cache.refresh(&sim, key, bounds);
         let affected = affected.expect("small change retains nearby topology");
         equivalent(&sim, &next, &picker.refresh(&sim, &next, affected));
+    }
+}
+
+#[test]
+fn repeated_refinement_and_coarsening_preserve_seams_water_and_bounded_storage() {
+    for (boundary, x, z) in [
+        (Boundary::Clamp, 24, 8),
+        (Boundary::Wrap, 1, 1),
+        (Boundary::Clamp, 32, 24),
+    ] {
+        let mut sim = fixture(boundary);
+        // Start coarse and lower a local patch toward the camera so new edge
+        // vertices force unchanged neighboring roots to retriangulate too.
+        for cell in sim.grid.cells_mut() {
+            cell.elevation += 50.;
+        }
+        let key = lod::Key::at(Vec3::new(x as f32 - 32., 2.1, z as f32 - 24.));
+        let mut cache = Cache::at(&sim, key);
+        let mut picker = Picker::from_cache(&sim, &cache);
+        let initial_samples = cache.samples.len();
+        let mut saw_seam_change = false;
+        for strength in [-50., 50., -50., 50.] {
+            let bounds = edit(&mut sim, x, z, strength);
+            let changed = lod::changed_splits(&sim, key, &cache.elevations, bounds);
+            assert!(!changed.is_empty());
+            let (next, affected) = cache.refresh(&sim, key, bounds);
+            for (leaf, range) in next.patches.iter() {
+                if !changed.contains_key(&(leaf.0 / 32, leaf.1 / 32))
+                    && cache
+                        .patches
+                        .get(leaf)
+                        .is_some_and(|old| old.len() != range.len())
+                {
+                    saw_seam_change = true;
+                }
+            }
+            let next_picker =
+                picker.refresh(&sim, &next, affected.expect("same camera remains local"));
+            equivalent(&sim, &next, &next_picker);
+            cache = next;
+            picker = next_picker;
+        }
+        assert!(
+            saw_seam_change,
+            "exercise a shared edge outside changed roots"
+        );
+        assert_eq!(
+            cache.samples.len(),
+            initial_samples,
+            "coarsening cannot retain abandoned vertices"
+        );
     }
 }

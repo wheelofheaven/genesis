@@ -3,6 +3,26 @@ use crate::{Result, session::Session};
 use genesis_renderer::camera::Camera;
 use genesis_sim_core::{actions::Action, spatial::Position};
 
+/// Match the management benchmark before the first cache is constructed.
+pub fn configure_camera(session: &Session, camera: &mut Camera) -> Result<()> {
+    let site = session
+        .sim
+        .buildings
+        .first()
+        .ok_or("world check needs a dwelling")?
+        .position;
+    let offset = glam::Vec3::new(4., 5., 6.);
+    let yaw = offset.x.atan2(offset.z);
+    let pitch = (offset.y / offset.length()).asin();
+    camera.orbit(glam::Vec2::new(
+        (camera.heading() - yaw) / 0.006,
+        (pitch - camera.direction().y.asin()) / 0.006,
+    ));
+    camera.center(crate::terrain::point(&session.sim, site));
+    camera.set_visible_height(offset.length() * 2. * (std::f32::consts::FRAC_PI_4 * 0.5).tan());
+    Ok(())
+}
+
 pub fn advance(frame: u32, session: &mut Session, camera: &mut Camera) -> Result<()> {
     match frame {
         1 => {
@@ -21,7 +41,7 @@ pub fn advance(frame: u32, session: &mut Session, camera: &mut Camera) -> Result
                 x: site.x.floor() as i32,
                 y: site.z.floor() as i32,
                 radius: 2,
-                strength: 0.04,
+                strength: 0.4,
             });
             session.step_once();
             if session.terrain_revision != revision + 1

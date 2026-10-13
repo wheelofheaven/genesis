@@ -2,7 +2,7 @@
 //! both sides, including transitions; no skirts or cracks conceal mismatches.
 use genesis_sim_core::{SimState, spatial::Position, surface::SUBDIVISIONS};
 use glam::Vec3;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key(pub [i32; 3]);
@@ -41,10 +41,33 @@ impl Key {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct Leaf {
-    x: u32,
-    z: u32,
-    size: u32,
+pub(super) struct Leaf {
+    pub x: u32,
+    pub z: u32,
+    pub size: u32,
+}
+impl Leaf {
+    pub fn key(self) -> (u32, u32, u32) {
+        (self.x, self.z, self.size)
+    }
+    pub fn root(self) -> (u32, u32) {
+        (self.x / SUBDIVISIONS, self.z / SUBDIVISIONS)
+    }
+    pub fn corners(self) -> [(u32, u32); 4] {
+        [
+            (self.x, self.z),
+            (self.x, self.z + self.size),
+            (self.x + self.size, self.z + self.size),
+            (self.x + self.size, self.z),
+        ]
+    }
+}
+
+pub(super) struct Topology {
+    pub points: Vec<Position>,
+    pub triangles: Vec<[usize; 3]>,
+    pub patches: Patches,
+    pub leaves: Vec<Leaf>,
 }
 
 fn split(leaf: Leaf, eye: Vec3, base: f32, channel: bool, leaves: &mut Vec<Leaf>) {
@@ -91,19 +114,17 @@ fn edge(a: (u32, u32), b: (u32, u32), corners: &HashSet<(u32, u32)>, out: &mut V
 
 pub type Patches = HashMap<(u32, u32, u32), std::ops::Range<usize>>;
 
-/// Test only edited roots. Unchanged leaf splits imply identical global seams,
-/// corner insertion order and receiver IDs, so the complete topology is reusable.
-pub(super) fn same_splits(
+/// Only edited roots can change their splits at a fixed camera key.
+/// An empty result permits reuse of the complete topology.
+pub(super) fn changed_splits(
     sim: &SimState,
     key: Key,
     old: &[f32],
     bounds: genesis_sim_core::grid::SampleBounds,
-) -> bool {
-    if old.len() != sim.grid.cells().len() {
-        return false;
-    }
+) -> BTreeMap<(u32, u32), Vec<Leaf>> {
+    let mut changed = BTreeMap::new();
     if sim.geography.version == 0 {
-        return true;
+        return changed;
     }
     let eye = key.eye() + Vec3::new(sim.grid.width as f32 / 2., 0., sim.grid.height as f32 / 2.);
     let mut before = Vec::new();
@@ -132,13 +153,13 @@ pub(super) fn same_splits(
             split(leaf, eye, old[index], channel, &mut before);
             split(leaf, eye, height, channel, &mut after);
             if before != after {
-                return false;
+                changed.insert((x, z), after.clone());
             }
         }
     }
-    true
+    changed
 }
-pub fn topology(sim: &SimState, key: Key) -> (Vec<Position>, Vec<[usize; 3]>, Patches) {
+pub(super) fn topology(sim: &SimState, key: Key) -> Topology {
     let eye = key.eye() + Vec3::new(sim.grid.width as f32 / 2., 0., sim.grid.height as f32 / 2.);
     let mut leaves = Vec::new();
     let step = if sim.geography.version == 0 {
@@ -195,34 +216,43 @@ pub fn topology(sim: &SimState, key: Key) -> (Vec<Position>, Vec<[usize; 3]>, Pa
     };
     let mut triangles = Vec::new();
     let mut patches = HashMap::new();
-    for leaf in leaves {
+    for &leaf in &leaves {
         let start = triangles.len();
-        let p = [
-            (leaf.x, leaf.z),
-            (leaf.x, leaf.z + leaf.size),
-            (leaf.x + leaf.size, leaf.z + leaf.size),
-            (leaf.x + leaf.size, leaf.z),
-        ];
-        let mut perimeter = Vec::new();
-        for i in 0..4 {
-            edge(p[i], p[(i + 1) % 4], &corners, &mut perimeter);
-        }
-        if perimeter.len() == 4 {
-            let q = p.map(&mut index);
-            triangles.extend([[q[0], q[1], q[3]], [q[3], q[1], q[2]]]);
-        } else {
-            let center = index((leaf.x + leaf.size / 2, leaf.z + leaf.size / 2));
-            for i in 0..perimeter.len() {
-                triangles.push([
-                    center,
-                    index(perimeter[i]),
-                    index(perimeter[(i + 1) % perimeter.len()]),
-                ]);
-            }
-        }
-        patches.insert((leaf.x, leaf.z, leaf.size), start..triangles.len());
+        triangulate(leaf, &corners, &mut index, &mut triangles);
+        patches.insert(leaf.key(), start..triangles.len());
     }
-    (points, triangles, patches)
+    Topology {
+        points,
+        triangles,
+        patches,
+        leaves,
+    }
+}
+
+pub(super) fn triangulate(
+    leaf: Leaf,
+    corners: &HashSet<(u32, u32)>,
+    mut index: impl FnMut((u32, u32)) -> usize,
+    triangles: &mut Vec<[usize; 3]>,
+) {
+    let p = leaf.corners();
+    let mut perimeter = Vec::new();
+    for i in 0..4 {
+        edge(p[i], p[(i + 1) % 4], corners, &mut perimeter);
+    }
+    if perimeter.len() == 4 {
+        let q = p.map(&mut index);
+        triangles.extend([[q[0], q[1], q[3]], [q[3], q[1], q[2]]]);
+    } else {
+        let center = index((leaf.x + leaf.size / 2, leaf.z + leaf.size / 2));
+        for i in 0..perimeter.len() {
+            triangles.push([
+                center,
+                index(perimeter[i]),
+                index(perimeter[(i + 1) % perimeter.len()]),
+            ]);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -244,7 +274,11 @@ mod tests {
             Vec3::new(1.1, 2.085, -0.9),
             Vec3::new(0., 100., 0.),
         ] {
-            let (points, tris, _) = topology(&sim, Key::at(eye));
+            let Topology {
+                points,
+                triangles: tris,
+                ..
+            } = topology(&sim, Key::at(eye));
             assert!(tris.len() < 400_000, "{} triangles", tris.len());
             let mut edges = HashMap::new();
             let mut area = 0.;

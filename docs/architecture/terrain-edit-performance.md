@@ -193,3 +193,86 @@ app tests ignored), formatting and warning-free Clippy; `mise run build` passes.
 Native world, interaction and save checks exit 0 on Apple M4/Metal, with captures
 visually inspected. Exact commands and preserved paths are recorded in
 [the refactor log](refactor-log.md).
+
+## Changed-LOD neighborhood checkpoint — 13 October 2026
+
+The management fallback identified above is now removed for same-camera,
+terrain-only edits. `terrain/refresh/topology.rs` retains ordered dyadic leaves,
+replaces the changed root splits, and triangulates their bounding rectangle plus
+one root of shared seams. A second root ring supplies corner membership at the
+outer seam boundary. Unchanged triangles are copied in their original order;
+only affected geometry samples are evaluated again. A dense remapping pass
+compacts sample/index storage, including after repeated coarsening. Vertex storage
+indices may change; ordered receiver triangles and complete presentation stay
+identical to full reconstruction.
+
+The earlier geometry halo is wider than this seam neighborhood, so it also covers
+picker bucket invalidation and terrain/water intersections. Water remains a full
+network rebuild when the halo touches a river, otherwise its immutable mesh is
+reused. Camera changes, world changes and missing revision chains still reconstruct
+the full cache. Distant simultaneous edits can produce a large conservative bounding
+rectangle; no optimal sparse partitioning is claimed.
+
+### Before/after evidence
+
+Measured on the same Apple M4/macOS/toolchain/profile and nine-sample fixture as
+above. The before run uses the published `579c016` executable, after the baseline
+CI completed. The after run uses this checkpoint's executable, after final CI and
+build completed. No game window or competing test/build was running during either
+benchmark. Both use two warmups and twenty measured trials for each view:
+
+```sh
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-lod-before.json
+# Build the changed-LOD checkpoint, then run after checks finish:
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-lod-after.json
+```
+
+Raw reports: [before](measurements/terrain-lod-before.json),
+[after](measurements/terrain-lod-after.json). The existing `--full-rebuild` option
+remains available; every local benchmark also compares against fresh full
+reconstruction and oblique picks outside timings.
+
+| View | Before total median / p95 | After total median / p95 | Cache median before → after | Picker median before → after |
+| --- | ---: | ---: | ---: | ---: |
+| region | 188.705 / 194.279 ms | 186.496 / 194.272 ms | 126.950 → 124.730 ms | 0.681 → 0.640 ms |
+| management | 433.081 / 470.349 ms | 279.629 / 299.686 ms | 331.877 → 180.049 ms | 6.391 → 3.077 ms |
+| inspection | 359.263 / 437.915 ms | 318.159 / 324.704 ms | 228.067 → 196.574 ms | 5.298 → 4.722 ms |
+
+Management median total preparation is **35.4% lower** and its p95 is 36.3% lower.
+It now reports `local_refresh: true`; all three views do. Regional and inspection
+views already reused topology before this change. Their timing differences are
+reported but are not attributed to the new seam algorithm; sequential runs do not
+isolate system/thermal variation, and the earlier inspection run has a larger tail.
+The optimization claim concerns the changed-LOD management case.
+
+All scene vertex fingerprints match `579c016`, the earlier full reference and
+fresh full reconstruction: `f79d70c478f0d1cd`, `e39eb61b058c1437`,
+`5ecdfd077487af73`. Prepared chunk counts and predicted upload bytes are unchanged.
+The new diagnostic additionally records `retained_lod_bytes`: ordered-leaf
+allocations are 1,572,864 / 5,866,920 / 6,291,456 bytes for the three edited caches.
+These are additional retained allocations, not total or peak cache memory. The
+rebuild temporarily holds a remapping array, local point/corner tables and new
+flat buffers alongside the old immutable cache. Repeated edits compact live
+samples; the test compares their count to a fresh full build after each edit.
+
+The result still exceeds a 16.7 ms interactive frame budget. Sampling and
+triangulation are scoped, but flat-buffer remapping, horizon reconstruction,
+scene recoloring/extraction and partitioning still do global work. No GPU traffic,
+FPS or end-to-end input latency improvement is claimed.
+
+### Validation and compatibility
+
+Baseline CI: 184 tests/doctests pass. Final `mise run ci`: 185 pass with 14 optional
+app tests ignored, formatting and warning-free Clippy pass; `mise run build` passes.
+Tests compare exact sample values, ordered receiver triangles, water and full scene
+vertices, ground cover and picker buckets/rays. Repeated lowering/raising exercises
+refinement/coarsening beside water, a wrapped boundary and a picker bucket seam,
+including changed triangulation in roots whose elevations did not change. An early
+test fixture failed its seam-coverage assertion because it did not force that case;
+it was corrected to start coarse and refine locally. No baseline defect was found.
+
+Domain rules, command/event/save schemas, content, dependencies and supported
+platforms are unchanged. Native check results are recorded in the refactor log.
+Next measured opportunity: cache the unchanged horizon geometry while refreshing
+its environmental palette, then reduce global extraction work. A living-settlement
+feature remains separate from this renderer optimization.
