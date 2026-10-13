@@ -40,7 +40,7 @@ impl Key {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Leaf {
     x: u32,
     z: u32,
@@ -90,6 +90,54 @@ fn edge(a: (u32, u32), b: (u32, u32), corners: &HashSet<(u32, u32)>, out: &mut V
 }
 
 pub type Patches = HashMap<(u32, u32, u32), std::ops::Range<usize>>;
+
+/// Test only edited roots. Unchanged leaf splits imply identical global seams,
+/// corner insertion order and receiver IDs, so the complete topology is reusable.
+pub(super) fn same_splits(
+    sim: &SimState,
+    key: Key,
+    old: &[f32],
+    bounds: genesis_sim_core::grid::SampleBounds,
+) -> bool {
+    if old.len() != sim.grid.cells().len() {
+        return false;
+    }
+    if sim.geography.version == 0 {
+        return true;
+    }
+    let eye = key.eye() + Vec3::new(sim.grid.width as f32 / 2., 0., sim.grid.height as f32 / 2.);
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    for z in bounds.min[1]..=bounds.max[1].min(sim.grid.height - 1) {
+        for x in bounds.min[0]..=bounds.max[0].min(sim.grid.width - 1) {
+            if x == 0 || z == 0 || x + 1 == sim.grid.width || z + 1 == sim.grid.height {
+                continue;
+            }
+            let index = (z * sim.grid.width + x) as usize;
+            let height = sim.grid.cells()[index].elevation;
+            if old[index].to_bits() == height.to_bits() {
+                continue;
+            }
+            let leaf = Leaf {
+                x: x * SUBDIVISIONS,
+                z: z * SUBDIVISIONS,
+                size: SUBDIVISIONS,
+            };
+            let channel = sim
+                .geography
+                .channels
+                .contains(Position::new(x as f32, z as f32));
+            before.clear();
+            after.clear();
+            split(leaf, eye, old[index], channel, &mut before);
+            split(leaf, eye, height, channel, &mut after);
+            if before != after {
+                return false;
+            }
+        }
+    }
+    true
+}
 pub fn topology(sim: &SimState, key: Key) -> (Vec<Position>, Vec<[usize; 3]>, Patches) {
     let eye = key.eye() + Vec3::new(sim.grid.width as f32 / 2., 0., sim.grid.height as f32 / 2.);
     let mut leaves = Vec::new();

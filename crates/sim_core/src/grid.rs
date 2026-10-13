@@ -1,5 +1,23 @@
 use serde::{Deserialize, Serialize};
 
+/// Inclusive canonical sample coordinates actually changed by a committed edit.
+/// Wrapped edits may conservatively span both edges; this is not brush intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SampleBounds {
+    pub min: [u32; 2],
+    pub max: [u32; 2],
+}
+
+impl SampleBounds {
+    /// Smallest inclusive rectangle containing both changed sample regions.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            min: std::array::from_fn(|i| self.min[i].min(other.min[i])),
+            max: std::array::from_fn(|i| self.max[i].max(other.max[i])),
+        }
+    }
+}
+
 /// Biome classification derived from climate proxies and elevation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Biome {

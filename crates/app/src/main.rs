@@ -570,10 +570,13 @@ fn main() -> Result<()> {
         .first()
         .is_some_and(|arg| arg == "--terrain-edit-benchmark")
     {
-        if args.len() != 2 {
-            return Err("usage: genesis-app --terrain-edit-benchmark report.json".into());
+        let full_rebuild = args.get(2).is_some_and(|arg| arg == "--full-rebuild");
+        if args.len() != 2 && !(args.len() == 3 && full_rebuild) {
+            return Err(
+                "usage: genesis-app --terrain-edit-benchmark report.json [--full-rebuild]".into(),
+            );
         }
-        return extraction_benchmark::edits::run(std::path::Path::new(&args[1]));
+        return extraction_benchmark::edits::run(std::path::Path::new(&args[1]), full_rebuild);
     }
     if args
         .first()

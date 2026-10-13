@@ -22,6 +22,7 @@ pub struct Session {
     pub overlay_dirty: bool,
     pub urgent_redraw: bool,
     pub terrain_revision: u64,
+    terrain_changes: VecDeque<(u64, Option<genesis_sim_core::grid::SampleBounds>)>,
     pub help: bool,
     pub landscape_tools: bool,
     pub world_tools: bool,
@@ -67,6 +68,7 @@ impl Session {
             overlay_dirty: true,
             urgent_redraw: true,
             terrain_revision: 0,
+            terrain_changes: VecDeque::new(),
             help: false,
             landscape_tools: false,
             world_tools: false,
@@ -146,8 +148,8 @@ impl Session {
         self.pending.clear();
         for event in events {
             match &event {
-                SimEvent::TerrainChanged { .. } => {
-                    self.terrain_revision += 1;
+                SimEvent::TerrainChanged { bounds, .. } => {
+                    self.record_terrain_change(Some(*bounds));
                     self.urgent_redraw = true;
                     self.message = "Ground reshaped".into();
                     self.message_is_error = false;
@@ -161,7 +163,7 @@ impl Session {
                     self.message_is_error = true;
                 }
                 SimEvent::WellDrilled { id } => {
-                    self.terrain_revision += 1;
+                    self.record_terrain_change(None);
                     self.message = format!("Borehole {id} online");
                     self.message_is_error = false;
                 }
@@ -178,7 +180,7 @@ impl Session {
                 }
 
                 SimEvent::PathBuilt { id } => {
-                    self.terrain_revision += 1;
+                    self.record_terrain_change(None);
                     let object = crate::interaction::Object::Path(*id);
                     self.select_object(Some(object), self.position);
                     self.message = format!("{} built", object.label());
@@ -193,7 +195,7 @@ impl Session {
                         Some(crate::interaction::Object::Building(*id)),
                         self.position,
                     );
-                    self.terrain_revision += 1;
+                    self.record_terrain_change(None);
                     self.message = format!("Dwelling {id} built");
                     self.message_is_error = false;
                 }
@@ -211,6 +213,40 @@ impl Session {
         self.dirty = true;
         self.overlay_dirty = true;
     }
+    fn record_terrain_change(&mut self, bounds: Option<genesis_sim_core::grid::SampleBounds>) {
+        self.terrain_revision += 1;
+        if self.terrain_changes.len() == 32 {
+            self.terrain_changes.pop_front();
+        }
+        self.terrain_changes
+            .push_back((self.terrain_revision, bounds));
+    }
+
+    /// A complete terrain-only delta from a cache revision, or a full refresh.
+    /// This bounded history is separate from the disposable eight-event HUD log.
+    pub fn terrain_changes_since(
+        &self,
+        revision: u64,
+    ) -> Option<genesis_sim_core::grid::SampleBounds> {
+        if revision >= self.terrain_revision {
+            return None;
+        }
+        let mut expected = revision.checked_add(1)?;
+        let mut result: Option<genesis_sim_core::grid::SampleBounds> = None;
+        for &(rev, bounds) in self.terrain_changes.iter().filter(|(r, _)| *r > revision) {
+            if rev != expected {
+                return None;
+            }
+            let bounds = bounds?;
+            result = Some(result.map_or(bounds, |old| old.union(bounds)));
+            expected += 1;
+        }
+        if expected != self.terrain_revision + 1 {
+            return None;
+        }
+        result
+    }
+
     pub fn selected_point(&self) -> glam::Vec3 {
         self.visible_point(self.position)
     }
@@ -537,3 +573,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod terrain_changes;

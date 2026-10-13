@@ -21,7 +21,7 @@ use actions::Action;
 use config::SimConfig;
 use events::SimEvent;
 use grid::Grid;
-use rules::{try_apply_terraform, update_climate, update_life, update_water_depth};
+use rules::{terraform_patch, update_climate, update_life, update_water_depth};
 
 /// The complete simulation state.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -79,12 +79,13 @@ impl SimState {
                     y,
                     radius,
                     strength,
-                } => match try_apply_terraform(&mut self.grid, *x, *y, *radius, *strength) {
-                    Ok(0) => events.push(SimEvent::TerrainUnchanged { x: *x, y: *y }),
-                    Ok(changed_cells) => events.push(SimEvent::TerrainChanged {
+                } => match terraform_patch(&mut self.grid, *x, *y, *radius, *strength) {
+                    Ok((_, None)) => events.push(SimEvent::TerrainUnchanged { x: *x, y: *y }),
+                    Ok((changed_cells, Some(bounds))) => events.push(SimEvent::TerrainChanged {
                         x: *x,
                         y: *y,
                         changed_cells,
+                        bounds,
                     }),
                     Err(reason) => events.push(SimEvent::TerraformRejected {
                         x: *x,

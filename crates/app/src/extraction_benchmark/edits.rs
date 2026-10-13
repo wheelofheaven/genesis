@@ -7,7 +7,7 @@ use glam::Vec3;
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path, time::Instant};
 
-pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(path: &Path, full_rebuild: bool) -> Result<(), Box<dyn std::error::Error>> {
     let initial = worldgen::generate(worldgen::DEFAULT_SEED);
     let site = initial
         .buildings
@@ -41,7 +41,7 @@ pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let previous = PreparedWorld::new(&old_vertices);
         let old_hash = fingerprint(&old_vertices);
         drop(old_vertices);
-        drop(old_cache);
+        let old_picker = terrain::Picker::from_cache(&initial, &old_cache);
         let control_cache = terrain::Cache::at(&control.sim, key);
         let control_vertices = scene::mesh(
             &control.sim,
@@ -65,14 +65,27 @@ pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             let total_start = Instant::now();
             let (_, command_ms) = measure(|| session.step_once());
             let mut cache_stages = BTreeMap::new();
-            let (cache, cache_ms) = measure(|| {
+            let ((cache, affected), cache_ms) = measure(|| {
+                if !full_rebuild {
+                    return old_cache.refresh(
+                        &session.sim,
+                        key,
+                        session
+                            .terrain_changes_since(0)
+                            .expect("committed edit bounds"),
+                    );
+                }
                 let mut start = Instant::now();
-                terrain::Cache::at_profiled(&session.sim, key, |stage| {
+                let cache = terrain::Cache::at_profiled(&session.sim, key, |stage| {
                     cache_stages.insert(stage, start.elapsed().as_secs_f64() * 1000.);
                     start = Instant::now();
-                })
+                });
+                (cache, None)
             });
-            let (picker, picker_ms) = measure(|| terrain::Picker::from_cache(&session.sim, &cache));
+            let (picker, picker_ms) = measure(|| match affected {
+                Some(affected) => old_picker.refresh(&session.sim, &cache, affected),
+                None => terrain::Picker::from_cache(&session.sim, &cache),
+            });
             let (vertices, scene_ms) =
                 measure(|| scene::mesh(&session.sim, Survey::default(), &cache, &cache.rivers));
             let (prepared, partition_ms) = measure(|| PreparedWorld::new(&vertices));
@@ -111,6 +124,35 @@ pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 return Err("edited terrain picking changed world coordinates".into());
             }
             let hash = fingerprint(&vertices);
+            if i == 0 && !full_rebuild {
+                // One full reference per view outside timings; subsequent trials
+                // must reproduce the same complete vertex fingerprint.
+                let reference = terrain::Cache::at(&session.sim, key);
+                let reference_vertices = scene::mesh(
+                    &session.sim,
+                    Survey::default(),
+                    &reference,
+                    &reference.rivers,
+                );
+                if fingerprint(&reference_vertices) != hash {
+                    return Err(format!("local refresh differs from full rebuild in {name}").into());
+                }
+                let reference_picker = terrain::Picker::from_cache(&session.sim, &reference);
+                for j in 0..32 {
+                    let origin = p + Vec3::new(j as f32 * 0.13 - 2., 8., 2.);
+                    let dir = Vec3::new(0.1, -1., -0.2).normalize();
+                    for water in [false, true] {
+                        if picker.pick(origin, dir, water)
+                            != reference_picker.pick(origin, dir, water)
+                        {
+                            return Err(format!(
+                                "local picker differs from full rebuild in {name}"
+                            )
+                            .into());
+                        }
+                    }
+                }
+            }
             if hash == old_hash
                 || hash == control_hash
                 || expected.as_ref().is_some_and(|previous| *previous != hash)
@@ -121,7 +163,7 @@ pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             let from_previous = prepared.upload_estimate(&previous);
             let from_control = prepared.upload_estimate(&control_world);
             geometry = json!({
-                "changed_cells": changed, "vertices": vertices.len(), "vertex_fnv1a": hash,
+                "local_refresh": affected.is_some(), "changed_cells": changed, "vertices": vertices.len(), "vertex_fnv1a": hash,
                 "prepared_chunks": from_previous.chunks,
                 "estimated_upload_from_previous": {"chunks": from_previous.changed, "bytes": from_previous.bytes},
                 "estimated_upload_from_same_tick_rebuilt_control": {"chunks": from_control.changed, "bytes": from_control.bytes},
@@ -153,7 +195,7 @@ pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Measured {name} committed terrain edit");
     }
     let report = json!({
-        "schema": 1, "workload": "committed terrain edit CPU preparation",
+        "schema": 2, "full_rebuild": full_rebuild, "workload": "committed terrain edit CPU preparation",
         "seed": worldgen::DEFAULT_SEED, "region": "LevantCoast",
         "grid": [initial.grid.width, initial.grid.height],
         "generator_version": initial.geography.version,

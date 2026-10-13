@@ -8,6 +8,7 @@ pub enum SimEvent {
         x: i32,
         y: i32,
         changed_cells: usize,
+        bounds: crate::grid::SampleBounds,
     },
     TerrainUnchanged {
         x: i32,

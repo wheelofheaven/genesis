@@ -221,3 +221,35 @@ fn staging_retains_the_original_floating_point_representation() {
     assert_eq!(try_apply_terraform(&mut grid, 0, 0, 0, 0.), Ok(1));
     assert_eq!(grid.get(0, 0).elevation.to_bits(), 0.0f32.to_bits());
 }
+
+#[test]
+fn committed_bounds_cover_only_actual_canonical_samples() {
+    for boundary in [Boundary::Clamp, Boundary::Wrap] {
+        let mut grid = Grid::new(8, 8);
+        grid.boundary = boundary;
+        let before = grid.clone();
+        let (count, bounds) = terraform_patch(&mut grid, 0, 0, 2, 0.4).unwrap();
+        let changed: Vec<_> = grid
+            .cells()
+            .iter()
+            .zip(before.cells())
+            .enumerate()
+            .filter(|(_, (a, b))| a.elevation.to_bits() != b.elevation.to_bits())
+            .map(|(i, _)| [i as u32 % 8, i as u32 / 8])
+            .collect();
+        assert_eq!(count, changed.len());
+        let bounds = bounds.unwrap();
+        for axis in 0..2 {
+            assert_eq!(
+                bounds.min[axis],
+                changed.iter().map(|p| p[axis]).min().unwrap()
+            );
+            assert_eq!(
+                bounds.max[axis],
+                changed.iter().map(|p| p[axis]).max().unwrap()
+            );
+        }
+        assert_eq!(terraform_patch(&mut grid, 0, 0, 2, 0.).unwrap(), (0, None));
+        assert!(terraform_patch(&mut grid, 0, 0, 2, f32::NAN).is_err());
+    }
+}

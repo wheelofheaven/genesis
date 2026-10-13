@@ -5,11 +5,13 @@ use genesis_sim_core::{
     spatial::{self, Position},
 };
 use glam::Vec3;
+use std::sync::Arc;
 mod contacts;
 pub mod ground_cover;
 pub mod lod;
 #[cfg(test)]
 mod query_tests;
+mod refresh;
 
 #[cfg(test)]
 pub(crate) fn detail(sim: &SimState) -> u32 {
@@ -130,14 +132,44 @@ pub fn triangles(sim: &SimState, mut visit: impl FnMut([Position; 3])) {
     }
 }
 
+fn sample_geometry(sim: &SimState, key: lod::Key, p: Position) -> (Position, Vec3, Vec3, f32) {
+    let height = |p: Position| {
+        let simplify = lod::channel_simplification(sim, key.eye(), p);
+        if simplify == 0. || sim.geography.version == 0 {
+            return genesis_sim_core::surface::vertex_height(sim, p);
+        }
+        let base = spatial::elevation(&sim.grid, p);
+        if simplify == 1. {
+            return base;
+        }
+        let detailed = genesis_sim_core::surface::vertex_height(sim, p);
+        detailed + (base - detailed) * simplify
+    };
+    let v = Vec3::new(
+        p.x - sim.grid.width as f32 * 0.5,
+        height(p),
+        p.z - sim.grid.height as f32 * 0.5,
+    );
+    let delta = genesis_sim_core::surface::SPACING;
+    let dx = height(Position::new(p.x + delta, p.z)) - height(Position::new(p.x - delta, p.z));
+    let dz = height(Position::new(p.x, p.z + delta)) - height(Position::new(p.x, p.z - delta));
+    (
+        p,
+        v,
+        Vec3::new(-dx, delta * 2., -dz).normalize(),
+        1. - lod::channel_simplification(sim, key.eye(), p),
+    )
+}
+
 /// Geometry and baked normals survive ecological ticks and water animation.
 pub struct Cache {
     context: crate::horizon::Cache,
     samples: Vec<(Position, Vec3, Vec3, f32)>,
-    indices: Vec<[usize; 3]>,
+    indices: Arc<Vec<[usize; 3]>>,
+    elevations: Vec<f32>,
     pub key: lod::Key,
-    patches: lod::Patches,
-    pub rivers: Vec<Vertex>,
+    patches: Arc<lod::Patches>,
+    pub rivers: Arc<Vec<Vertex>>,
     pub ground_cover: ground_cover::Placements,
     pub contacts: genesis_renderer::contact::Field,
 }
@@ -159,38 +191,9 @@ impl Cache {
     ) -> Self {
         let (points, indices, patches) = lod::topology(sim, key);
         completed("topology");
-        let height = |p: Position| {
-            let simplify = lod::channel_simplification(sim, key.eye(), p);
-            if simplify == 0. || sim.geography.version == 0 {
-                return genesis_sim_core::surface::vertex_height(sim, p);
-            }
-            let base = spatial::elevation(&sim.grid, p);
-            if simplify == 1. {
-                return base;
-            }
-            let detailed = genesis_sim_core::surface::vertex_height(sim, p);
-            detailed + (base - detailed) * simplify
-        };
         let samples = points
             .into_iter()
-            .map(|p| {
-                let v = Vec3::new(
-                    p.x - sim.grid.width as f32 * 0.5,
-                    height(p),
-                    p.z - sim.grid.height as f32 * 0.5,
-                );
-                let delta = genesis_sim_core::surface::SPACING;
-                let dx = height(Position::new(p.x + delta, p.z))
-                    - height(Position::new(p.x - delta, p.z));
-                let dz = height(Position::new(p.x, p.z + delta))
-                    - height(Position::new(p.x, p.z - delta));
-                (
-                    p,
-                    v,
-                    Vec3::new(-dx, delta * 2., -dz).normalize(),
-                    1. - lod::channel_simplification(sim, key.eye(), p),
-                )
-            })
+            .map(|p| sample_geometry(sim, key, p))
             .collect();
         completed("samples");
         let ground_cover = ground_cover::placements(sim, key.eye());
@@ -200,18 +203,19 @@ impl Cache {
         let context = crate::horizon::Cache::new(sim);
         completed("horizon");
         let mut cache = Self {
-            patches,
-            rivers: Vec::new(),
+            patches: Arc::new(patches),
+            elevations: sim.grid.cells().iter().map(|c| c.elevation).collect(),
+            rivers: Arc::new(Vec::new()),
             ground_cover,
             contacts,
             context,
             samples,
-            indices,
+            indices: Arc::new(indices),
             key,
         };
         let mut rivers = Vec::new();
         crate::water::rivers(sim, &cache, &mut rivers);
-        cache.rivers = rivers;
+        cache.rivers = Arc::new(rivers);
         completed("rivers");
         cache
     }
@@ -312,7 +316,7 @@ impl Cache {
             .iter()
             .map(|&(p, v, n, channel_detail)| colored_vertex(sim, p, v, n, channel_detail, layers))
             .collect();
-        for ids in &self.indices {
+        for ids in self.indices.iter() {
             for &j in ids {
                 out.push(vertices[j]);
             }
@@ -373,7 +377,7 @@ pub(crate) fn intersect(origin: Vec3, dir: Vec3, [a, b, c]: [Vec3; 3]) -> Option
 }
 /// Rebuilt only when terrain height changes, reused for every pointer query.
 pub struct Picker {
-    chunks: Vec<Chunk>,
+    chunks: Vec<Arc<Chunk>>,
     width: f32,
     height: f32,
     sea: f32,
@@ -391,7 +395,7 @@ impl Picker {
     pub fn from_cache(sim: &SimState, cache: &Cache) -> Self {
         let columns = sim.grid.width.div_ceil(16) as usize;
         let mut buckets = vec![Vec::new(); columns * sim.grid.height.div_ceil(16) as usize];
-        for ids in &cache.indices {
+        for ids in cache.indices.iter() {
             let tri = ids.map(|i| cache.samples[i].0);
             let x = (tri[0].x.min(tri[1].x).min(tri[2].x) / 16.) as usize;
             let z = (tri[0].z.min(tri[1].z).min(tri[2].z) / 16.) as usize;
@@ -408,11 +412,11 @@ impl Picker {
                     .iter()
                     .flatten()
                     .fold(Vec3::splat(f32::NEG_INFINITY), |a, &b| a.max(b));
-                Chunk {
+                Arc::new(Chunk {
                     triangles,
                     min: min - Vec3::splat(1e-5),
                     max: max + Vec3::splat(1e-5),
-                }
+                })
             })
             .collect();
         Self {

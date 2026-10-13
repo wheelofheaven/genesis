@@ -1,5 +1,5 @@
 use crate::{
-    grid::{Boundary, Grid},
+    grid::{Boundary, Grid, SampleBounds},
     units::{MAX_ELEVATION, MIN_ELEVATION},
 };
 
@@ -40,6 +40,16 @@ pub fn try_apply_terraform(
     radius: u32,
     strength: f32,
 ) -> Result<usize, TerraformError> {
+    terraform_patch(grid, cx, cy, radius, strength).map(|(count, _)| count)
+}
+
+pub(crate) fn terraform_patch(
+    grid: &mut Grid,
+    cx: i32,
+    cy: i32,
+    radius: u32,
+    strength: f32,
+) -> Result<(usize, Option<SampleBounds>), TerraformError> {
     if !strength.is_finite() {
         return Err(TerraformError::NonFiniteStrength);
     }
@@ -94,10 +104,17 @@ pub fn try_apply_terraform(
     }
     patch.retain(|&index, value| value.to_bits() != grid.cells()[index].elevation.to_bits());
     let changed = patch.len();
+    let mut bounds: Option<SampleBounds> = None;
     for (index, elevation) in patch {
+        let point = [index as u32 % grid.width, index as u32 / grid.width];
+        let cell = SampleBounds {
+            min: point,
+            max: point,
+        };
+        bounds = Some(bounds.map_or(cell, |old| old.union(cell)));
         grid.cells_mut()[index].elevation = elevation;
     }
-    Ok(changed)
+    Ok((changed, bounds))
 }
 
 /// Recompute water depth for all cells given the current sea level.

@@ -206,8 +206,25 @@ impl View {
                 .is_none_or(|(r, _)| *r != revision)
         {
             self.scene_epoch += 1;
-            let cache = Arc::new(terrain::Cache::at(&session.sim, key));
-            self.picker = Some((revision, terrain::Picker::from_cache(&session.sim, &cache)));
+            let (cache, affected) = self
+                .terrain_cache
+                .as_ref()
+                .and_then(|(old_revision, cache)| {
+                    session
+                        .terrain_changes_since(*old_revision)
+                        .map(|bounds| cache.refresh(&session.sim, key, bounds))
+                })
+                .unwrap_or_else(|| (terrain::Cache::at(&session.sim, key), None));
+            let picker = match (affected, &self.picker, &self.terrain_cache) {
+                (Some(affected), Some((picker_revision, picker)), Some((cache_revision, _)))
+                    if picker_revision == cache_revision =>
+                {
+                    picker.refresh(&session.sim, &cache, affected)
+                }
+                _ => terrain::Picker::from_cache(&session.sim, &cache),
+            };
+            let cache = Arc::new(cache);
+            self.picker = Some((revision, picker));
             self.terrain_cache = Some((revision, cache));
             self.terrain_changed = true;
             self.terrain_prepared = false;

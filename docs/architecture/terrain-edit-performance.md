@@ -105,3 +105,91 @@ cache rebuilding. Include interpolation/normal halos, topology transitions,
 river/shore geometry and picking dependencies. Compare against this full-rebuild
 reference and retain revision guards; removing work without matching geometry
 and interaction behavior is not an accepted optimization.
+
+## Local refresh checkpoint — 13 October 2026
+
+The app now defaults to scoped cache refresh for complete terrain-only revision
+ranges at the same camera key. The simulation's committed `TerrainChanged` fact
+carries inclusive canonical sample bounds. The session retains 32 changes,
+separately from its eight-entry HUD log. A missed revision, construction, well
+installation, world replacement or camera-key change requires full reconstruction.
+No preview or rejected command supplies invalidation bounds.
+
+For an eligible edit, compare leaf splits only at roots whose elevation changed.
+Identical splits preserve global seams, triangle ordering and receiver IDs, allowing
+immutable topology reuse. Height/normal samples outside a conservative B-spline,
+normal-offset and channel-projection halo are copied without resampling. Wrapped
+halos also cover the opposite edge. Picking rebuilds only intersecting 16-unit
+buckets and shares the other immutable buckets. If any split changes, rebuild the
+whole cache and picker; local seam reconstruction is deferred.
+
+River geometry is reused only when the halo misses every river's expanded bounds.
+Otherwise rebuild the whole river network, including confluences and endpoint-based
+slopes. Horizon, ground-cover placements and contact fields still rebuild; terrain
+and scene colors still read current ecological state. This preserves the full
+reference appearance rather than freezing distant environmental colors. Cache,
+picker and presentation publication retain the existing revision/epoch guards.
+
+### Same-build comparison
+
+The original October 12 measurements above remain historical. These fresh runs
+use the same machine/profile/scenario and identical commands/camera keys, with no
+running game or competing builds/tests. Both modes retain the initial cache and
+picker, so resident input memory is comparable. Two warmups and twenty timed trials
+per view remain unchanged. CPU stage measurements are available for the full build;
+the local report records the combined cache stage.
+
+```sh
+mise run build
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-terrain-full.json --full-rebuild
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-terrain-local.json
+```
+
+Raw reports: [full reference](measurements/terrain-edit-full-reference.json) and
+[local refresh](measurements/terrain-edit-local.json). Full was run first, local
+second; these sequential runs do not isolate thermal/frequency variation.
+
+| View | Full total median / p95 | Local total median / p95 | Cache median full → local | Picker median full → local | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| region | 253.305 / 256.169 ms | 184.111 / 186.422 ms | 194.479 → 125.382 ms | 3.163 → 0.640 ms | 27.3% lower median total |
+| management | 406.581 / 412.304 ms | 420.088 / 427.362 ms | 309.965 → 321.049 ms | 6.204 → 6.415 ms | full fallback; 3.3% higher median total |
+| inspection | 514.929 / 520.931 ms | 324.873 / 332.286 ms | 392.064 → 201.246 ms | 8.424 → 4.962 ms | 36.9% lower median total |
+
+The management edit crosses a topology threshold. It performs the split check plus
+a full reconstruction; no improvement is claimed for that case. The observed
+13.5 ms difference includes run variation and is not an isolated measurement of
+split-check overhead. Regional and inspection gains justify retaining the scoped
+path, with this fallback limitation explicit.
+
+All three complete vertex fingerprints match the original baseline and the new
+full reference: `f79d70c478f0d1cd`, `e39eb61b058c1437`, `5ecdfd077487af73`.
+The local diagnostic additionally compares against a fresh full mesh and 64 oblique
+picker queries per view outside timers; subsequent trials require the same hash.
+Prepared chunk counts and upload estimates are unchanged. This is a CPU preparation
+improvement, not a measured reduction in GPU traffic or input-to-display latency.
+It does not meet a 16.7 ms frame budget for synchronous terrain edits.
+
+### Costs, compatibility and remaining work
+
+Each cache retains one extra elevation float per environmental sample (491,520 bytes
+for this world), plus small Arc/bucket bookkeeping. Topology and unaffected picker
+buckets can be shared with the previous cache. The existing single background job
+slot remains bounded; the new revision history cannot grow past 32 records. Samples
+are still scanned/copied and picker triangle indices are still scanned. This is
+scoped expensive computation, not a fully partitioned extraction pipeline.
+
+No world/save schema, content ID, rule, dependency or supported-platform changes.
+`TerrainChanged` gains a serialized `bounds` field; events are transient and are
+not stored in the supported saves. Consumers constructing/deserializing that event
+must use the new shape. Persistent command/save fixtures remain supported.
+
+Next useful slice: preserve local refresh across changed LOD roots by reconstructing
+the affected seam neighborhood, with exact full-reference comparisons. Separately,
+horizon/color invalidation and global scene extraction still account for substantial
+cost; reducing their work must preserve environmental appearance.
+
+Validation for this checkpoint: `mise run ci` passes 184 tests/doctests (14 optional
+app tests ignored), formatting and warning-free Clippy; `mise run build` passes.
+Native world, interaction and save checks exit 0 on Apple M4/Metal, with captures
+visually inspected. Exact commands and preserved paths are recorded in
+[the refactor log](refactor-log.md).

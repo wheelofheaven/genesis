@@ -540,3 +540,67 @@ Schemas, content, rules, dependencies and platform support are unchanged.
 No actual GPU traffic or input-to-display latency is measured. Next implement
 scoped terrain invalidation with sampling/normal halos, LOD seam handling and
 matching river/picking publication, validating against this full reconstruction.
+
+## Scoped committed-terrain refresh — 13 October 2026
+
+Starting checkpoint: clean `3195938` on `main`, tracking `origin/main`. Inspected
+workspace/local agent instructions, `.claude/CLAUDE.md`, accepted engine/vision
+and architecture records, plus the Terraform → Session → View → cache/picker/
+water/scene preparation path. The audit in `current-state.md` precedes the edits.
+The measured problem was full CPU terrain reconstruction for a nine-sample edit;
+LOD splits and channel endpoint slopes prevent naïve brush-only invalidation.
+
+Changes: `sim_core` reports actual committed `SampleBounds` without changing brush
+rules. `Session` keeps a bounded complete revision chain; `terrain/refresh.rs`
+reuses unchanged immutable topology, samples, river data and picker buckets where
+safe. LOD split changes, camera changes, missing history and other geometry changes
+retain full reconstruction. `View::ensure_terrain` publishes the matching cache
+and picker under the existing worker epoch/revision guard. Current ecological
+colors, horizon, ground cover and contacts continue to refresh. The diagnostic
+now supports `--full-rebuild`, compares local output against that reference, and
+retains raw full/local reports. The native world script includes a committed
+stationary-camera edit before regeneration.
+
+Fresh comparison on Apple M4: median total CPU preparation falls 27.3% regionally
+(253.305 → 184.111 ms) and 36.9% at inspection distance (514.929 → 324.873 ms).
+Management changes LOD splits and falls back, measuring 3.3% slower in these
+sequential runs (406.581 → 420.088 ms); no improvement claimed there. All three
+full vertex fingerprints and upload estimates are identical. Workload, tails,
+extra cache memory, run-order limitations and remaining global work are in
+[terrain-edit-performance.md](terrain-edit-performance.md).
+
+Validation:
+
+- Baseline `mise run ci`: 178 tests/doctests, formatting and Clippy pass.
+- Final `mise run ci`: 184 tests/doctests pass, 14 optional app tests ignored;
+  formatting and warning-free Clippy pass. `mise run build` passes.
+- Six added tests cover actual clipped/wrapped commit bounds, retained/expired
+  revision ranges, construction/world replacement, exact full-reference geometry,
+  water/color/picker results, wrapped interpolation halos, river endpoints and
+  confluences, close/legacy detail, camera and topology fallbacks.
+- Both benchmark commands exit 0; each runs 66 committed edits. Local output is
+  also checked against fresh full extraction and oblique water/ground picks.
+- `target/debug/genesis-app --world-test /private/tmp/genesis-local-world.png`:
+  exit 0; local edit, regeneration, drilling and surveys. Initial/final captures
+  visually inspected.
+- `target/debug/genesis-app --interaction-test /private/tmp/genesis-local-interaction.png`:
+  exit 0; roof selection, path preview, construction and path picking. Final
+  capture visually inspected.
+
+- `target/debug/genesis-app --save-test /private/tmp/genesis-local-save.png`:
+  exit 0 on Apple M4/Metal; queued drilling survives save/load with exact
+  continuation, free placement and zero-size/resize checks pass. Seven dwellings
+  and one borehole remain visible after restoration; capture visually inspected.
+  The user quicksave slot is untouched.
+- `git diff --check` passes. Baseline/final logs and native captures are under
+  `/private/tmp/genesis-local-*`; only source, documentation and benchmark JSON
+  reports enter the checkpoint.
+
+No intentional gameplay changes, save/content migrations, new dependencies or
+platform claims. Events now include bounds; saved world/command schemas do not
+change. Native macOS/Metal is checked; browser, other hosts and device-loss recovery
+remain unverified. The graphics-independent headless package remains unchanged
+and is built/tested by the workspace checks. No FPS claim: synchronous edit
+preparation still exceeds a frame budget. Next handle the changed LOD-root seam
+neighborhood locally, then target remaining horizon/color and extraction costs
+with matching full-reference checks.

@@ -305,3 +305,35 @@ revision advancement, repeated presentation fingerprints, exact changed-cell
 count, bounded sample count, meaningful chunk-estimate regression, and normal CI.
 Use measured results to select the next optimization; do not claim responsiveness
 has improved merely because timing infrastructure was added.
+
+## Local terrain refresh audit — 13 October 2026
+
+Baseline is clean `3195938`; normal CI is rerun before edits. Source tracing covers
+committed brush staging, Session revisions, adaptive dyadic roots, B-spline height
+support, channel incision/endpoint slopes, cosmetic cover, horizon colors and picking.
+The critical constraint is that a changed elevation can change the root's LOD
+split and therefore neighboring seams. Channel levels sample the projected center;
+water shading additionally interpolates endpoint levels. Appearance also changes
+with ecology outside the edit.
+
+Adopt committed inclusive sample bounds plus a bounded Session revision history.
+If history is missing, contains construction/world replacement, or a camera key
+changes, rebuild fully. Verify root split stability against cached elevations;
+keep full reconstruction for topology changes. Otherwise reuse topology and
+recompute geometry samples only within a conservative interpolation/normal/channel
+halo, update spatial picking buckets, and reuse river geometry only when its
+entire support is untouched. Rebuild affected river networks conservatively.
+Refresh environmental colors, horizon palette, cover and contacts from current
+state rather than retaining stale appearance. The slice localizes expensive
+surface sampling, not every extraction or upload.
+
+Acceptance: complete mesh/picker equality against full reconstruction across
+interior/edge/wrapped/river edits, batches and LOD transitions; missing-history
+and replacement fallback; stale-worker protection; comparable committed-edit
+measurements with identical fingerprints. No domain rule or save-schema change.
+
+This slice is implemented and measured in the scoped-refresh entry of
+[refactor-log.md](refactor-log.md). Full-reference geometry remains exact;
+regional/inspection CPU preparation improve, while the topology-changing management
+case retains full reconstruction. See [the comparison](terrain-edit-performance.md)
+for raw timings, fallback cost, memory tradeoffs and next steps.

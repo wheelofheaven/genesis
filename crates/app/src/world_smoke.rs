@@ -12,6 +12,25 @@ pub fn advance(frame: u32, session: &mut Session, camera: &mut Camera) -> Result
                 return Err("generated region has no settlement or drainage".into());
             }
         }
+        6 => {
+            // A committed local edit at a stationary camera exercises the scoped
+            // cache/picker publication before the frame-ten capture.
+            let site = session.sim.buildings[0].position;
+            let revision = session.terrain_revision;
+            session.queue(Action::Terraform {
+                x: site.x.floor() as i32,
+                y: site.z.floor() as i32,
+                radius: 2,
+                strength: 0.04,
+            });
+            session.step_once();
+            if session.terrain_revision != revision + 1
+                || session.terrain_changes_since(revision).is_none()
+                || session.pending_count() != 0
+            {
+                return Err("generated local terrain edit did not commit".into());
+            }
+        }
         12 => {
             let seed = session.sim.config.seed;
             let revision = session.terrain_revision;
