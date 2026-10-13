@@ -6,6 +6,7 @@ use genesis_sim_core::{
 };
 use glam::Vec3;
 use std::sync::Arc;
+pub(crate) mod appearance;
 mod contacts;
 pub mod ground_cover;
 pub mod lod;
@@ -166,6 +167,7 @@ fn sample_geometry(sim: &SimState, key: lod::Key, p: Position) -> Sample {
 /// Geometry and baked normals survive ecological ticks and water animation.
 pub struct Cache {
     context: crate::horizon::Cache,
+    paint: appearance::Paint,
     samples: Vec<Sample>,
     indices: Arc<Vec<[usize; 3]>>,
     elevations: Vec<f32>,
@@ -177,6 +179,15 @@ pub struct Cache {
     pub contacts: genesis_renderer::contact::Field,
 }
 impl Cache {
+    pub(crate) fn appearance_metrics(&self) -> serde_json::Value {
+        serde_json::json!({
+            "terrain_samples":self.samples.len(), "terrain_recolored":self.paint.refreshed,
+            "horizon_geometry_reused":self.context.reused_geometry,
+            "horizon_pages_rebuilt":self.context.refreshed_pages,
+            "terrain_retained_bytes":self.paint.storage_bytes(),
+            "horizon_metadata_bytes":self.context.metadata_bytes(),
+        })
+    }
     /// Retained ordered-leaf allocation, excluding shared topology and samples.
     pub(crate) fn lod_storage_bytes(&self) -> usize {
         self.leaves.capacity() * std::mem::size_of::<lod::Leaf>()
@@ -203,7 +214,7 @@ impl Cache {
             leaves,
         } = lod::topology(sim, key);
         completed("topology");
-        let samples = points
+        let samples: Vec<_> = points
             .into_iter()
             .map(|p| sample_geometry(sim, key, p))
             .collect();
@@ -214,7 +225,10 @@ impl Cache {
         completed("contacts");
         let context = crate::horizon::Cache::new(sim);
         completed("horizon");
+        let paint = appearance::Paint::new(sim, &samples);
+        completed("appearance");
         let mut cache = Self {
+            paint,
             patches: Arc::new(patches),
             leaves: Arc::new(leaves),
             elevations: sim.grid.cells().iter().map(|c| c.elevation).collect(),
@@ -324,11 +338,16 @@ impl Cache {
         rendered_elevation(sim, p)
     }
     pub fn mesh(&self, sim: &SimState, out: &mut Vec<Vertex>, layers: crate::survey::Survey) {
-        let vertices: Vec<_> = self
-            .samples
-            .iter()
-            .map(|&(p, v, n, channel_detail)| colored_vertex(sim, p, v, n, channel_detail, layers))
-            .collect();
+        let vertices = if !layers.active() {
+            self.paint.vertices(sim, &self.samples)
+        } else {
+            std::borrow::Cow::Owned(
+                self.samples
+                    .iter()
+                    .map(|&(p, v, n, detail)| colored_vertex(sim, p, v, n, detail, layers))
+                    .collect::<Vec<_>>(),
+            )
+        };
         for ids in self.indices.iter() {
             for &j in ids {
                 out.push(vertices[j]);

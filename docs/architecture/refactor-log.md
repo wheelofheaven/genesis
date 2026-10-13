@@ -670,3 +670,67 @@ macOS is verified; other hosts and device-loss recovery remain unverified. Next
 small renderer slice: retain unchanged horizon geometry while refreshing its
 palette, with before/after evidence and full-reference output checks. The living
 settlement remains the next separate product feature.
+
+## Reusable horizon geometry and terrain palettes — 13 October 2026
+
+Starting checkpoint: clean `4530d66` on `main`. Read workspace/local instructions,
+`.claude/CLAUDE.md`, engine/vision decisions and previous audits/measurements.
+Inspected `horizon.rs`, terrain sampling/coloring and refresh, scene extraction,
+worker publication and renderer partitioning. The source findings and acceptance
+criteria were recorded in `current-state.md` before implementation: all horizon
+relief/normals and all terrain colors were recalculated after a local edit.
+
+`horizon/geometry.rs` now owns immutable visual geometry and seam color recipes;
+`horizon.rs` refreshes current environmental colors and shares unchanged expanded
+ground pages. Bounded interior edits reuse geometry; edge/wrapped edits and changed
+horizon parameters rebuild. `terrain/appearance.rs` tracks plants/moisture
+interpolation dependencies and global palette inputs. `terrain/refresh/topology.rs`
+returns temporary source indices so cached colors remain attached to the correct
+samples after LOD compaction. Surveys use the full color extractor. Existing
+worker bounds, revision guards and world invalidation remain intact.
+
+No intentional gameplay or image changes. Normal terrain continues to reflect
+current ecology, including changes outside a terrain brush. The prior horizon
+palette lifetime across ordinary no-edit ticks is preserved. Full-reference scene,
+water and picking checks remain exact; a frozen independent horizon extractor
+checks the new geometry/color recipes. No simulation or renderer GPU code changed.
+
+Measured median total CPU preparation improves from 176.556 to 133.398 ms in the
+regional view (24.4%), 269.561 to 223.459 ms in management (17.1%), and 316.474 to
+267.347 ms in inspection (15.5%). Full-rebuild medians remain comparable. All four
+66-trial reports have identical corresponding mesh fingerprints/counts. Upload
+estimates are unchanged. Cache coloring moved out of the scene phase, so phase
+numbers alone must not be interpreted as the total benefit. Raw reports, p95,
+commands, workload and auxiliary memory counts are in
+[terrain-edit-performance.md](terrain-edit-performance.md).
+
+Validation:
+
+- Baseline `mise run ci`: 185 tests/doctests pass. Final `mise run ci`: 189 pass,
+  14 optional app tests ignored; formatting and warning-free Clippy pass.
+  `mise run build` passes. No baseline validation failures.
+- Added checks cover horizon geometry/page reuse, distant palette changes,
+  ordinary ecology, old-reader immutability, map edges, wrapping, sea changes,
+  island replacement, interpolation boundaries, rock/drought changes and local
+  terrain color reuse. Existing LOD/picker/survey/stale-worker tests pass.
+- Four CPU benchmark runs exit 0; fresh full extraction and oblique picking are
+  checked outside scoped timing, with equal fingerprints against the prior build.
+- `target/debug/genesis-app --world-test /private/tmp/genesis-extraction-world.png`:
+  exit 0 on Apple M4/Metal; management edit, replacement, drilling and surveys.
+  Edited management capture visually inspected.
+- `target/debug/genesis-app --interaction-test /private/tmp/genesis-extraction-interaction.png`:
+  exit 0 on Metal; selection, previews, path construction and picking. Capture
+  visually inspected.
+- `target/debug/genesis-app --save-test /private/tmp/genesis-extraction-save.png`:
+  exit 0 on Metal; pending drilling, exact save/load continuation, placement,
+  zero-size and resize checks. Restored seven dwellings/one borehole visible in
+  inspected capture; user quicksave untouched.
+- `git diff --check` passes. Logs/captures stay in `/private/tmp/genesis-extraction-*`;
+  source, documentation and raw benchmark JSON enter the checkpoint.
+
+No rule, command/event/save schema, content or dependency changes. The independent
+headless package remains built/tested by workspace CI. Native macOS is verified;
+other hosts and device-loss recovery remain unverified. Additional cache memory
+and global dependency scans are documented; synchronous preparation remains above
+a frame budget. Next measure the remaining local-refresh stages before selecting
+another bottleneck. The living-settlement feature remains separate product work.

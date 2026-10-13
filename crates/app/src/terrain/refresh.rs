@@ -75,6 +75,7 @@ impl Cache {
         let changed = lod::changed_splits(sim, key, &self.elevations, bounds);
         let geometry = if changed.is_empty() {
             topology::Geometry {
+                source_ids: None,
                 samples: self
                     .samples
                     .iter()
@@ -94,7 +95,13 @@ impl Cache {
             topology::rebuild(self, sim, affected, changed)
         };
         let mut cache = Self {
-            context: crate::horizon::Cache::new(sim),
+            paint: appearance::Paint::refresh(
+                sim,
+                &geometry.samples,
+                self,
+                geometry.source_ids.as_deref(),
+            ),
+            context: self.context.refresh(sim, bounds),
             samples: geometry.samples,
             indices: geometry.indices,
             patches: geometry.patches,

@@ -249,3 +249,34 @@ fn repeated_refinement_and_coarsening_preserve_seams_water_and_bounded_storage()
         );
     }
 }
+
+#[test]
+fn geometry_only_edit_reuses_colors_and_later_ecology_stays_current() {
+    let mut sim = fixture(Boundary::Clamp);
+    let key = lod::Key::at(Vec3::new(0., 100., 0.));
+    let cache = Cache::at(&sim, key);
+    sim.grid.get_mut(32, 24).elevation += 0.4;
+    let (next, affected) = cache.refresh(
+        &sim,
+        key,
+        SampleBounds {
+            min: [32, 24],
+            max: [32, 24],
+        },
+    );
+    assert!(next.paint.refreshed > 0 && next.paint.refreshed < next.samples.len());
+    let picker = Picker::from_cache(&fixture(Boundary::Clamp), &cache);
+    equivalent(&sim, &next, &picker.refresh(&sim, &next, affected.unwrap()));
+    // Ordinary ticks do not reconstruct geometry; extraction must still see
+    // environmental changes remote from the last brush/cache publication.
+    sim.grid.get_mut(4, 40).plants = 0.;
+    sim.grid.get_mut(60, 40).moisture = 1.;
+    for (s, v) in next
+        .samples
+        .iter()
+        .zip(next.paint.vertices(&sim, &next.samples).iter())
+    {
+        let expected = colored_vertex(&sim, s.0, s.1, s.2, s.3, Default::default());
+        assert_eq!(v.color.map(f32::to_bits), expected.color.map(f32::to_bits));
+    }
+}

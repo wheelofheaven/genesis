@@ -276,3 +276,82 @@ platforms are unchanged. Native check results are recorded in the refactor log.
 Next measured opportunity: cache the unchanged horizon geometry while refreshing
 its environmental palette, then reduce global extraction work. A living-settlement
 feature remains separate from this renderer optimization.
+
+## Horizon geometry and palette checkpoint — 13 October 2026
+
+Fresh baseline: clean `4530d66`, same machine, toolchain, profile, seed, command and
+three fixed cameras described above. Runs were sequential with no competing build,
+test or Genesis window. Each of four runs contains two warmups and twenty trials
+per view. Commands before and after the change:
+
+```sh
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-extraction-before.json
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-extraction-before-full.json --full-rebuild
+mise run build
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-extraction-after.json
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-extraction-after-full.json --full-rebuild
+```
+
+Raw reports: [scoped before](measurements/terrain-appearance-before.json),
+[scoped after](measurements/terrain-appearance-after.json),
+[full before](measurements/terrain-appearance-before-full.json),
+[full after](measurements/terrain-appearance-after-full.json).
+
+| View | Scoped total median before → after | Reduction | Scoped total p95 before → after | Full rebuild median before → after |
+| --- | ---: | ---: | ---: | ---: |
+| region | 176.556 → 133.398 ms | 24.4% | 183.901 → 137.136 ms | 262.974 → 257.003 ms |
+| management | 269.561 → 223.459 ms | 17.1% | 272.550 → 229.486 ms | 419.271 → 410.530 ms |
+| inspection | 316.474 → 267.347 ms | 15.5% | 328.268 → 280.150 ms | 530.660 → 525.569 ms |
+
+Full-rebuild p95: 265.640 → 264.850, 427.969 → 413.553, and
+535.420 → 531.803 ms respectively. These small fallback differences are not an
+isolated algorithmic speedup claim. The important comparison is the scoped total:
+normal terrain coloring now happens in cache refresh, so the reduced `scene`
+timer alone would exaggerate the benefit. No FPS or display-latency claim.
+
+`horizon/geometry.rs` stores positions, normals, seam color recipes, ordered
+triangles and water independently of appearance. Eligible bounded interior edits
+reuse that immutable geometry. Edge edits, wrapped worlds and changed horizon
+parameters reconstruct it. Horizon ground is retained in immutable pages of at
+most 2,048 triangles; unchanged pages are shared. Interpolated seam colors retain
+the original operation order rather than being sampled at a new location.
+
+`terrain/appearance.rs` compares exact plants/moisture bits and expands changes by
+the B-spline interpolation footprint, including clamped and wrapped boundaries.
+Sea level, drought and rock changes conservatively invalidate all colors. Changed
+surface geometry and new LOD samples also recolor. A temporary source-index map
+preserves palette correspondence when LOD storage is compacted. Survey colors
+still use the complete extractor; ordinary surface extraction checks current
+palette inputs even when geometry is reused across ticks.
+
+The ordinary tick changes many cells outside the brush. It correctly recolors
+77,275 / 123,585 regional samples, 201,794 / 248,104 management samples and
+260,753 / 307,063 inspection samples, and rebuilds 49 horizon ground pages.
+This is intentionally broader than the nine changed elevation samples. All views
+reuse horizon geometry. Pure interior geometry edits with unchanged environmental
+inputs retain every horizon ground page in the regression test.
+
+Every trial retains the prior mesh fingerprints (`f79d70c478f0d1cd`,
+`e39eb61b058c1437`, `5ecdfd077487af73`), vertex counts and upload estimates.
+The same-tick control still changes two of 924 chunks; the tick-zero comparison
+still changes 550. Rendering bytes and domain behavior are unchanged. The frozen
+pre-cache horizon extractor also independently checks exact position/color bits,
+including shoreline and seafloor modes.
+
+Memory tradeoff: additional retained terrain palette/input allocations are
+4,566,300 / 8,052,832 / 9,703,684 bytes per measured cache. Horizon metadata,
+recipes, indices and colors use another 8,872,728 bytes, excluding the pre-existing
+expanded ground/water buffers. These are capacity-based auxiliary allocation
+counts, not net RSS or peak memory measurements; geometry and unchanged ground
+pages share allocations between retained readers. The LOD remap adds a temporary
+`usize` per output sample. Input comparisons, node/page checks, flat mesh assembly
+and renderer partitioning still scan globally. Ground cover, contacts and affected
+river networks retain their existing rebuilding rules.
+
+The worker's existing bounded slots and revision/world guards remain unchanged.
+Ordinary no-edit ticks retain the prior horizon palette until cache refresh, as
+before; this slice preserves that behavior. Updating horizon colors on every
+ordinary tick is a separate visual-behavior change. Surveys and camera/world
+changes retain full reconstruction paths. Next profile local-refresh stages
+(especially cover/contact/rivers and remaining global scans) before choosing a
+further optimization. A broader incremental scene stream is not implemented here.

@@ -368,3 +368,30 @@ with exact full-reference output and 35.4% lower measured median CPU preparation
 See [the checkpoint log](refactor-log.md) and [timings/memory limits](terrain-edit-performance.md).
 The retained ordered leaves cost additional memory, while flat buffer assembly and
 other extraction stages remain global. Saves and simulation behavior are unchanged.
+
+## Horizon geometry and appearance extraction audit — 13 October 2026
+
+Starting from clean `4530d66`. Inspected horizon generation, terrain coloring,
+local refresh, scene extraction, worker publication and renderer partitioning.
+`horizon::Cache::new` recomputes procedural relief/normals and expanded mesh after
+every local edit; interior edits cannot affect a bounded region's outer geometry.
+`terrain::Cache::mesh` also recolors every sample, even when its plants/moisture
+interpolation taps are unchanged. Colors depend on those fields, sea level,
+drought, rock, geometry and channel detail; survey layers have additional inputs.
+Ordinary ecology may change appearance broadly, so brush bounds alone are unsafe.
+
+Adopted slice: separate immutable horizon geometry/color recipes from its palette;
+reuse geometry on eligible interior terrain edits and reconstruct on edge/world
+changes. Track exact surface-palette inputs and their interpolation halos, caching
+normal surface colors and recomputing affected samples. Surveys retain full color
+extraction. Retain worker revision guards and global flat mesh assembly/partitioning.
+No claim of a wholly incremental renderer or lower upload traffic. Acceptance is
+bit-identical reference output, field/edge/wrap/LOD/survey checks, preserved native
+interaction/persistence and before/after measurements, including memory tradeoffs.
+
+Implemented: interior edits share immutable horizon geometry and unaffected ground
+pages; normal terrain colors track actual field dependencies and LOD remapping.
+Exact reference output and picking are retained. Fresh scoped median CPU preparation
+improves 15.5–24.4% across the three recorded views, with additional bounded cache
+memory. Full rebuild and ordinary horizon-palette behavior remain compatible.
+See [measurements and limits](terrain-edit-performance.md) and the checkpoint log.

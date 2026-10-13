@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub(super) struct Geometry {
     pub samples: Vec<Sample>,
+    pub source_ids: Option<Vec<usize>>,
     pub indices: Arc<Vec<[usize; 3]>>,
     pub patches: Arc<lod::Patches>,
     pub leaves: Arc<Vec<lod::Leaf>>,
@@ -18,12 +19,14 @@ struct Assembly<'a> {
     local: HashMap<(u32, u32), usize>,
     added: HashMap<(u32, u32), usize>,
     samples: Vec<Sample>,
+    source_ids: Vec<usize>,
 }
 impl Assembly<'_> {
     fn old(&mut self, id: usize) -> usize {
         if self.remap[id] == usize::MAX {
             let sample = self.cache.samples[id];
             self.remap[id] = self.samples.len();
+            self.source_ids.push(id);
             self.samples.push(if self.affected.contains(sample.0) {
                 sample_geometry(self.sim, self.cache.key, sample.0)
             } else {
@@ -40,6 +43,7 @@ impl Assembly<'_> {
             return id;
         }
         let id = self.samples.len();
+        self.source_ids.push(usize::MAX);
         self.samples.push(sample_geometry(
             self.sim,
             self.cache.key,
@@ -110,6 +114,7 @@ pub(super) fn rebuild(
         remap: vec![usize::MAX; cache.samples.len()],
         added: HashMap::new(),
         samples: Vec::with_capacity(cache.samples.len()),
+        source_ids: Vec::with_capacity(cache.samples.len()),
     };
     let mut indices = Vec::with_capacity(cache.indices.len());
     let mut patches = HashMap::with_capacity(leaves.len());
@@ -126,6 +131,7 @@ pub(super) fn rebuild(
     }
     Geometry {
         samples: assembly.samples,
+        source_ids: Some(assembly.source_ids),
         indices: Arc::new(indices),
         patches: Arc::new(patches),
         leaves: Arc::new(leaves),

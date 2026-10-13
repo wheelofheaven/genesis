@@ -163,7 +163,7 @@ pub fn run(path: &Path, full_rebuild: bool) -> Result<(), Box<dyn std::error::Er
             let from_previous = prepared.upload_estimate(&previous);
             let from_control = prepared.upload_estimate(&control_world);
             geometry = json!({
-                "local_refresh": affected.is_some(), "retained_lod_bytes": cache.lod_storage_bytes(), "changed_cells": changed, "vertices": vertices.len(), "vertex_fnv1a": hash,
+                "appearance":cache.appearance_metrics(), "local_refresh": affected.is_some(), "retained_lod_bytes": cache.lod_storage_bytes(), "changed_cells": changed, "vertices": vertices.len(), "vertex_fnv1a": hash,
                 "prepared_chunks": from_previous.chunks,
                 "estimated_upload_from_previous": {"chunks": from_previous.changed, "bytes": from_previous.bytes},
                 "estimated_upload_from_same_tick_rebuilt_control": {"chunks": from_control.changed, "bytes": from_control.bytes},
