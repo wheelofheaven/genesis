@@ -182,6 +182,7 @@ mod tests {
                 &super::super::slopes::Slopes::new(&sim),
                 &mut mesh,
                 |_| 1.,
+                |p| channel_depth(&sim, p),
             );
             assert!(!mesh.is_empty() && mesh.len() < 200_000);
             assert!((mesh.chunks_exact(3).map(area).sum::<f32>() - area(&triangle)).abs() < 1e-4);

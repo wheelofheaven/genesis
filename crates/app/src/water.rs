@@ -3,13 +3,35 @@ use crate::terrain;
 use genesis_renderer::geometry::Vertex;
 use genesis_sim_core::{SimState, spatial::Position, surface::channels, units::metres};
 use glam::Vec2;
+mod depth_cache;
 mod sheet;
 mod slopes;
 mod surface;
 
 pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
+    rivers_profiled(sim, cache, out, |_| {});
+}
+
+pub(crate) fn rivers_profiled(
+    sim: &SimState,
+    cache: &terrain::Cache,
+    out: &mut Vec<Vertex>,
+    completed: impl FnMut(&'static str),
+) {
+    let mut depths = depth_cache::DepthCache::new();
+    rivers_with_depth(sim, cache, out, completed, |p| depths.at(sim, p));
+}
+
+fn rivers_with_depth(
+    sim: &SimState,
+    cache: &terrain::Cache,
+    out: &mut Vec<Vertex>,
+    mut completed: impl FnMut(&'static str),
+    depth: impl FnMut(Position) -> f32,
+) {
     let incised = sim.geography.version >= 8;
     let slopes = slopes::Slopes::new(sim);
+    completed("river_slopes");
     let mut sheet = sheet::Sheet::default();
     // Water, bed geometry and bank shading use the same distant approximation.
     let simplification = |p| terrain::lod::channel_simplification(sim, cache.key.eye(), p);
@@ -105,9 +127,26 @@ pub fn rivers(sim: &SimState, cache: &terrain::Cache, out: &mut Vec<Vertex>) {
             previous = Some(row);
         }
     }
+    completed("river_projection");
     if incised {
-        sheet.finish(sim, &slopes, out, simplification);
+        sheet.finish(sim, &slopes, out, simplification, depth);
     }
+    completed("river_surface");
+}
+
+/// Independent uncached depth queries protect the memoization boundary while
+/// retaining exactly the same receiver/polygon ordering and shading arithmetic.
+#[cfg(test)]
+pub(crate) fn reference_rivers(sim: &SimState, cache: &terrain::Cache) -> Vec<Vertex> {
+    let mut vertices = Vec::new();
+    rivers_with_depth(
+        sim,
+        cache,
+        &mut vertices,
+        |_| {},
+        |p| surface::channel_depth(sim, p),
+    );
+    vertices
 }
 
 #[cfg(test)]

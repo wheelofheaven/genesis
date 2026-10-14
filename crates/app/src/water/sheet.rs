@@ -150,6 +150,7 @@ impl Sheet {
         field: &Slopes,
         out: &mut Vec<Vertex>,
         simplification: impl Fn(Position) -> f32,
+        mut channel_depth: impl FnMut(Position) -> f32,
     ) {
         let offset = Vec2::new(sim.grid.width as f32 * 0.5, sim.grid.height as f32 * 0.5);
         let position = |p: Vec2| Position::new(p.x + offset.x, p.y + offset.y);
@@ -205,10 +206,8 @@ impl Sheet {
                     let simplify = simplification(p);
                     if simplify > 0. {
                         let depth = (-vertex.color[3] - 1.) / 20.;
-                        vertex.color[3] = -(1.
-                            + (depth + (surface::channel_depth(sim, p) - depth) * simplify)
-                                .max(0.)
-                                * 20.);
+                        vertex.color[3] =
+                            -(1. + (depth + (channel_depth(p) - depth) * simplify).max(0.) * 20.);
                     }
                 }
                 for i in 1..face.len().saturating_sub(1) {

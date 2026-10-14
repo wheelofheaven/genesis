@@ -68,11 +68,22 @@ impl Cache {
         key: lod::Key,
         bounds: SampleBounds,
     ) -> (Self, Option<Affected>) {
+        self.refresh_profiled(sim, key, bounds, |_| {})
+    }
+
+    pub(crate) fn refresh_profiled(
+        &self,
+        sim: &SimState,
+        key: lod::Key,
+        bounds: SampleBounds,
+        mut completed: impl FnMut(&'static str),
+    ) -> (Self, Option<Affected>) {
         if key != self.key || self.elevations.len() != sim.grid.cells().len() {
-            return (Self::at(sim, key), None);
+            return (Self::at_profiled(sim, key, completed), None);
         }
         let affected = Affected::new(sim, bounds);
         let changed = lod::changed_splits(sim, key, &self.elevations, bounds);
+        completed("refresh_lod");
         let geometry = if changed.is_empty() {
             topology::Geometry {
                 source_ids: None,
@@ -94,14 +105,23 @@ impl Cache {
         } else {
             topology::rebuild(self, sim, affected, changed)
         };
+        completed("refresh_geometry");
+        let paint = appearance::Paint::refresh(
+            sim,
+            &geometry.samples,
+            self,
+            geometry.source_ids.as_deref(),
+        );
+        completed("refresh_appearance");
+        let context = self.context.refresh(sim, bounds);
+        completed("refresh_horizon");
+        let ground_cover = ground_cover::placements(sim, key.eye());
+        completed("refresh_ground_cover");
+        let contacts = contacts::build(sim, key.eye());
+        completed("refresh_contacts");
         let mut cache = Self {
-            paint: appearance::Paint::refresh(
-                sim,
-                &geometry.samples,
-                self,
-                geometry.source_ids.as_deref(),
-            ),
-            context: self.context.refresh(sim, bounds),
+            paint,
+            context,
             samples: geometry.samples,
             indices: geometry.indices,
             patches: geometry.patches,
@@ -110,14 +130,18 @@ impl Cache {
             key,
             rivers: Arc::clone(&self.rivers),
             // Density/tint and exposed scenery can change with the ordinary tick.
-            ground_cover: ground_cover::placements(sim, key.eye()),
-            contacts: contacts::build(sim, key.eye()),
+            ground_cover,
+            contacts,
         };
-        if affected.touches_rivers(sim) {
+        completed("refresh_assembly");
+        let rivers_changed = affected.touches_rivers(sim);
+        completed("refresh_river_gate");
+        if rivers_changed {
             let mut rivers = Vec::new();
-            crate::water::rivers(sim, &cache, &mut rivers);
+            crate::water::rivers_profiled(sim, &cache, &mut rivers, &mut completed);
             cache.rivers = Arc::new(rivers);
         }
+        completed("refresh_river_publish");
         (cache, Some(affected))
     }
 }

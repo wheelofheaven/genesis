@@ -92,6 +92,7 @@ fn equivalent(sim: &SimState, cache: &Cache, picker: &Picker) {
     }
     assert_eq!(cache.patches, full.patches);
     vertices(&cache.rivers, &full.rivers);
+    vertices(&cache.rivers, &crate::water::reference_rivers(sim, cache));
     for survey in [
         crate::survey::Survey::default(),
         crate::survey::Survey {

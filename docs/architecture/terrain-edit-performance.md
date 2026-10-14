@@ -355,3 +355,74 @@ ordinary tick is a separate visual-behavior change. Surveys and camera/world
 changes retain full reconstruction paths. Next profile local-refresh stages
 (especially cover/contact/rivers and remaining global scans) before choosing a
 further optimization. A broader incremental scene stream is not implemented here.
+
+## Bounded river depth query reuse — 14 October 2026
+
+Starting checkpoint: `72e65d4`, with observational local-refresh stage hooks added
+before the measured baseline. Same Apple M4, macOS, Rust 1.93.1 development profile,
+seed 7319, content/generator, edit and three fixed cameras as above. Baseline CI
+passes 189 tests/doctests. The first stage breakdown identified river rebuilding
+as the largest remaining cache cost. Finer hooks separated slope setup, ribbon
+projection/union and final surface extraction; those same hooks remain in both
+reported runs. Timers never affect world advancement or geometry decisions.
+
+```sh
+mise run build
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-refresh-profiled-before.json
+# Apply the bounded query cache, then validate and rebuild.
+mise run ci
+mise run build
+target/debug/genesis-app --terrain-edit-benchmark /private/tmp/genesis-refresh-after.json
+```
+
+Runs are sequential with no competing build/test or Genesis window. Each has two
+warmups plus twenty independent trials per view. Setup and validation remain
+outside timings; total is elapsed time, not a sum of stage medians. See
+[raw before](measurements/river-depth-before.json) and
+[raw after](measurements/river-depth-after.json).
+
+| View | Total median before → after | Reduction | Total p95 before → after | River surface median before → after |
+| --- | ---: | ---: | ---: | ---: |
+| region | 135.916 → 107.112 ms | 21.2% | 138.189 → 109.255 ms | 43.872 → 17.426 ms |
+| management | 228.081 → 187.668 ms | 17.7% | 231.450 → 198.146 ms | 53.728 → 21.636 ms |
+| inspection | 271.615 → 232.271 ms | 14.5% | 279.921 → 261.340 ms | 54.951 → 22.849 ms |
+
+Management baseline stage medians: terrain geometry 38.894 ms, appearance
+32.354 ms, horizon 6.644 ms, contacts 1.435 ms, ground cover 0.002 ms, river slopes
+2.710 ms, projection 31.468 ms, surface 53.728 ms, renderer partition 42.595 ms.
+Ground cover is skipped by the existing height rule at this camera; the inspection
+view spends 10.562 ms on it. These findings ruled out contact/ground-cover work as
+the primary target for the management fixture.
+
+`water/sheet.rs` queries physical channel depth at emitted polygon vertices.
+Adjacent polygon boundaries repeat coordinates, causing repeated channel searches
+and B-spline sampling. `water/depth_cache.rs` now memoizes those pure queries using
+both coordinates' exact float bits. It has 8,192 direct-mapped slots, occupying
+128 KiB of temporary entry storage on this target. Collisions replace a slot and
+only change recomputation cost. The table is created and discarded within each
+extraction, so no terrain revision, world, camera or save can inherit its entries.
+There is no quantization, extra threading, domain mutation or retained cache growth.
+
+River surface stage medians improve 58.4–60.3%. The targeted arithmetic work is
+unchanged; repeated queries reuse their exact result. Projection and partition
+also vary slightly between runs and are not separately claimed as optimizations.
+Inspection tail improvement is smaller than the median (6.6%), with partition p95
+increasing from 57.952 to 61.640 ms. The raw samples retain that variability.
+
+All three complete mesh fingerprints and all geometry/appearance metrics equal
+the baseline. Upload estimates remain two changed chunks versus same-tick control
+and 550 versus tick-zero presentation. The benchmark still validates full cache
+reconstruction and oblique picking outside its timers. Existing terrain refresh
+regressions now additionally compare water vertices bit-for-bit with uncached
+depth evaluation, including repeated refinement/coarsening, confluences, map edges,
+wrapped worlds and legacy geometry. A replacement-table regression exercises more
+queries than slots, retained/evicted entries and signed zero without growing storage.
+
+The existing full river rebuild and invalidation rules remain; this is query reuse,
+not localized river meshing. All unprofiled callers share the optimized extraction,
+but no separate full-rebuild performance measurement is claimed at this checkpoint.
+No GPU timing, upload reduction, FPS or input-to-display latency claim. Management
+preparation is still about 188 ms, above an interactive frame budget. Remaining
+large costs include topology assembly, terrain appearance, projection and renderer
+partitioning. Further renderer optimization can use the new breakdown; the next
+separate playable milestone remains persistent villagers and an inspectable routine.

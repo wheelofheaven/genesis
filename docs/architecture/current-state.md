@@ -395,3 +395,34 @@ Exact reference output and picking are retained. Fresh scoped median CPU prepara
 improves 15.5–24.4% across the three recorded views, with additional bounded cache
 memory. Full rebuild and ordinary horizon-palette behavior remain compatible.
 See [measurements and limits](terrain-edit-performance.md) and the checkpoint log.
+
+## River surface extraction audit — 13 October 2026
+
+Starting from clean `72e65d4`. Read applicable instructions, engine/vision decisions,
+previous performance evidence, terrain refresh, ground cover, contacts, river
+projection/slope/surface code and receiver queries. Baseline CI passes 189 tests.
+Added observational stage hooks to local refresh and its existing benchmark before
+selecting an optimization. The unchanged fixed scenario measures management CPU
+preparation at 228.081 ms median: river projection 31.468 ms, slope setup 2.710 ms,
+final river surface 53.728 ms, terrain geometry 38.894 ms and renderer partition
+42.595 ms. Ground cover is inactive at that camera and contact shading is 1.435 ms.
+
+`water/sheet.rs::finish` evaluates physical channel depth at each emitted polygon
+vertex. Shared polygon boundaries repeatedly query the same exact coordinates;
+`water/surface.rs::channel_depth` performs channel queries and B-spline sampling.
+Adopted slice: memoize that pure depth query within one extraction using an exact
+coordinate key and a fixed-capacity replacement table. No retained world cache,
+quantization, asynchronous work or simulation ownership change. Cache collisions
+must only cause recomputation. Preserve polygon order, interpolation, clipping,
+materials, geometry and picking. Acceptance: exact cached/uncached output across
+river edits, seams and confluences, bounded memory, existing CI/native checks and
+comparable before/after stage and total timings. Broader river invalidation and
+whole-scene incrementality remain outside this slice.
+
+Implemented and verified on 14 October: river surface extraction is 58.4–60.3%
+faster in the three fixed views, with identical output. Total preparation improves
+14.5–21.2%; management median is 187.668 ms. CI passes 190 tests and the native
+world/interaction/save checks pass. See the [checkpoint report](refactor-log.md)
+and [stage timings and limitations](terrain-edit-performance.md). The scratch
+cache is bounded and discarded per extraction; broader incremental river work
+and a frame-budget editing guarantee are not claimed.

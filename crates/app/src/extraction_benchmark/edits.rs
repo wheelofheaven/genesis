@@ -66,16 +66,20 @@ pub fn run(path: &Path, full_rebuild: bool) -> Result<(), Box<dyn std::error::Er
             let (_, command_ms) = measure(|| session.step_once());
             let mut cache_stages = BTreeMap::new();
             let ((cache, affected), cache_ms) = measure(|| {
+                let mut start = Instant::now();
                 if !full_rebuild {
-                    return old_cache.refresh(
+                    return old_cache.refresh_profiled(
                         &session.sim,
                         key,
                         session
                             .terrain_changes_since(0)
                             .expect("committed edit bounds"),
+                        |stage| {
+                            cache_stages.insert(stage, start.elapsed().as_secs_f64() * 1000.);
+                            start = Instant::now();
+                        },
                     );
                 }
-                let mut start = Instant::now();
                 let cache = terrain::Cache::at_profiled(&session.sim, key, |stage| {
                     cache_stages.insert(stage, start.elapsed().as_secs_f64() * 1000.);
                     start = Instant::now();

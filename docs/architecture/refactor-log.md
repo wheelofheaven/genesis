@@ -734,3 +734,63 @@ other hosts and device-loss recovery remain unverified. Additional cache memory
 and global dependency scans are documented; synchronous preparation remains above
 a frame budget. Next measure the remaining local-refresh stages before selecting
 another bottleneck. The living-settlement feature remains separate product work.
+
+## Profile local refresh and reuse river depth queries — 14 October 2026
+
+Starting checkpoint: clean `72e65d4` on `main`. Read workspace/local `AGENTS.md`,
+`.claude/CLAUDE.md`, workspace general conventions, engine/vision decisions and
+previous audits/measurements. Inspected local terrain refresh, cover/contact
+builders, receiver queries and river projection/slope/surface generation.
+The source audit and adoption criteria are recorded in `current-state.md`.
+
+Added observational hooks in `terrain/refresh.rs` and `water.rs`, exposed through
+`extraction_benchmark/edits.rs`. The fixed management edit spends 53.728 ms in
+final river surface extraction, 31.468 ms in projection and 2.710 ms in slope
+setup; contact shading is 1.435 ms and ground cover is skipped at that altitude.
+The measurement selected river surface generation as the next target.
+
+`water/depth_cache.rs` memoizes repeated physical depth queries at shared polygon
+vertices within one extraction. `water/sheet.rs` accepts that query function;
+its clipping, interpolation, material and output order remain unchanged.
+Exact float-bit keys and full-key comparisons prevent coordinate aliasing.
+8,192 replacement slots use 128 KiB temporary storage on the measured target;
+collisions only recompute. No cache entries survive an extraction or world change.
+No simulation ownership, rules or scheduling changed.
+
+River surface medians improve 58.4–60.3%; total CPU preparation changes from
+135.916 to 107.112 ms regionally (21.2%), 228.081 to 187.668 ms in management
+(17.7%), and 271.615 to 232.271 ms in inspection (14.5%). Complete mesh fingerprints,
+vertex counts, appearance statistics and upload estimates remain identical.
+Inspection p95 improves less than its median and partition timings vary; these
+limits and raw reports are retained in
+[terrain-edit-performance.md](terrain-edit-performance.md).
+No FPS or display-latency claim; synchronous preparation still exceeds a frame.
+
+Validation:
+
+- Baseline `mise run ci`: 189 tests/doctests pass. Final `mise run ci`: 190 pass,
+  14 optional app tests ignored; formatting and warning-free Clippy pass.
+  `mise run build` passes. No baseline failures.
+- Terrain refresh tests now additionally compare river vertices bit-for-bit with
+  uncached depth queries across edits, LOD refinement/coarsening, river endpoints,
+  confluences, boundaries and wrapping. Replacement-table checks cover collision
+  eviction, repeated lookups, signed zero and bounded storage.
+- Both recorded 66-trial CPU benchmarks exit 0, with full reconstruction/picking
+  validation outside timings. Before/after geometry report objects are equal.
+- `target/debug/genesis-app --world-test /private/tmp/genesis-refresh-world.png`:
+  exit 0 on Apple M4/Metal; edited management scene, world replacement, drilling
+  and surveys. Edited capture visually inspected.
+- `target/debug/genesis-app --interaction-test /private/tmp/genesis-refresh-interaction.png`:
+  exit 0; selection, previews, path construction and picking. Capture inspected.
+- `target/debug/genesis-app --save-test /private/tmp/genesis-refresh-save.png`:
+  exit 0; queued drilling and exact continuation across save/load, placement,
+  zero-size and resize checks. Restored capture inspected; user quicksave untouched.
+- `git diff --check` passes. Logs/captures remain in `/private/tmp/genesis-refresh-*`;
+  source, documentation and the two raw comparison reports form the checkpoint.
+
+No save/content/event schema, dependency or platform support changes. The independent
+headless package remains built/tested by workspace CI. Native macOS is verified;
+other hosts and device-loss recovery remain unverified. River invalidation still
+rebuilds the whole network when touched; the new stage breakdown makes remaining
+costs explicit. Further performance work is separable from the next playable
+milestone: persistent villagers with a visible, explainable routine.
