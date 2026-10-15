@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 /// Player actions fed into the simulation each tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Action {
+    CancelWaterTask {
+        person: crate::people::PersonId,
+    },
     /// Construct a curved footpath through continuous waypoints.
     BuildPath {
         waypoints: Vec<crate::spatial::Position>,

@@ -27,6 +27,7 @@ mod terrain;
 mod ui;
 mod view;
 mod water;
+mod water_smoke;
 mod world_smoke;
 
 use genesis_renderer::camera::Camera;
@@ -68,6 +69,7 @@ struct App {
     world_smoke: bool,
     interaction_smoke: bool,
     people_smoke: bool,
+    water_smoke: bool,
     frames: u32,
     menu_smoke: Option<menu_smoke::Check>,
 }
@@ -201,6 +203,18 @@ impl App {
             };
             self.session.set_hover(hover);
             self.session.set_hovered_object(object);
+        }
+        if self.water_smoke {
+            water_smoke::advance(
+                self.frames,
+                &mut self.session,
+                &mut self.camera,
+                view,
+                &mut self.input,
+                self.capture
+                    .as_deref()
+                    .ok_or("water test needs capture path")?,
+            )?;
         }
         if self.people_smoke {
             people_smoke::advance(
@@ -696,6 +710,7 @@ fn main() -> Result<()> {
                 || flag == "--world-test"
                 || flag == "--interaction-test"
                 || flag == "--people-test"
+                || flag == "--water-test"
                 || flag == "--menu-capture"
                 || flag == "--menu-test" =>
         {
@@ -706,13 +721,14 @@ fn main() -> Result<()> {
             app.world_smoke = flag == "--world-test";
             app.interaction_smoke = flag == "--interaction-test";
             app.people_smoke = flag == "--people-test";
+            app.water_smoke = flag == "--water-test";
             if flag == "--menu-test" {
                 app.menu_smoke = Some(menu_smoke::Check::default());
             }
         }
         _ => {
             return Err(
-                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --water-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }

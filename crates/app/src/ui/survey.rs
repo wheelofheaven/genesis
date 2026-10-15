@@ -76,6 +76,21 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
                     well.recovered, well.last_yield
                 ),
             );
+            if let Some(supply) = &well.supply {
+                ui.label(format!(
+                    "Collectable {:.1} / {:.0} u",
+                    supply.stored,
+                    genesis_sim_core::subsurface::supply::CAPACITY
+                ));
+                muted(
+                    ui,
+                    format!(
+                        "Reserved {:.1} u · carried away {:.1} u",
+                        session.sim.people.reserved_water(id),
+                        supply.collected
+                    ),
+                );
+            }
             if button(
                 ui,
                 if active {

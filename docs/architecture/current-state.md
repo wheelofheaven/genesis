@@ -455,3 +455,38 @@ usable; the people ledger changes from absent to **partial** (routine only).
 Needs, jobs, inventories, households, skeletal animation and other platforms remain
 outside this checkpoint. See [the decision and limits](residents.md) and
 [checkpoint evidence](refactor-log.md).
+
+## Household water audit — 15 October 2026
+
+Starting from clean `203433b`. Baseline `mise run ci` passes 198 tests, with
+14 optional tests ignored. Re-read project/workspace instructions, engine and
+vision decisions, resident/save decisions, manifests and locked versions.
+`Subsurface::step` removes aquifer water and increments cumulative `Well::recovered`;
+there is no bounded well stock, household inventory or collection commitment.
+Residents have persistent homes and checked routes, but only a social routine.
+The survey already queues drilling and pump-state commands through `SimState::step`.
+
+Adopted slice: explicit bounded well stock with extraction/outflow accounting,
+one water store per occupied dwelling, resident-owned collection reservations
+and carried water, and transactional pickup/delivery. Preserve the existing
+pumping rate and aquifer behavior; excess buffer inflow becomes an explicit
+external outflow. Add small fixed-time household use and shortage reporting,
+without health/death or a general economy. Reuse serial resident advancement,
+local navigation, inspector and shared native/headless save path. Cancelled
+collections release claims; carried water remains owned until delivered.
+Schema 4 will migrate V1–V3 without inventing water from historical recovery.
+Acceptance includes conservation, scarce-stock arbitration, cancellation/stopped
+wells, route failures, save continuation with cargo, and native interaction.
+
+Implemented checkpoint: bounded well supply, household stocks/use, reservations,
+pickup and delivery are authoritative in `sim_core`. Resource logistics and
+households change from absent to **partial** (water only); resident presentation
+now exposes cargo, supply and blocking reasons. Pumping and existing terrain,
+selection, placement and save behavior remain usable. Schema 4 supports staged
+V1–V3 migration; old recovery is accounted as historical outflow.
+`mise run ci` passes 206 tests with 14 optional tests ignored; build and native
+water/resident/world/interaction/save checks pass on Apple M4/Metal. CPU-only
+save continuation matches uninterrupted advancement with cargo in transit.
+No new platform or performance claim. Full jobs, health, production and social
+household models remain outside the slice. See [ownership and limits](household-water.md)
+and [checkpoint evidence](refactor-log.md).

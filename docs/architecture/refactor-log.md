@@ -838,3 +838,51 @@ milestone: persistent villagers with a visible, explainable routine.
 - Next small slice: one resource stock and one useful resident task, with explicit
   reservations, completion and cancellation. ECS remains optional until actual
   storage/query evidence justifies it.
+
+## 15 October 2026 — household water collection
+
+- Inspected project/workspace instructions, engine/vision and resident/save decisions;
+  traced `sim_core::{people,subsurface,runtime,save}`, storage and the app's session,
+  inspectors and picking. Clean starting point `203433b`; baseline `mise run ci`
+  passed 198 tests, 14 optional tests ignored. No baseline failure was found.
+- Wells recorded only cumulative recovery; residents had no stocks or useful task.
+  Added `sim_core/households.rs`, `people/water.rs` and `subsurface/supply.rs`:
+  bounded well/home stocks, deterministic task claims, carried water, pickup and
+  delivery. Existing extraction rates remain; excess buffer inflow is explicit
+  outflow. One dwelling owns its stock, one resident owns cargo, and reservations
+  derive from tasks. No ECS, dependency upgrade or renderer replacement.
+- Intentional gameplay change: residents replenish low household water and consume
+  small portions every 30 logical seconds. Shortages are inspectable without health
+  penalties. Cancelled/stopped/blocked outward trips release claims; blocked carriers
+  retain cargo and their delivery commitment. Existing social routines continue.
+  App inspectors and a visible container derive from this state; cancellation queues
+  an `Action`. New domain facts carry logical time and affected identities.
+- Schema 4 / rules 3 persist stock, use phase, cargo, routes and claims. Staged V1–V3
+  migration retains resident identities and routines, initializes empty home stock,
+  and records historical well recovery as released water. V1/V2 fixtures are intact;
+  the V3 fixture was captured with the prior executable before edits. Content and
+  generator versions are unchanged; earlier binaries cannot read new saves.
+- `mise run ci`: **206 tests pass**, 14 optional tests ignored; rustfmt and Clippy
+  with warnings denied pass. `mise run build` and `git diff --check` pass.
+  Tests cover conservation, overflow, six homes consuming delivered water, scarce
+  stock/shared-home claims, cancellation, stopped wells, changed passability, retained
+  cargo, migration, malformed commitments, encoded continuation, frame partitions,
+  inspector layout and queued UI cancellation. Initial fixture failures exposed
+  out-of-bounds inherited deposits and insufficient authored aquifer supply; those
+  fixture inputs were corrected without relaxing domain checks.
+- CPU-only `genesis-headless --scenario water`: save at tick 100 with 2 u in transit,
+  reload and advance 1700 ticks. The resulting full snapshot equals an uninterrupted
+  1800-tick run, excluding host-created world identity. All six homes consume water.
+  `cargo tree -p genesis-headless --edges normal` has no wgpu/winit/egui/Bevy closure.
+- Native `target/debug/genesis-app --water-test /private/tmp/genesis-water-final.png`
+  passes on Apple M4/Metal: drilling in coast seed 7319, pickup, picking, delivery
+  after a pump stop, and exact save continuation with the stop queued. Inspected the
+  capture: selected carrier, container and correct supply/cargo inspector. Existing
+  `--people-test`, `--world-test`, `--interaction-test`, `--save-test` all exit 0;
+  captures use `/private/tmp/genesis-water-{people,world,interaction,save}.png`.
+  Smoke saves are separate from the user slot. Other graphical hosts remain unverified.
+- No performance improvement is claimed; the existing bounded local routing and
+  small population remain the supported workload. Broader economy, health effects,
+  demolition and generalized job scheduling are absent. See [water ownership and
+  limits](household-water.md). Next small step: a settlement supply overview that
+  identifies homes lacking reachable water before introducing additional resources.

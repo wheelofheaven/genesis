@@ -15,6 +15,32 @@ pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
             upgrade_identities(save)?;
         }
         save.state.people = crate::people::People::default();
+        save.schema = 3;
+        save.rules = "genesis:rules/2".into();
+    }
+    if save.schema == 3 {
+        if save.rules != "genesis:rules/2"
+            || !save.state.households.is_missing()
+            || !save.state.people.legacy_water()
+            || save
+                .state
+                .subsurface
+                .wells
+                .iter()
+                .any(|w| w.supply.is_some())
+        {
+            return Err(SaveError(
+                "invalid V3 rules or unexpected water commitments".into(),
+            ));
+        }
+        save.state.households = crate::households::Households::default();
+        save.state.households.initialize(&save.state.people);
+        for well in &mut save.state.subsurface.wells {
+            well.supply = Some(crate::subsurface::supply::Supply {
+                released: well.recovered,
+                ..Default::default()
+            });
+        }
         save.schema = super::SCHEMA;
         save.rules = super::RULES.into();
     }

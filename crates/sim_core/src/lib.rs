@@ -4,6 +4,7 @@ pub mod config;
 pub mod ecology;
 pub mod events;
 pub mod grid;
+pub mod households;
 mod identity;
 pub mod paths;
 pub mod people;
@@ -38,6 +39,8 @@ pub struct SimState {
     pub paths: Vec<settlement::Path>,
     #[serde(default = "people::People::legacy_missing")]
     pub people: people::People,
+    #[serde(default = "households::Households::missing")]
+    pub households: households::Households,
     pub subsurface: subsurface::Subsurface,
     pub geography: worldgen::Geography,
     #[serde(default)]
@@ -67,6 +70,7 @@ impl SimState {
             buildings: Vec::new(),
             paths: Vec::new(),
             people: people::People::default(),
+            households: households::Households::default(),
         }
     }
 
@@ -78,6 +82,19 @@ impl SimState {
         // 1. Apply player actions.
         for action in actions {
             match action {
+                Action::CancelWaterTask { person } => {
+                    if self.people.cancel_water(*person) {
+                        events.push(SimEvent::WaterTaskCancelled {
+                            person: *person,
+                            time: self.time + f64::from(dt),
+                        });
+                    } else {
+                        events.push(SimEvent::WaterTaskCancelRejected {
+                            person: *person,
+                            time: self.time + f64::from(dt),
+                        });
+                    }
+                }
                 Action::Terraform {
                     x,
                     y,
@@ -224,6 +241,7 @@ impl SimState {
             events.push(SimEvent::BiosphereStabilized);
         }
 
+        self.households.advance(&self.people, dt);
         let mut people = std::mem::take(&mut self.people);
         people.advance(self, dt, &mut events);
         self.people = people;

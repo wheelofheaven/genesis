@@ -1,7 +1,11 @@
 //! Persistent residents and a modest outdoor routine, independent of presentation.
 mod navigation;
+mod water;
+pub use water::{WaterIssue, WaterTask};
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod water_tests;
 use crate::{
     SimState, events::SimEvent, identity::Allocator, paths::distance, spatial::Position,
     surface::walking, units::metres,
@@ -15,6 +19,8 @@ pub struct PersonId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Activity {
     Resting,
+    FetchingWater,
+    CarryingWater,
     GoingToMeeting,
     Visiting,
     ReturningHome,
@@ -22,6 +28,8 @@ pub enum Activity {
 impl Activity {
     pub fn label(self) -> &'static str {
         match self {
+            Self::FetchingWater => "Collecting household water",
+            Self::CarryingWater => "Carrying water home",
             Self::Resting => "Resting at home",
             Self::GoingToMeeting => "Walking to the meeting place",
             Self::Visiting => "Visiting the meeting place",
@@ -29,7 +37,10 @@ impl Activity {
         }
     }
     fn travelling(self) -> bool {
-        matches!(self, Self::GoingToMeeting | Self::ReturningHome)
+        matches!(
+            self,
+            Self::GoingToMeeting | Self::ReturningHome | Self::FetchingWater | Self::CarryingWater
+        )
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +68,12 @@ pub struct Person {
     pub meeting: Position,
     pub activity: Activity,
     pub blocked: Option<Blocked>,
+    #[serde(default)]
+    pub water_task: Option<WaterTask>,
+    #[serde(default)]
+    pub carried_water: f64,
+    #[serde(default)]
+    pub water_issue: Option<WaterIssue>,
     /// Remaining logical milliseconds until departure, return, or retry.
     remaining_ms: u64,
     /// Committed continuous route. Every movement still checks current terrain.
@@ -65,6 +82,11 @@ pub struct Person {
 }
 impl Person {
     pub fn destination(&self) -> Position {
+        if self.activity == Activity::FetchingWater
+            && let Some(task) = &self.water_task
+        {
+            return task.pickup;
+        }
         if matches!(self.activity, Activity::GoingToMeeting | Activity::Visiting) {
             self.meeting
         } else {
@@ -102,18 +124,28 @@ impl People {
         self.entries.iter().find(|p| p.id == id)
     }
 
-    pub(crate) fn advance(&mut self, sim: &SimState, dt: f32, events: &mut Vec<SimEvent>) {
+    pub(crate) fn advance(&mut self, sim: &mut SimState, dt: f32, events: &mut Vec<SimEvent>) {
         if !dt.is_finite() || dt <= 0. {
             return;
         }
         // The shared runtime supplies exactly 100 ms. Legacy direct callers use
         // rounded milliseconds; no host clock or render rate enters this routine.
         let ms = (f64::from(dt) * 1000.).round() as u64;
-        for p in &mut self.entries {
-            let before = (p.activity, p.blocked);
+        self.entries.sort_by_key(|p| p.id);
+        for index in 0..self.entries.len() {
+            let before = (self.entries[index].activity, self.entries[index].blocked);
+            let water_before = self.entries[index].water_issue;
+            self.prepare_water(index, sim, ms);
+            let p = &mut self.entries[index];
             if !sim.buildings.iter().any(|b| b.id == p.home) {
+                if p.water_task.is_some() {
+                    water::release(p, WaterIssue::RouteBlocked);
+                }
                 p.blocked = Some(Blocked::MissingHome);
             } else if !walking::standable(sim, p.position) {
+                if p.water_task.is_some() {
+                    water::release(p, WaterIssue::RouteBlocked);
+                }
                 p.blocked = Some(Blocked::UnsafeGround);
                 p.route.clear();
                 p.next = 0;
@@ -131,17 +163,19 @@ impl People {
                     }
                     if p.next == p.route.len() {
                         if distance(p.position, p.destination()) < metres(0.01) {
-                            p.activity = if p.activity == Activity::GoingToMeeting {
-                                Activity::Visiting
-                            } else {
-                                Activity::Resting
-                            };
-                            p.remaining_ms = if p.activity == Activity::Visiting {
-                                8000
-                            } else {
-                                12000
-                            };
-                            p.blocked = None;
+                            if !water::arrive(p, sim, events, sim.time + f64::from(dt)) {
+                                p.activity = if p.activity == Activity::GoingToMeeting {
+                                    Activity::Visiting
+                                } else {
+                                    Activity::Resting
+                                };
+                                p.remaining_ms = if p.activity == Activity::Visiting {
+                                    8000
+                                } else {
+                                    12000
+                                };
+                                p.blocked = None;
+                            }
                         } else if let Some(route) =
                             navigation::route(sim, p.position, p.destination())
                         {
@@ -149,6 +183,9 @@ impl People {
                             p.next = 0;
                             p.blocked = None;
                         } else {
+                            if p.water_task.is_some() {
+                                water::release(p, WaterIssue::RouteBlocked);
+                            }
                             p.blocked = Some(Blocked::NoLocalRoute);
                             p.remaining_ms = 2000;
                         }
@@ -164,6 +201,9 @@ impl People {
                         let reached = walking::advance(sim, p.position, next);
                         p.position = reached;
                         if distance(reached, next) > metres(0.001) {
+                            if p.water_task.is_some() {
+                                water::release(p, WaterIssue::RouteBlocked);
+                            }
                             p.route.clear();
                             p.next = 0;
                             p.remaining_ms = 2000;
@@ -178,6 +218,13 @@ impl People {
                 } else if !p.activity.travelling() {
                     p.blocked = None;
                 }
+            }
+            if water_before != p.water_issue {
+                events.push(SimEvent::WaterTaskStatusChanged {
+                    person: p.id,
+                    issue: p.water_issue,
+                    time: sim.time + f64::from(dt),
+                });
             }
             if before != (p.activity, p.blocked) {
                 events.push(SimEvent::PersonRoutineChanged {
@@ -199,7 +246,8 @@ impl People {
                 && p.z < sim.grid.height as f32
         };
         let mut ids = std::collections::BTreeSet::new();
-        self.entries.len() <= 10_000
+        self.water_valid(sim)
+            && self.entries.len() <= 10_000
             && self.entries.iter().map(|p| p.route.len()).sum::<usize>() <= 100_000
             && self.ids.covers(self.entries.iter().map(|p| p.id.0))
             && self.entries.iter().all(|p| {
@@ -279,9 +327,13 @@ pub(crate) fn populate(sim: &mut SimState) {
             meeting,
             activity: Activity::Resting,
             blocked: None,
+            water_task: None,
+            carried_water: 0.,
+            water_issue: None,
             remaining_ms: 1000 + i as u64 * 1000,
             route: Vec::new(),
             next: 0,
         });
     }
+    sim.households.initialize(&sim.people);
 }

@@ -2,7 +2,7 @@ use super::theme::*;
 use crate::{interaction::Object, session::Session};
 use genesis_sim_core::{paths, units::METRES_PER_UNIT};
 
-pub fn selection(ui: &mut egui::Ui, session: &Session) {
+pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
     let Some(object) = session.selected_object else {
         return;
     };
@@ -15,6 +15,28 @@ pub fn selection(ui: &mut egui::Ui, session: &Session) {
                 ui.label(format!("Home · dwelling {}", p.home));
                 ui.separator();
                 ui.label(p.activity.label());
+                if let Some(home) = session.sim.households.get(p.home) {
+                    ui.label(format!(
+                        "Household water · {:.1} / {:.0} u",
+                        home.stored,
+                        genesis_sim_core::households::CAPACITY
+                    ));
+                }
+                if let Some(task) = &p.water_task {
+                    ui.label(format!(
+                        "Well {} · {:.1} u {}",
+                        task.well,
+                        task.amount,
+                        if p.carried_water > 0. {
+                            "being carried"
+                        } else {
+                            "reserved"
+                        }
+                    ));
+                }
+                if let Some(issue) = p.water_issue {
+                    ui.colored_label(ERROR, issue.label());
+                }
                 let target = p.destination();
                 ui.label(format!(
                     "Destination · {:.1}, {:.1} m",
@@ -24,13 +46,39 @@ pub fn selection(ui: &mut egui::Ui, session: &Session) {
                 if let Some(reason) = p.blocked {
                     ui.colored_label(ERROR, reason.label());
                 }
+                let has_task = p.water_task.is_some();
+                let carrying = p.carried_water > 0.;
+                if has_task && !carrying && ui.button("Cancel collection").clicked() {
+                    session
+                        .queue(genesis_sim_core::actions::Action::CancelWaterTask { person: id });
+                }
                 muted(
                     ui,
-                    "F focuses this resident. The highlighted line is their current route.",
+                    "F focuses this resident. Highlighted lines show the current route.",
                 );
             }
         }
-        Object::Building(_) => {
+        Object::Building(id) => {
+            if let Some(home) = session.sim.households.get(id) {
+                ui.label(format!(
+                    "Household water · {:.1} / {:.0} u",
+                    home.stored,
+                    genesis_sim_core::households::CAPACITY
+                ));
+                ui.label(format!(
+                    "Used {:.1} u · missed portions {}",
+                    home.consumed, home.missed_portions
+                ));
+                if let Some(person) = session.sim.people.home_collector(id) {
+                    ui.label(format!("Resident {} is supplying this home", person.0));
+                } else if home.stored < genesis_sim_core::households::REFILL_BELOW {
+                    muted(
+                        ui,
+                        "Low water · residents look for a working well at their next departure.",
+                    );
+                }
+                ui.separator();
+            }
             muted(ui, "Dwelling · single storey");
             ui.separator();
             ui.label("6.5 × 4.8 m footprint");

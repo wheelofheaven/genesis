@@ -4,6 +4,31 @@ use serde::{Deserialize, Serialize};
 /// Used for expedition log, UI feedback, and debugging.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimEvent {
+    WaterTaskStatusChanged {
+        person: crate::people::PersonId,
+        issue: Option<crate::people::WaterIssue>,
+        time: f64,
+    },
+    WaterCollected {
+        person: crate::people::PersonId,
+        well: u64,
+        amount: f64,
+        time: f64,
+    },
+    WaterDelivered {
+        person: crate::people::PersonId,
+        home: u64,
+        amount: f64,
+        time: f64,
+    },
+    WaterTaskCancelled {
+        person: crate::people::PersonId,
+        time: f64,
+    },
+    WaterTaskCancelRejected {
+        person: crate::people::PersonId,
+        time: f64,
+    },
     PersonRoutineChanged {
         id: crate::people::PersonId,
         activity: crate::people::Activity,

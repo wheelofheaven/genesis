@@ -97,3 +97,22 @@ pub fn living_settlement() -> SimState {
     crate::people::populate(&mut sim);
     sim
 }
+
+/// Six homes and a working supply for headless logistics and native acceptance.
+pub fn water_settlement() -> SimState {
+    let mut sim = living_settlement();
+    sim.subsurface = crate::subsurface::Subsurface::coastal(&sim.grid, sim.sea_level);
+    // The compact fixture has no authored mineral bodies outside its bounds.
+    sim.subsurface.deposits.clear();
+    for column in &mut sim.subsurface.columns {
+        column.capacity = 120.;
+        column.stored = 120.;
+    }
+    sim.step(
+        0.,
+        &[crate::actions::Action::DrillWell {
+            position: crate::spatial::Position::new(8., 8.),
+        }],
+    );
+    sim
+}

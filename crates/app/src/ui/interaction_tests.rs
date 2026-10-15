@@ -37,12 +37,26 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
         egui::vec2(1120., 540.),
         egui::vec2(1280., 800.),
     ] {
-        for tool in 0..8 {
+        for tool in 0..10 {
             let ctx = egui::Context::default();
             theme::install(&ctx);
             let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
             if tool == 7 {
                 session = Session::from_sim(genesis_sim_core::scenarios::living_settlement());
+                session.selected_object = Some(crate::interaction::Object::Person(
+                    session.sim.people.all()[0].id,
+                ));
+            }
+            if tool >= 8 {
+                let mut state = if tool == 8 {
+                    genesis_sim_core::scenarios::water_settlement()
+                } else {
+                    genesis_sim_core::scenarios::living_settlement()
+                };
+                for _ in 0..20 {
+                    state.step(0.1, &[]);
+                }
+                session = Session::from_sim(state);
                 session.selected_object = Some(crate::interaction::Object::Person(
                     session.sim.people.all()[0].id,
                 ));
@@ -146,4 +160,59 @@ fn dock_switches_tools_and_menu_is_reachable() {
             assert_eq!(front.screen, crate::frontend::Screen::Pause);
         }
     }
+}
+
+#[test]
+fn collection_cancel_button_queues_a_validated_action() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::water_settlement();
+    for _ in 0..20 {
+        state.step(0.1, &[]);
+    }
+    let mut session = Session::from_sim(state);
+    let id = session.sim.people.all()[0].id;
+    session.select_object(
+        Some(crate::interaction::Object::Person(id)),
+        session.position,
+    );
+    let before = session.sim.people.get(id).unwrap().water_task.clone();
+    assert!(before.is_some());
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1100., 800.);
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (out, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    let position = out
+        .shapes
+        .iter()
+        .find_map(|s| text_position(&s.shape, "Cancel collection"))
+        .unwrap();
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(session.pending_count(), 1);
+    assert_eq!(session.sim.people.get(id).unwrap().water_task, before);
+    session.clock.paused = true;
+    session.step_once();
+    assert!(session.sim.people.get(id).unwrap().water_task.is_none());
+    assert_eq!(
+        session.sim.people.get(id).unwrap().water_issue,
+        Some(genesis_sim_core::people::WaterIssue::Cancelled)
+    );
 }

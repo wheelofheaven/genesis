@@ -1,5 +1,8 @@
 # Decision: typed residents and a first routine
 
+Historical first-resident checkpoint: [household water](household-water.md) now adds
+collection, delivery and periodic use through these stores. New saves use V4.
+
 Accepted 15 October 2026. This is the first individual-life slice, not an ECS
 migration or an economy. The existing Rust/wgpu engine and dependencies remain.
 

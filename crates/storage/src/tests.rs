@@ -417,3 +417,106 @@ fn resident_save_continuation_and_v2_compatibility() {
     missing["state"].as_object_mut().unwrap().remove("people");
     assert!(decode(&serde_json::to_vec(&missing).unwrap()).is_err());
 }
+
+#[test]
+fn v3_residents_migrate_without_inventing_water() {
+    let old: serde_json::Value =
+        serde_json::from_slice(include_bytes!("../fixtures/v3-residents.json")).unwrap();
+    let loaded = decode(include_bytes!("../fixtures/v3-residents.json")).unwrap();
+    assert_eq!(loaded.simulation.completed_ticks(), 35);
+    assert_eq!(loaded.simulation.people.all().len(), 6);
+    assert!(
+        loaded
+            .simulation
+            .households
+            .all()
+            .values()
+            .all(|h| h.stored == 0. && h.consumed == 0.)
+    );
+    let people: genesis_sim_core::people::People =
+        serde_json::from_value(old["state"]["people"].clone()).unwrap();
+    assert_eq!(loaded.simulation.people, people);
+    // Prior extraction is history, not new collectable stock.
+    let mut old_wells: serde_json::Value =
+        serde_json::from_slice(include_bytes!("../fixtures/v2-objects.json")).unwrap();
+    old_wells["state"]["subsurface"]["wells"][0]["recovered"] = serde_json::json!(123.);
+    let migrated = decode(&serde_json::to_vec(&old_wells).unwrap()).unwrap();
+    let supply = migrated.simulation.subsurface.wells[0]
+        .supply
+        .as_ref()
+        .unwrap();
+    assert_eq!(supply.stored, 0.);
+    assert_eq!(supply.released, 123.);
+}
+#[test]
+fn water_cargo_roundtrip_rejects_corrupt_commitments() {
+    let mut run = Simulation::new(scenarios::water_settlement());
+    for _ in 0..600 {
+        run.advance(&[]);
+        if run.people.all().iter().any(|p| p.carried_water > 0.) {
+            break;
+        }
+    }
+    let i = run
+        .people
+        .all()
+        .iter()
+        .position(|p| p.carried_water > 0.)
+        .unwrap();
+    let pending = [Action::SetWellActive {
+        id: 1,
+        active: false,
+    }];
+    let snapshot = Snapshot::capture(&run, "carried-water", &pending).unwrap();
+    let mut restored = decode(&encode(&snapshot).unwrap()).unwrap();
+    run.advance(&pending);
+    restored.simulation.advance(&restored.pending);
+    for _ in 0..500 {
+        run.advance(&[]);
+        restored.simulation.advance(&[]);
+    }
+    assert_eq!(
+        serde_json::to_vec(&*run).unwrap(),
+        serde_json::to_vec(&*restored.simulation).unwrap()
+    );
+    let good = serde_json::to_value(snapshot).unwrap();
+    for (pointer, value) in [
+        (
+            format!("/state/people/entries/{i}/carried_water"),
+            serde_json::json!(0.),
+        ),
+        (
+            format!("/state/people/entries/{i}/water_task/amount"),
+            serde_json::json!(100.),
+        ),
+        (
+            format!("/state/people/entries/{i}/water_task/well"),
+            serde_json::json!(999),
+        ),
+        (
+            "/state/subsurface/wells/0/supply/stored".into(),
+            serde_json::json!(100.),
+        ),
+        (
+            "/state/subsurface/wells/0/supply/collected".into(),
+            serde_json::json!(999.),
+        ),
+        (
+            "/state/households/elapsed_ms".into(),
+            serde_json::json!(30_000),
+        ),
+    ] {
+        let mut bad = good.clone();
+        *bad.pointer_mut(&pointer).unwrap() = value;
+        assert!(
+            decode(&serde_json::to_vec(&bad).unwrap()).is_err(),
+            "{pointer}"
+        );
+    }
+    let mut missing = good;
+    missing["state"]
+        .as_object_mut()
+        .unwrap()
+        .remove("households");
+    assert!(decode(&serde_json::to_vec(&missing).unwrap()).is_err());
+}

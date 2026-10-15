@@ -23,7 +23,7 @@ fn point(p: Position) -> bool {
 }
 
 pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
-    require(save.schema == SCHEMA, "unsupported schema (expected 3)")?;
+    require(save.schema == SCHEMA, "unsupported schema (expected 4)")?;
     require(save.rules == RULES, "incompatible simulation rules")?;
     require(
         save.content == CONTENT,
@@ -124,6 +124,7 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
                 .covers(s.subsurface.wells.iter().map(|w| w.id)),
         "identity allocation counters",
     )?;
+    require(s.households.valid(s), "household water stocks")?;
     require(s.people.valid(s), "resident identities, homes or routine")?;
     let mut ids = BTreeSet::new();
     for b in &s.buildings {
@@ -139,7 +140,11 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
                 && inside(well.position)
                 && well.recovered.is_finite()
                 && (0.0..=1e15).contains(&well.recovered)
-                && range(well.last_yield, 0., 1e6),
+                && range(well.last_yield, 0., 1e6)
+                && well
+                    .supply
+                    .as_ref()
+                    .is_some_and(|s| s.valid(well.recovered)),
             "well identity/quantities",
         )?;
     }
@@ -235,7 +240,7 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
             }
             Action::PlaceBuilding { position, rotation } => point(*position) && scalar(*rotation),
             Action::DrillWell { position } => point(*position),
-            Action::SetWellActive { .. } => true,
+            Action::SetWellActive { .. } | Action::CancelWaterTask { .. } => true,
             Action::BuildPath { waypoints, width } => {
                 points += waypoints.len();
                 scalar(*width) && waypoints.iter().copied().all(point)

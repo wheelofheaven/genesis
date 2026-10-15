@@ -172,6 +172,15 @@ impl Session {
         self.pending.clear();
         for event in events {
             match &event {
+                SimEvent::WaterTaskCancelled { .. } => {
+                    self.message =
+                        "Collection cancelled; resident returns home with any carried water".into();
+                    self.message_is_error = false;
+                }
+                SimEvent::WaterTaskCancelRejected { .. } => {
+                    self.message = "No current collection task for that resident".into();
+                    self.message_is_error = true;
+                }
                 SimEvent::TerrainChanged { bounds, .. } => {
                     self.record_terrain_change(Some(*bounds));
                     self.urgent_redraw = true;
@@ -613,22 +622,25 @@ mod resident_tests {
     use super::*;
     #[test]
     fn render_pacing_and_inspection_do_not_change_residents() {
-        let initial = genesis_sim_core::scenarios::living_settlement();
+        let initial = genesis_sim_core::scenarios::water_settlement();
         let mut a = Session::from_sim(initial.clone());
         let mut b = Session::from_sim(initial);
         let id = a.sim.people.all()[0].id;
         a.select_object(Some(crate::interaction::Object::Person(id)), a.position);
-        for _ in 0..1000 {
+        for _ in 0..6000 {
             a.advance(Duration::from_millis(10));
             let before = a.sim.people.clone();
             let _ = crate::scene::overlay(&a, None);
             assert_eq!(before, a.sim.people);
         }
-        for _ in 0..100 {
+        for _ in 0..600 {
             b.advance(Duration::from_millis(100));
         }
         assert_eq!(a.sim.completed_ticks(), b.sim.completed_ticks());
         assert_eq!(a.sim.people, b.sim.people);
+        assert_eq!(a.sim.households, b.sim.households);
+        assert_eq!(a.sim.subsurface.wells, b.sim.subsurface.wells);
+        assert!(a.sim.households.all().values().all(|h| h.consumed > 0.));
         assert_eq!(a.position, a.sim.people.get(id).unwrap().position);
     }
     #[test]

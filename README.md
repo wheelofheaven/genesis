@@ -24,8 +24,11 @@ inspection, terraforming, combined groundwater/mineral surveys, and working
 boreholes are playable. New settlements have up to six named residents who walk
 to a meeting place and return home. Click a resident to inspect their home,
 activity, destination and any blocked route; F focuses the selection. Figures are
-placeholders; needs, jobs, historical scenarios and the final art pipeline remain
-next-stage work. See [resident behavior](docs/architecture/residents.md).
+placeholders. Residents now collect water from working nearby wells and deliver it
+to household stocks, which supply periodic water use. Inspect a home or resident
+for stock and task status; use Survey/Hydrology to drill and control wells.
+Further needs, jobs, historical scenarios and the final art pipeline remain future
+work. See [household water](docs/architecture/household-water.md).
 
 ## Run
 
@@ -53,12 +56,13 @@ Choose **Begin expedition** from the orbital title screen:
 
 Settlement is the primary mode. The secondary **World Builder sandbox** link on
 the main menu uses the same expedition flow with uninhabited terrain. These modes
-currently provide different starting conditions and shared tools; workers,
-households, production chains, and expedition logistics remain future systems.
+provide different starting conditions and shared tools. Settlement residents
+collect water for their homes; broader household relationships, production chains,
+and expedition logistics remain future systems.
 
 **Menu** (or **Escape** after closing a tool) suspends world time. Return to the
-main menu and choose **Continue expedition** to resume the same session. Saving
-sessions is not implemented yet; continuing works only while the app stays open.
+main menu and choose **Continue expedition** to resume the same live session.
+Use **F5** to save the world and **F9** to load it across application sessions.
 Replacing a session or quitting asks for confirmation.
 
 **Settings** provides fullscreen, interface scale, a 30/60/120 frame limit, camera
@@ -116,9 +120,10 @@ the saved tick. On macOS the slot is
 `~/Library/Application Support/Genesis/world.json`, with the previous valid save
 at `world.json.bak`. Loading resets camera/selection and preserves the active world
 if validation fails. Saves are synchronous; the current main-menu Continue button
-still resumes the live session. New saves use schema v3 with durable object IDs and resident routines;
-v1/v2 worlds migrate on load and retain their original empty population. See [identity and compatibility](docs/architecture/durable-identity.md)
-and [resident saves](docs/architecture/residents.md), plus [save recovery](docs/architecture/saves-v1.md).
+still resumes the live session. New saves use schema v4 with resident routines, household water and collection tasks;
+v1–v3 worlds migrate on load. Existing populations are retained; initial household
+stocks are empty and historical well recovery does not become collectable water. See [identity and compatibility](docs/architecture/durable-identity.md)
+and [water saves](docs/architecture/household-water.md), plus [save recovery](docs/architecture/saves-v1.md).
 
 ## Development
 
@@ -376,8 +381,8 @@ The first model has independent storage columns, prescribed rainfall-based recha
 permeability-dependent extraction rate. Bilinear sampling provides continuous
 readings within the surveyed patch. Aquifer and deposit elevations stay fixed
 when the surface is terraformed. Lateral groundwater flow, confined pressure,
-weather-driven recharge, excavation, mineral extraction, and household water
-consumption are not implemented. Exposed formations do not yet discharge water.
+weather-driven recharge, excavation, and mineral extraction are not implemented.
+Exposed formations do not yet discharge water.
 
 ## Architecture
 
