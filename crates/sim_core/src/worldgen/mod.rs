@@ -111,6 +111,9 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
         settlement::seed(&mut sim);
     }
     sim.geography.cover = cover::generate(&sim);
+    if inhabited {
+        crate::people::populate(&mut sim);
+    }
     sim
 }
 

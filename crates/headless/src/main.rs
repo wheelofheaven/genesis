@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{error::Error, path::PathBuf};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture is authored (seed 42); --seed is not accepted for it.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
+const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture and settlement are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
 
 struct Options {
     scenario: String,
@@ -52,11 +52,14 @@ impl Options {
         }
         if !matches!(
             options.scenario.as_str(),
-            "coast" | "highlands" | "island" | "fixture"
+            "coast" | "highlands" | "island" | "fixture" | "settlement"
         ) {
-            return Err("--scenario must be coast, highlands, island, or fixture".into());
+            return Err(
+                "--scenario must be coast, highlands, island, fixture, or settlement".into(),
+            );
         }
-        if options.scenario == "fixture" && seen.contains("--seed") {
+        if matches!(options.scenario.as_str(), "fixture" | "settlement") && seen.contains("--seed")
+        {
             return Err(
                 "fixture is authored with seed 42; --seed requires a generated scenario".into(),
             );
@@ -81,6 +84,7 @@ struct Metrics<'a> {
     rejected_commands: u64,
     cells: usize,
     buildings: usize,
+    people: &'a [genesis_sim_core::people::Person],
     paths: usize,
     wells: usize,
     aquifer_stored: f64,
@@ -115,6 +119,7 @@ fn run(options: Options) -> Result<()> {
         None => {
             let state = match options.scenario.as_str() {
                 "fixture" => scenarios::coastal_outpost(),
+                "settlement" => scenarios::living_settlement(),
                 "highlands" => {
                     worldgen::generate_region(options.seed, worldgen::Region::LevantHighlands)
                 }
@@ -167,6 +172,7 @@ fn run(options: Options) -> Result<()> {
         rejected_commands,
         cells: sim.grid.cells().len(),
         buildings: sim.buildings.len(),
+        people: sim.people.all(),
         paths: sim.paths.len(),
         wells: sim.subsurface.wells.len(),
         aquifer_stored: sim

@@ -6,6 +6,7 @@ pub mod events;
 pub mod grid;
 mod identity;
 pub mod paths;
+pub mod people;
 pub mod rules;
 pub mod runtime;
 pub mod save;
@@ -35,6 +36,8 @@ pub struct SimState {
     pub research_points: f32,
     pub buildings: Vec<settlement::Building>,
     pub paths: Vec<settlement::Path>,
+    #[serde(default = "people::People::legacy_missing")]
+    pub people: people::People,
     pub subsurface: subsurface::Subsurface,
     pub geography: worldgen::Geography,
     #[serde(default)]
@@ -63,6 +66,7 @@ impl SimState {
             research_points: 0.0,
             buildings: Vec::new(),
             paths: Vec::new(),
+            people: people::People::default(),
         }
     }
 
@@ -219,6 +223,10 @@ impl SimState {
         if self.stability_score >= 0.8 {
             events.push(SimEvent::BiosphereStabilized);
         }
+
+        let mut people = std::mem::take(&mut self.people);
+        people.advance(self, dt, &mut events);
+        self.people = people;
 
         // 8. Advance time.
         self.time += dt as f64;

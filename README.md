@@ -21,8 +21,11 @@ The custom application generates seeded coastal and inland regions with
 irregular shores, mountain ridges, drainage networks, woodland patches, and exposed
 rock. Six freely positioned dwellings seek suitable terrain near water. Terrain
 inspection, terraforming, combined groundwater/mineral surveys, and working
-boreholes are playable. Individual people, historical scenarios, and the final
-illustrated art pipeline remain next-stage work.
+boreholes are playable. New settlements have up to six named residents who walk
+to a meeting place and return home. Click a resident to inspect their home,
+activity, destination and any blocked route; F focuses the selection. Figures are
+placeholders; needs, jobs, historical scenarios and the final art pipeline remain
+next-stage work. See [resident behavior](docs/architecture/residents.md).
 
 ## Run
 
@@ -113,9 +116,9 @@ the saved tick. On macOS the slot is
 `~/Library/Application Support/Genesis/world.json`, with the previous valid save
 at `world.json.bak`. Loading resets camera/selection and preserves the active world
 if validation fails. Saves are synchronous; the current main-menu Continue button
-still resumes the live session. New saves use schema v2 with durable object IDs;
-v1 worlds migrate on load. See [identity and compatibility](docs/architecture/durable-identity.md)
-and [save recovery](docs/architecture/saves-v1.md).
+still resumes the live session. New saves use schema v3 with durable object IDs and resident routines;
+v1/v2 worlds migrate on load and retain their original empty population. See [identity and compatibility](docs/architecture/durable-identity.md)
+and [resident saves](docs/architecture/residents.md), plus [save recovery](docs/architecture/saves-v1.md).
 
 ## Development
 

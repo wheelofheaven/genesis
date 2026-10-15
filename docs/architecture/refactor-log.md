@@ -794,3 +794,47 @@ other hosts and device-loss recovery remain unverified. River invalidation still
 rebuilds the whole network when touched; the new stage breakdown makes remaining
 costs explicit. Further performance work is separable from the next playable
 milestone: persistent villagers with a visible, explainable routine.
+
+## 15 October 2026 — first persistent residents
+
+- Inspected the applicable workspace/project instructions and engine/vision decisions;
+  traced `sim_core::{runtime,identity,save,worldgen,surface::walking}` and the app's
+  session, extraction, picking, inspector and native checks. Clean starting point
+  `b636c63`; baseline `mise run ci` passed 190 tests, 14 optional tests ignored.
+- Found no resident store or routine to preserve. Reused typed persistent allocation,
+  fixed advancement and physical walking rules. Added `people.rs` and bounded local
+  navigation, a compact inhabited fixture and new-scenario population. No ECS,
+  dependency upgrade, scheduler replacement or new engine package.
+- App figures, interpolation, picking, selection and inspection derive from committed
+  residents; GPU ownership remains unchanged. Six people in default coast seed 7319
+  walk between outdoor home thresholds and meeting spots. New HUD count and activity
+  explanations make this behavior inspectable. This intentionally adds people to new
+  Settlement worlds; old worlds and World Builder remain unpopulated.
+- Schema 3 / rules 2 persist identities, homes, positions, committed routes and timers.
+  Staged V1/V2 migration preserves the old worlds with empty resident stores. V1
+  fixtures remain unchanged; added a V2 fixture. Malformed resident records fail
+  validation. Native recovery/write behavior and content version remain unchanged.
+- `mise run ci`: **198 tests pass**, 14 optional tests ignored; rustfmt and Clippy
+  with warnings denied pass. `mise run build` passes. New checks cover complete
+  routines, stable references under repacking, terrain/route blocking, deterministic
+  snapshot and encoded save continuation, different frame partitions, presentation
+  immutability, interpolation/picking and world replacement. Existing HUD layout
+  checks now include the resident inspector at all supported sizes.
+- CPU-only `--scenario settlement`: save at tick 35, reload and advance 1165 ticks
+  produces the exact serialized state of an uninterrupted 1200-tick run (excluding
+  host-generated world identity). Default coast also ran 1200 ticks with all six
+  residents unblocked at the final boundary. `cargo tree -p genesis-headless --edges
+  normal` contains no wgpu, winit, egui or Bevy dependency.
+- Native Apple M4/Metal checks pass: `--people-test`, `--world-test`,
+  `--interaction-test`, `--save-test`, with captures under `/private/tmp/genesis-people-*`.
+  Inspected the resident capture: visible figures, correct selection ring, home,
+  activity and destination. New smoke saves use capture siblings, never the user's
+  normal save slot. Non-macOS graphical/lifecycle paths remain unverified.
+- No performance improvement is claimed. Existing extraction benchmarks explicitly
+  retain their original zero-person workload. This slice supports a small initial
+  population; figures are placeholders without skeletal animation or citizen
+  shadow casters. Local routing and lack of person-to-person avoidance are recorded
+  limitations, not a population-scale claim. See [resident decision](residents.md).
+- Next small slice: one resource stock and one useful resident task, with explicit
+  reservations, completion and cancellation. ECS remains optional until actual
+  storage/query evidence justifies it.

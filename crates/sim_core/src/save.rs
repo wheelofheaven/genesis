@@ -6,12 +6,12 @@ use crate::{SimState, actions::Action, runtime::Simulation};
 use serde::{Deserialize, Serialize};
 
 /// Initial native save contract; incompatible future rules must bump metadata.
-pub const SCHEMA: u32 = 2;
-pub const RULES: &str = "genesis:rules/1";
+pub const SCHEMA: u32 = 3;
+pub const RULES: &str = "genesis:rules/2";
 pub const CONTENT: &str = "genesis:builtin/1";
 
 /// Materialized world state with persistent per-domain identity allocators.
-/// V1 append-only identities migrate on restore; captures always use V2.
+/// V1 append-only identities migrate on restore; captures always use V3.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {

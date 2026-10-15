@@ -2,6 +2,25 @@ use super::{SaveError, Snapshot};
 use crate::identity::Allocator;
 
 pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
+    if matches!(save.schema, 1 | 2) {
+        if save.rules != "genesis:rules/1"
+            || (save.state.people != crate::people::People::default()
+                && save.state.people != crate::people::People::legacy_missing())
+        {
+            return Err(SaveError(
+                "invalid legacy rules or unexpected population".into(),
+            ));
+        }
+        if save.schema == 1 {
+            upgrade_identities(save)?;
+        }
+        save.state.people = crate::people::People::default();
+        save.schema = super::SCHEMA;
+        save.rules = super::RULES.into();
+    }
+    Ok(())
+}
+fn upgrade_identities(save: &mut Snapshot) -> Result<(), SaveError> {
     if save.schema != 1 {
         return Ok(()); // Validation reports unsupported versions.
     }
@@ -33,6 +52,6 @@ pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
     for (i, path) in s.paths.iter_mut().enumerate() {
         path.id = i as u64 + 1;
     }
-    save.schema = super::SCHEMA;
+    save.schema = 2;
     Ok(())
 }

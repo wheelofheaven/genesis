@@ -8,7 +8,9 @@ use serde_json::json;
 use std::{collections::BTreeMap, path::Path, time::Instant};
 
 pub fn run(path: &Path, full_rebuild: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let initial = worldgen::generate(worldgen::DEFAULT_SEED);
+    let mut initial = worldgen::generate(worldgen::DEFAULT_SEED);
+    // Preserve the original unpopulated rendering benchmark workload.
+    initial.people = Default::default();
     let site = initial
         .buildings
         .first()

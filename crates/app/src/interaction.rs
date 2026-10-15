@@ -4,12 +4,14 @@ use glam::Vec3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Object {
+    Person(genesis_sim_core::people::PersonId),
     Building(u64),
     Path(u64),
 }
 impl Object {
     pub fn label(self) -> String {
         match self {
+            Self::Person(id) => format!("Resident {}", id.0),
             Self::Building(id) => format!("Dwelling {id}"),
             Self::Path(id) => format!("Footpath {id}"),
         }
@@ -17,7 +19,17 @@ impl Object {
 }
 /// Intersect visible building triangles before the terrain hit. This also works
 /// when aiming at a wall or roof from human eye height with sky behind it.
+#[cfg(test)]
 pub fn pick(sim: &SimState, origin: Vec3, dir: Vec3, ground: Option<Vec3>) -> Option<Object> {
+    pick_at(sim, origin, dir, ground, |p| p.position)
+}
+pub fn pick_at(
+    sim: &SimState,
+    origin: Vec3,
+    dir: Vec3,
+    ground: Option<Vec3>,
+    position: impl Fn(&genesis_sim_core::people::Person) -> Position,
+) -> Option<Object> {
     let mut limit = ground.map_or(f32::INFINITY, |p| (p - origin).dot(dir) + metres(0.08));
     let mut hit = None;
     let mut mesh = Vec::new();
@@ -40,6 +52,21 @@ pub fn pick(sim: &SimState, origin: Vec3, dir: Vec3, ground: Option<Vec3>) -> Op
             {
                 limit = t;
                 hit = Some(Object::Building(b.id));
+            }
+        }
+    }
+    for p in sim.people.all() {
+        mesh.clear();
+        crate::residents::mesh(sim, &mut mesh, p, position(p));
+        for tri in mesh.chunks_exact(3) {
+            if let Some(t) = crate::terrain::intersect(
+                origin,
+                dir,
+                std::array::from_fn(|i| Vec3::from_array(tri[i].position)),
+            ) && t < limit
+            {
+                limit = t;
+                hit = Some(Object::Person(p.id));
             }
         }
     }

@@ -36,6 +36,7 @@ pub fn paint(ctx: &egui::Context, session: &Session, world: bool) -> bool {
             Some(crate::ui::icons::Icon::Path)
         } else {
             session.hovered_object.map(|o| match o {
+                Object::Person(_) => crate::ui::icons::Icon::Person,
                 Object::Building(_) => crate::ui::icons::Icon::House,
                 Object::Path(_) => crate::ui::icons::Icon::Path,
             })

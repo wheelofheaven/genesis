@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 /// Used for expedition log, UI feedback, and debugging.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimEvent {
+    PersonRoutineChanged {
+        id: crate::people::PersonId,
+        activity: crate::people::Activity,
+        blocked: Option<crate::people::Blocked>,
+        time: f64,
+    },
     TerrainChanged {
         x: i32,
         y: i32,

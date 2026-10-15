@@ -37,10 +37,16 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
         egui::vec2(1120., 540.),
         egui::vec2(1280., 800.),
     ] {
-        for tool in 0..7 {
+        for tool in 0..8 {
             let ctx = egui::Context::default();
             theme::install(&ctx);
             let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
+            if tool == 7 {
+                session = Session::from_sim(genesis_sim_core::scenarios::living_settlement());
+                session.selected_object = Some(crate::interaction::Object::Person(
+                    session.sim.people.all()[0].id,
+                ));
+            }
             session.path.active = tool == 5;
             if tool == 6 {
                 session.selected_object = Some(crate::interaction::Object::Building(1));

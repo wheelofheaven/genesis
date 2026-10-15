@@ -18,6 +18,39 @@ pub fn object(
         [0.58, 0.91, 0.88]
     };
     match object {
+        Object::Person(id) => {
+            if let Some(person) = sim.people.get(id) {
+                let p = session.person_position(person);
+                let ring: Vec<_> = (0..=32)
+                    .map(|i| {
+                        let a = i as f32 * std::f32::consts::TAU / 32.;
+                        Position::new(p.x + a.cos() * metres(0.65), p.z + a.sin() * metres(0.65))
+                    })
+                    .collect();
+                scene::highlight(
+                    sim,
+                    cache,
+                    out,
+                    &ring,
+                    metres(0.08),
+                    color,
+                    session.survey.seafloor,
+                );
+                if selected && !person.route().is_empty() {
+                    let mut route = vec![p];
+                    route.extend_from_slice(person.route());
+                    scene::highlight(
+                        sim,
+                        cache,
+                        out,
+                        &route,
+                        metres(0.08),
+                        color,
+                        session.survey.seafloor,
+                    );
+                }
+            }
+        }
         Object::Building(id) => {
             let Some(b) = sim.buildings.iter().find(|b| b.id == id) else {
                 return;

@@ -199,7 +199,7 @@ fn v1_object_migration_preserves_references_and_allocation_after_removal() {
     assert!(old.simulation.subsurface.wells[0].active);
     assert!(!old.simulation.subsurface.wells[1].active);
     let mut saved = Snapshot::capture(&old.simulation, &old.world_id, &[]).unwrap();
-    assert_eq!(saved.schema, 2);
+    assert_eq!(saved.schema, genesis_sim_core::save::SCHEMA);
     saved.state.buildings.reverse();
     saved.state.subsurface.wells.reverse();
     let reordered = decode(&encode(&saved).unwrap()).unwrap();
@@ -251,7 +251,7 @@ fn v1_object_migration_preserves_references_and_allocation_after_removal() {
 fn corrupt_identity_metadata_is_rejected_without_guessing() {
     let good = serde_json::to_value(snapshot()).unwrap();
     for (pointer, value) in [
-        ("/schema", serde_json::json!(3)),
+        ("/schema", serde_json::json!(999)),
         ("/state/building_ids", serde_json::json!(1)),
         ("/state/path_ids", serde_json::json!(0)),
         ("/state/subsurface/well_ids", serde_json::json!(0)),
@@ -372,4 +372,48 @@ fn pending_seed_brushes_preserve_saved_coverage_and_exact_continuation() {
         );
         assert_eq!(run.completed_ticks(), loaded.simulation.completed_ticks());
     }
+}
+
+#[test]
+fn resident_save_continuation_and_v2_compatibility() {
+    let old = decode(include_bytes!("../fixtures/v2-objects.json")).unwrap();
+    assert!(old.simulation.people.all().is_empty());
+    assert_eq!(old.simulation.buildings[0].id, 1);
+    let mut a = Simulation::new(genesis_sim_core::scenarios::living_settlement());
+    for _ in 0..35 {
+        a.advance(&[]);
+    }
+    let saved = Snapshot::capture(&a, "living", &[]).unwrap();
+    let bytes = encode(&saved).unwrap();
+    let mut b = decode(&bytes).unwrap().simulation;
+    for _ in 0..600 {
+        a.advance(&[]);
+        b.advance(&[]);
+    }
+    assert_eq!(
+        serde_json::to_vec(&*a).unwrap(),
+        serde_json::to_vec(&*b).unwrap()
+    );
+    let good = serde_json::to_value(saved).unwrap();
+    for (pointer, value) in [
+        ("/state/people/entries/0/home", serde_json::json!(999)),
+        ("/state/people/entries/0/id", serde_json::json!(2)),
+        ("/state/people/entries/0/next", serde_json::json!(99999)),
+        (
+            "/state/people/entries/0/remaining_ms",
+            serde_json::json!(99999),
+        ),
+        ("/state/people/ids", serde_json::json!(1)),
+        ("/schema", serde_json::json!(2)),
+    ] {
+        let mut bad = good.clone();
+        *bad.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            decode(&serde_json::to_vec(&bad).unwrap()).is_err(),
+            "{pointer}"
+        );
+    }
+    let mut missing = good;
+    missing["state"].as_object_mut().unwrap().remove("people");
+    assert!(decode(&serde_json::to_vec(&missing).unwrap()).is_err());
 }

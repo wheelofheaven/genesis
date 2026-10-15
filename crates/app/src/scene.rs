@@ -97,6 +97,7 @@ pub fn overlay(session: &Session, cache: Option<&terrain::Cache>) -> Vec<Vertex>
     let sim = &session.sim;
     let mut out = Vec::new();
     if session.placing && session.hover.is_none() {
+        residents(session, &mut out);
         return out;
     }
     if session.placing {
@@ -174,7 +175,14 @@ pub fn overlay(session: &Session, cache: Option<&terrain::Cache>) -> Vec<Vertex>
             crate::selection::object(session, cache, &mut out, object, false);
         }
     }
+    residents(session, &mut out);
     out
+}
+
+fn residents(session: &Session, out: &mut Vec<Vertex>) {
+    for p in session.sim.people.all() {
+        crate::residents::mesh(&session.sim, out, p, session.person_position(p));
+    }
 }
 
 #[cfg(test)]

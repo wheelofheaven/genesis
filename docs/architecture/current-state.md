@@ -426,3 +426,32 @@ world/interaction/save checks pass. See the [checkpoint report](refactor-log.md)
 and [stage timings and limitations](terrain-edit-performance.md). The scratch
 cache is bounded and discarded per extraction; broader incremental river work
 and a frame-budget editing guarantee are not claimed.
+
+## First residents audit — 15 October 2026
+
+Starting from clean `b636c63`; baseline `mise run ci` passes (190 tests,
+14 optional tests ignored). The authoritative `SimState`/`Simulation` already
+supports the client and CPU-only runner. `identity.rs` provides persistent
+allocators; `surface/walking.rs` supplies continuous obstacle and slope queries.
+There are dwellings and paths but no represented humans, needs, jobs or economy.
+No ECS replacement is justified by these stores.
+
+Adopted slice: a bounded initial population with typed persistent IDs, home
+references, continuous positions and a home/meeting/rest routine. Navigation is
+local, deterministic and bounded; movement checks current passability. The app
+adds disposable figures, picking and an activity inspector. Existing landscape,
+placement, camera, water and save behavior remain acceptance gates. Schema 3
+will preserve routine commitments and migrate schemas 1/2 with zero residents;
+loading an old save must not silently introduce a population. The existing
+unpopulated extraction benchmark remains explicitly unpopulated. No performance,
+full economy, skeletal animation or large-population capability is claimed.
+
+Implemented checkpoint: the default new settlement has six persistent residents
+with a home/meeting/rest routine, derived figures and an activity inspector.
+CI now passes 198 tests; headless save continuation and native resident/world/
+interaction/save checks pass. Schema 3 loads V1/V2 worlds without adding people.
+The existing camera, terrain, paths, water, boreholes and native save paths remain
+usable; the people ledger changes from absent to **partial** (routine only).
+Needs, jobs, inventories, households, skeletal animation and other platforms remain
+outside this checkpoint. See [the decision and limits](residents.md) and
+[checkpoint evidence](refactor-log.md).

@@ -71,3 +71,29 @@ pub fn coastal_outpost() -> SimState {
     }
     state
 }
+
+/// Compact inhabited fixture; existing ecological fixture remains unpopulated.
+pub fn living_settlement() -> SimState {
+    let mut sim = SimState::new(crate::config::SimConfig {
+        width: 16,
+        height: 16,
+        seed: 42,
+        ..Default::default()
+    });
+    for c in sim.grid.cells_mut() {
+        c.elevation = 1.;
+    }
+    for z in [7.6, 8.4] {
+        for x in [7.5, 8., 8.5] {
+            sim.step(
+                0.,
+                &[crate::actions::Action::PlaceBuilding {
+                    position: crate::spatial::Position::new(x, z),
+                    rotation: if z < 8. { 0. } else { std::f32::consts::PI },
+                }],
+            );
+        }
+    }
+    crate::people::populate(&mut sim);
+    sim
+}

@@ -9,6 +9,7 @@ use std::{collections::VecDeque, time::Duration};
 pub struct Session {
     pub mode: crate::frontend::Mode,
     pub sim: Simulation,
+    previous_people: std::collections::BTreeMap<genesis_sim_core::people::PersonId, Position>,
     pub world_id: String,
     pub clock: Clock,
     pub selected: (i32, i32),
@@ -55,6 +56,7 @@ impl Session {
             mode: crate::frontend::Mode::Settlement,
             region_choice,
             sim,
+            previous_people: Default::default(),
             world_id: genesis_storage::new_world_id(),
             clock: Clock::default(),
             selected: (position.x.round() as i32, position.z.round() as i32),
@@ -130,6 +132,9 @@ impl Session {
         self.pending.len()
     }
     pub fn advance(&mut self, elapsed: Duration) {
+        if self.clock.paused {
+            self.previous_people.clear();
+        }
         for _ in 0..self.clock.advance(elapsed) {
             self.tick();
         }
@@ -139,7 +144,26 @@ impl Session {
             self.tick();
         }
     }
+    pub fn person_position(&self, person: &genesis_sim_core::people::Person) -> Position {
+        let previous = self
+            .previous_people
+            .get(&person.id)
+            .copied()
+            .unwrap_or(person.position);
+        let t = self.clock.interpolation();
+        Position::new(
+            previous.x + (person.position.x - previous.x) * t,
+            previous.z + (person.position.z - previous.z) * t,
+        )
+    }
     fn tick(&mut self) {
+        self.previous_people = self
+            .sim
+            .people
+            .all()
+            .iter()
+            .map(|p| (p.id, p.position))
+            .collect();
         self.urgent_redraw |= self
             .pending
             .iter()
@@ -209,6 +233,12 @@ impl Session {
                 self.events.pop_front();
             }
             self.events.push_back(event);
+        }
+        if let Some(crate::interaction::Object::Person(id)) = self.selected_object
+            && let Some(p) = self.sim.people.get(id)
+        {
+            self.position = p.position;
+            self.selected = (p.position.x.round() as i32, p.position.z.round() as i32);
         }
         self.dirty = true;
         self.overlay_dirty = true;
@@ -302,6 +332,7 @@ impl Session {
     pub fn select_object(&mut self, object: Option<crate::interaction::Object>, ground: Position) {
         use crate::interaction::Object;
         let p = match object {
+            Some(Object::Person(id)) => self.sim.people.get(id).map(|p| p.position),
             Some(Object::Building(id)) => self
                 .sim
                 .buildings
@@ -576,3 +607,57 @@ mod tests {
 
 #[cfg(test)]
 mod terrain_changes;
+
+#[cfg(test)]
+mod resident_tests {
+    use super::*;
+    #[test]
+    fn render_pacing_and_inspection_do_not_change_residents() {
+        let initial = genesis_sim_core::scenarios::living_settlement();
+        let mut a = Session::from_sim(initial.clone());
+        let mut b = Session::from_sim(initial);
+        let id = a.sim.people.all()[0].id;
+        a.select_object(Some(crate::interaction::Object::Person(id)), a.position);
+        for _ in 0..1000 {
+            a.advance(Duration::from_millis(10));
+            let before = a.sim.people.clone();
+            let _ = crate::scene::overlay(&a, None);
+            assert_eq!(before, a.sim.people);
+        }
+        for _ in 0..100 {
+            b.advance(Duration::from_millis(100));
+        }
+        assert_eq!(a.sim.completed_ticks(), b.sim.completed_ticks());
+        assert_eq!(a.sim.people, b.sim.people);
+        assert_eq!(a.position, a.sim.people.get(id).unwrap().position);
+    }
+    #[test]
+    fn interpolation_picking_and_world_replacement_share_current_identity() {
+        let mut s = Session::from_sim(genesis_sim_core::scenarios::living_settlement());
+        for _ in 0..20 {
+            s.advance(Duration::from_millis(100));
+        }
+        s.advance(Duration::from_millis(50));
+        let p = &s.sim.people.all()[0];
+        let displayed = s.person_position(p);
+        let target = crate::terrain::surface_point(&s.sim, displayed)
+            + glam::Vec3::Y * genesis_sim_core::units::metres(1.1);
+        let hit = crate::interaction::pick_at(
+            &s.sim,
+            target + glam::Vec3::Y,
+            -glam::Vec3::Y,
+            None,
+            |p| s.person_position(p),
+        );
+        assert_eq!(hit, Some(crate::interaction::Object::Person(p.id)));
+        s.clock.paused = true;
+        s.advance(Duration::from_millis(50));
+        assert_eq!(
+            s.person_position(&s.sim.people.all()[0]),
+            s.sim.people.all()[0].position
+        );
+        s.replace_sim(genesis_sim_core::scenarios::living_settlement());
+        assert!(s.previous_people.is_empty());
+        assert!(s.selected_object.is_none());
+    }
+}

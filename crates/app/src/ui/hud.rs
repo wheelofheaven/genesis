@@ -32,6 +32,7 @@ pub fn identity(ctx: &egui::Context, session: &Session) -> egui::Rect {
                     ui.spacing_mut().interact_size.y = 20.;
                     for (icon, count, label) in [
                         (Icon::House, session.sim.buildings.len(), "Dwellings"),
+                        (Icon::Person, session.sim.people.all().len(), "Residents"),
                         (Icon::Water, session.sim.subsurface.wells.len(), "Boreholes"),
                     ] {
                         let (rect, response) =

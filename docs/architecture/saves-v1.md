@@ -2,7 +2,8 @@
 
 Accepted 12 October 2026, after the fixed-tick runtime checkpoint.
 
-Historical V1 contract: new saves now use [V2 durable identities](durable-identity.md).
+Historical V1 contract: new saves now use [V3 resident saves](residents.md),
+building on [V2 durable identities](durable-identity.md).
 V1 files remain supported through staged migration; the original format below
 records the assumptions that migration validates.
 

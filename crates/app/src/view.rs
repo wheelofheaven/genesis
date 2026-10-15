@@ -301,7 +301,9 @@ impl View {
             }
             v
         });
-        crate::interaction::pick(&session.sim, origin, dir, ground)
+        crate::interaction::pick_at(&session.sim, origin, dir, ground, |p| {
+            session.person_position(p)
+        })
     }
     /// Native smoke tests also feed egui: macOS cursor warps need not emit movement.
     pub fn test_pointer(&mut self, cursor: glam::Vec2) {
@@ -468,7 +470,7 @@ impl View {
             }
             self.scenery_camera = Some(matrix);
         }
-        if session.overlay_dirty {
+        if session.overlay_dirty || !session.sim.people.all().is_empty() {
             self.gpu.upload_overlay(&scene::overlay(
                 session,
                 self.terrain_cache.as_ref().map(|(_, cache)| cache.as_ref()),

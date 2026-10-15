@@ -9,8 +9,8 @@ mise exec -- cargo run -p genesis-headless -- --scenario fixture --ticks 100 --c
 mise exec -- cargo tree -p genesis-headless --edges normal
 ```
 
-`--scenario` accepts `coast` (default), `highlands`, `island`, or `fixture`.
-Generated scenarios default to seed 7319; the authored coastal fixture uses seed 42 and rejects `--seed`.
+`--scenario` accepts `coast` (default), `highlands`, `island`, `fixture`, or `settlement`.
+Generated scenarios default to seed 7319; the authored coastal and inhabited settlement fixtures use seed 42 and reject `--seed`.
 `--ticks` defaults to 100; zero inspects initial state without advancing.
 Each gameplay tick runs the same 0.1-second rules step as the interactive application.
 The integer `completed_ticks` is the logical boundary; `simulation_time` retains the old floating accumulator and its rounding for behavior compatibility.
@@ -39,7 +39,9 @@ It reports seed, generator version, completed ticks, command/event counts, objec
 `rejected_commands` counts explicit terrain/building/path/well rejection events; legacy life-seeding/outpost actions do not all return rejection events.
 Terrain event counts include changed, unchanged and rejected requests.
 Metrics are summaries, not a canonical state fingerprint or a world save.
-There is no population simulation or wall-clock/FPS performance claim.
+The `people` array reports resident identities and routine state. Generated settlements and
+`--scenario settlement` run the same resident rules as the game. The original
+`fixture` remains unpopulated. There is no wall-clock/FPS performance claim.
 
 The checked-in [coastal command fixture](../sim_core/fixtures/coastal.commands.json) terraforms at tick 1, submits two overlapping dwellings at tick 2 (one accepted), drills at tick 3 and stops pumping at tick 50.
 After 100 ticks it has seven dwellings, one well and one explicit rejection.
@@ -62,4 +64,4 @@ Saved pending commands execute at the next tick, before any newly supplied comma
 `--save` writes the final boundary and preserves an existing valid destination in a `.bak` sibling.
 Use `--load /path/world.json.bak` to recover a previous save; save it to a new filename if the primary is corrupt.
 Directories must already exist for CLI output.
-The [v2 format with v1 migration](../../docs/architecture/durable-identity.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.
+The [v3 format with v1/v2 migration](../../docs/architecture/residents.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.

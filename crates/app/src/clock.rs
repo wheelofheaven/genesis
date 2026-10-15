@@ -24,6 +24,13 @@ impl Default for Clock {
 }
 
 impl Clock {
+    pub fn interpolation(&self) -> f32 {
+        if self.paused {
+            1.
+        } else {
+            self.remainder.as_secs_f32() / TICK.as_secs_f32()
+        }
+    }
     pub fn speed(&self) -> u32 {
         self.speed
     }

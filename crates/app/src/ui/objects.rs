@@ -9,6 +9,27 @@ pub fn selection(ui: &mut egui::Ui, session: &Session) {
     eyebrow(ui, "SELECTED OBJECT");
     ui.heading(object.label());
     match object {
+        Object::Person(id) => {
+            if let Some(p) = session.sim.people.get(id) {
+                ui.heading(&p.name);
+                ui.label(format!("Home · dwelling {}", p.home));
+                ui.separator();
+                ui.label(p.activity.label());
+                let target = p.destination();
+                ui.label(format!(
+                    "Destination · {:.1}, {:.1} m",
+                    target.x * METRES_PER_UNIT,
+                    target.z * METRES_PER_UNIT
+                ));
+                if let Some(reason) = p.blocked {
+                    ui.colored_label(ERROR, reason.label());
+                }
+                muted(
+                    ui,
+                    "F focuses this resident. The highlighted line is their current route.",
+                );
+            }
+        }
         Object::Building(_) => {
             muted(ui, "Dwelling · single storey");
             ui.separator();

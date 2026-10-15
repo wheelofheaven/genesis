@@ -23,7 +23,7 @@ fn point(p: Position) -> bool {
 }
 
 pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
-    require(save.schema == SCHEMA, "unsupported schema (expected 2)")?;
+    require(save.schema == SCHEMA, "unsupported schema (expected 3)")?;
     require(save.rules == RULES, "incompatible simulation rules")?;
     require(
         save.content == CONTENT,
@@ -124,6 +124,7 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
                 .covers(s.subsurface.wells.iter().map(|w| w.id)),
         "identity allocation counters",
     )?;
+    require(s.people.valid(s), "resident identities, homes or routine")?;
     let mut ids = BTreeSet::new();
     for b in &s.buildings {
         require(
