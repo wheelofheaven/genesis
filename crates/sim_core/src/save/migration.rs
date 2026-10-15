@@ -41,6 +41,21 @@ pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
                 ..Default::default()
             });
         }
+        save.schema = 4;
+        save.rules = "genesis:rules/3".into();
+    }
+    if save.schema == 4 {
+        if save.rules != "genesis:rules/3"
+            || !save.state.food.is_missing()
+            || !save.state.people.legacy_food()
+        {
+            return Err(SaveError(
+                "invalid V4 rules or unexpected food commitments".into(),
+            ));
+        }
+        save.state.food = crate::food::Food::default();
+        save.state.food.initialize(&save.state.people);
+        save.state.people.initialize_food_priority();
         save.schema = super::SCHEMA;
         save.rules = super::RULES.into();
     }

@@ -3,6 +3,7 @@ pub mod catalog;
 pub mod config;
 pub mod ecology;
 pub mod events;
+pub mod food;
 pub mod grid;
 pub mod households;
 mod identity;
@@ -41,6 +42,8 @@ pub struct SimState {
     pub people: people::People,
     #[serde(default = "households::Households::missing")]
     pub households: households::Households,
+    #[serde(default = "food::Food::missing")]
+    pub food: food::Food,
     pub subsurface: subsurface::Subsurface,
     pub geography: worldgen::Geography,
     #[serde(default)]
@@ -71,6 +74,7 @@ impl SimState {
             paths: Vec::new(),
             people: people::People::default(),
             households: households::Households::default(),
+            food: food::Food::default(),
         }
     }
 
@@ -82,6 +86,20 @@ impl SimState {
         // 1. Apply player actions.
         for action in actions {
             match action {
+                Action::CancelFoodTask { person } => {
+                    let time = self.time + f64::from(dt);
+                    events.push(if self.people.cancel_food(*person) {
+                        SimEvent::FoodTaskCancelled {
+                            person: *person,
+                            time,
+                        }
+                    } else {
+                        SimEvent::FoodTaskCancelRejected {
+                            person: *person,
+                            time,
+                        }
+                    });
+                }
                 Action::CancelWaterTask { person } => {
                     if self.people.cancel_water(*person) {
                         events.push(SimEvent::WaterTaskCancelled {
@@ -242,6 +260,7 @@ impl SimState {
         }
 
         self.households.advance(&self.people, dt);
+        self.food.advance(&self.people, dt);
         let mut people = std::mem::take(&mut self.people);
         people.advance(self, dt, &mut events);
         self.people = people;

@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{error::Error, path::PathBuf};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement|water] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture, settlement and water are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
+const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement|water|supplies] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture, settlement, water and supplies are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
 
 struct Options {
     scenario: String,
@@ -52,15 +52,15 @@ impl Options {
         }
         if !matches!(
             options.scenario.as_str(),
-            "coast" | "highlands" | "island" | "fixture" | "settlement" | "water"
+            "coast" | "highlands" | "island" | "fixture" | "settlement" | "water" | "supplies"
         ) {
             return Err(
-                "--scenario must be coast, highlands, island, fixture, settlement, or water".into(),
+                "--scenario must be coast, highlands, island, fixture, settlement, water, or supplies".into(),
             );
         }
         if matches!(
             options.scenario.as_str(),
-            "fixture" | "settlement" | "water"
+            "fixture" | "settlement" | "water" | "supplies"
         ) && seen.contains("--seed")
         {
             return Err(
@@ -89,6 +89,7 @@ struct Metrics<'a> {
     buildings: usize,
     people: &'a [genesis_sim_core::people::Person],
     households: &'a genesis_sim_core::households::Households,
+    food: &'a genesis_sim_core::food::Food,
     paths: usize,
     wells: usize,
     aquifer_stored: f64,
@@ -125,6 +126,7 @@ fn run(options: Options) -> Result<()> {
                 "fixture" => scenarios::coastal_outpost(),
                 "settlement" => scenarios::living_settlement(),
                 "water" => scenarios::water_settlement(),
+                "supplies" => scenarios::supplied_settlement(),
                 "highlands" => {
                     worldgen::generate_region(options.seed, worldgen::Region::LevantHighlands)
                 }
@@ -148,7 +150,8 @@ fn run(options: Options) -> Result<()> {
             events += 1;
             if matches!(
                 event,
-                SimEvent::WaterTaskCancelRejected { .. }
+                SimEvent::FoodTaskCancelRejected { .. }
+                    | SimEvent::WaterTaskCancelRejected { .. }
                     | SimEvent::TerraformRejected { .. }
                     | SimEvent::BuildingRejected { .. }
                     | SimEvent::WellRejected { .. }
@@ -180,6 +183,7 @@ fn run(options: Options) -> Result<()> {
         buildings: sim.buildings.len(),
         people: sim.people.all(),
         households: &sim.households,
+        food: &sim.food,
         paths: sim.paths.len(),
         wells: sim.subsurface.wells.len(),
         aquifer_stored: sim

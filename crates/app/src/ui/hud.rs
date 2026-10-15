@@ -43,8 +43,8 @@ pub fn identity(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
                         ui.add_space(8.);
                     }
                     if ui
-                        .small_button("Water supply")
-                        .on_hover_text("Household stocks, collectors and well supply")
+                        .small_button("Supplies")
+                        .on_hover_text("Household water, food and collection tasks")
                         .clicked()
                     {
                         session.set_water_overview(!session.water_overview);

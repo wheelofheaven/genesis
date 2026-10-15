@@ -23,7 +23,7 @@ fn point(p: Position) -> bool {
 }
 
 pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
-    require(save.schema == SCHEMA, "unsupported schema (expected 4)")?;
+    require(save.schema == SCHEMA, "unsupported schema (expected 5)")?;
     require(save.rules == RULES, "incompatible simulation rules")?;
     require(
         save.content == CONTENT,
@@ -71,7 +71,7 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
         "time or global quantities",
     )?;
     require(
-        matches!(s.geography.version, 0 | 9),
+        matches!(s.geography.version, 0 | 9 | 10),
         "unsupported surface/generation recipe",
     )?;
     for c in s.grid.cells() {
@@ -124,6 +124,7 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
                 .covers(s.subsurface.wells.iter().map(|w| w.id)),
         "identity allocation counters",
     )?;
+    require(s.food.valid(s), "food stocks or conservation")?;
     require(s.households.valid(s), "household water stocks")?;
     require(s.people.valid(s), "resident identities, homes or routine")?;
     let mut ids = BTreeSet::new();
@@ -240,7 +241,9 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
             }
             Action::PlaceBuilding { position, rotation } => point(*position) && scalar(*rotation),
             Action::DrillWell { position } => point(*position),
-            Action::SetWellActive { .. } | Action::CancelWaterTask { .. } => true,
+            Action::SetWellActive { .. }
+            | Action::CancelWaterTask { .. }
+            | Action::CancelFoodTask { .. } => true,
             Action::BuildPath { waypoints, width } => {
                 points += waypoints.len();
                 scalar(*width) && waypoints.iter().copied().all(point)

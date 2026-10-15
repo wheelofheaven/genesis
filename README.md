@@ -25,10 +25,13 @@ boreholes are playable. New settlements have up to six named residents who walk
 to a meeting place and return home. Click a resident to inspect their home,
 activity, destination and any blocked route; F focuses the selection. Figures are
 placeholders. Residents now collect water from working nearby wells and deliver it
-to household stocks, which supply periodic water use. Inspect a home or resident
-for stock and task status; use Survey/Hydrology to drill and control wells.
+to household stocks. They also gather finite wild food, carry it home in baskets,
+and consume whole portions. Inspect a home or resident for stock and task status;
+use Survey/Hydrology to drill and control wells. New settlements include a selectable
+wild-food patch. Sources do not regrow yet.
 Further needs, jobs, historical scenarios and the final art pipeline remain future
-work. See [household water](docs/architecture/household-water.md).
+work. See [household water](docs/architecture/household-water.md) and
+[food gathering](docs/architecture/food-gathering.md).
 
 ## Run
 
@@ -57,7 +60,7 @@ Choose **Begin expedition** from the orbital title screen:
 Settlement is the primary mode. The secondary **World Builder sandbox** link on
 the main menu uses the same expedition flow with uninhabited terrain. These modes
 provide different starting conditions and shared tools. Settlement residents
-collect water for their homes; broader household relationships, production chains,
+collect water and gather food for their homes; broader household relationships, production chains,
 and expedition logistics remain future systems.
 
 **Menu** (or **Escape** after closing a tool) suspends world time. Return to the
@@ -109,11 +112,11 @@ shortcut hints. Exploration keeps the center clear; building, survey, and landsc
 appear only for their active tool. The minimum window is 760 × 540 logical pixels,
 with compact controls and scrolling where needed.
 
-Open **Water supply** beside the resident count to see household stocks, active
+Open **Supplies** beside the resident count and choose **Water** or **Food** to see household stocks, active
 collectors, cargo and recorded shortage reasons. Click a home row to select and
-focus it; scroll for more homes and the expandable well list. Totals separate
-water at home, in transit and in well buffers; reservations are part of buffer
-stock. Failed collection attempts remain labeled as the last attempt until a
+focus it; scroll for more homes, wells and food patches. Totals separate
+stock at home, in transit and at the source; reservations are part of source
+stock. Water uses abstract units and food uses whole portions. Failed collection attempts remain labeled as the last attempt until a
 resident tries again. Escape closes the overview.
 
 The clock uses fixed 100 ms ticks, retains fractional time across pause, and
@@ -127,9 +130,11 @@ the saved tick. On macOS the slot is
 `~/Library/Application Support/Genesis/world.json`, with the previous valid save
 at `world.json.bak`. Loading resets camera/selection and preserves the active world
 if validation fails. Saves are synchronous; the current main-menu Continue button
-still resumes the live session. New saves use schema v4 with resident routines, household water and collection tasks;
-v1–v3 worlds migrate on load. Existing populations are retained; initial household
-stocks are empty and historical well recovery does not become collectable water. See [identity and compatibility](docs/architecture/durable-identity.md)
+still resumes the live session. New saves use schema v5 with resident routines,
+water/food stocks, task commitments and priority state; v1–v4 worlds migrate on load.
+Existing populations and water commitments are retained. Old worlds gain empty
+food stores without a new food patch; start a new settlement to try gathering.
+Historical well recovery does not become collectable water. See [identity and compatibility](docs/architecture/durable-identity.md)
 and [water saves](docs/architecture/household-water.md), plus [save recovery](docs/architecture/saves-v1.md).
 
 ## Development

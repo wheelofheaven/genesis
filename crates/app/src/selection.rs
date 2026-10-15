@@ -18,6 +18,28 @@ pub fn object(
         [0.58, 0.91, 0.88]
     };
     match object {
+        Object::FoodSource(id) => {
+            if let Some(source) = sim.food.source(id) {
+                let ring: Vec<_> = (0..=32)
+                    .map(|i| {
+                        let a = i as f32 * std::f32::consts::TAU / 32.;
+                        Position::new(
+                            source.position.x + a.cos() * metres(1.5),
+                            source.position.z + a.sin() * metres(1.5),
+                        )
+                    })
+                    .collect();
+                scene::highlight(
+                    sim,
+                    cache,
+                    out,
+                    &ring,
+                    metres(0.08),
+                    color,
+                    session.survey.seafloor,
+                );
+            }
+        }
         Object::Person(id) => {
             if let Some(person) = sim.people.get(id) {
                 let p = session.person_position(person);

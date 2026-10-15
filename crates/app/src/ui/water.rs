@@ -1,4 +1,5 @@
 //! Read-only household supply presentation. No planning or resource mutation.
+mod food;
 use super::theme::*;
 use crate::{interaction::Object, session::Session};
 use genesis_renderer::camera::Camera;
@@ -97,6 +98,12 @@ impl Home<'_> {
                     text.push_str(&format!("\nBlocked: {}", blocked.label()));
                 }
             }
+        } else if let Some(p) = self.residents.iter().find(|p| p.food_task.is_some()) {
+            text.push_str(&format!(
+                "\n{} · {}\nWater reconsidered at home departure",
+                p.name,
+                p.activity.label()
+            ));
         } else if self.stock.stored >= households::REFILL_BELOW {
             text.push_str("\nStock sufficient · no collection needed");
         } else if self.residents.is_empty() {
@@ -117,6 +124,28 @@ impl Home<'_> {
 }
 
 pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
+    ui.horizontal(|ui| {
+        if button(
+            ui,
+            "Water",
+            !session.supply_food,
+            "Household water and well stocks",
+        ) {
+            session.supply_food = false;
+        }
+        if button(
+            ui,
+            "Food",
+            session.supply_food,
+            "Household food and finite wild harvest",
+        ) {
+            session.supply_food = true;
+        }
+    });
+    if session.supply_food {
+        food::panel(ui, session, camera);
+        return;
+    }
     let view = Overview::read(&session.sim);
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(22., 22.), egui::Sense::hover());

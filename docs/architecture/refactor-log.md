@@ -930,3 +930,60 @@ milestone: persistent villagers with a visible, explainable routine.
   [Ownership and view contract](household-water.md) documents these limits.
 - Next small feature candidate: one food-gathering task using the existing stock,
   reservation and delivery boundaries, after choosing its source and household use.
+
+## 15 October 2026 — finite food gathering and household priorities
+
+- Started from clean `07a6ef9`; inspected workspace/project instructions, engine
+  and vision decisions, resident/water task ownership, generation, save migration,
+  app extraction/picking and supply inspection. Baseline `mise run ci`: 209 pass,
+  14 optional checks ignored. No baseline gameplay defect was identified.
+- Added `sim_core/food.rs`, `people/food.rs` and their validation modules. Food
+  sources and households own exact portions; resident tasks own reservations and
+  carried stock. Pickup/delivery are coupled domain transitions. The existing
+  typed stores, navigation, water records and fixed clock are retained; no ECS,
+  dependency upgrade, new worker or renderer replacement.
+- Intentional gameplay addition: new settlements receive a finite 256-portion
+  patch. Residents gather four portions per trip, spend two logical seconds
+  gathering, and deliver to a 12-portion home store. Each resident consumes one
+  portion every 30 logical seconds. Lower relative reserves take priority; ties
+  alternate by last delivery and failed admission tries the other resource.
+  Active tasks finish before reconsideration. Shortages have no health effects.
+- Cancellation and blocked outward trips release claims. Food already carried
+  remains owned until delivery, including blocked/cancelled return trips. Accepted
+  cancellation and rejection have separate events. App `forage.rs`, resident cargo,
+  selection and the **Supplies → Food** view derive from committed state; UI
+  cancellation queues an action. Placeholder shrubs lose fruit as stock declines.
+- Schema 5 / rules 4 preserve food sources, allocation, stocks, cargo, gathering
+  phase and priority. Staged V1–V4 migration retains water commitments and existing
+  people, initializes empty food stores and adds no source. The V4 water-cargo
+  fixture was captured before editing; earlier fixtures are unchanged. Missing
+  priority is rejected in new saves. Generation recipe 10 adds scenario food;
+  materialized recipe 9 worlds remain supported. Content marker is unchanged.
+- Final `mise run ci`: **216 tests pass**, 14 optional checks ignored; rustfmt and
+  Clippy with warnings denied pass. `mise run build` passes. Native test execution
+  initially stalled under the sandbox; an approved native `cargo test --workspace`
+  run passed, and the original CI also completed successfully. Checks cover exact
+  conservation/depletion, both supplies reaching six homes, stable scarce claims,
+  priorities/fallback, blocked/cancelled cargo, malformed saves, migration,
+  gathering/cargo continuation, frame partitions and read-only/UI command behavior.
+  The frame-pacing scenario uses 180 logical seconds to cover initial trips for
+  both resources; its 60-second predecessor was insufficient for that workload.
+- CPU-only `genesis-headless --scenario supplies`: save at tick 100 and continue
+  3500 ticks; the full snapshot equals uninterrupted tick 3600 after excluding
+  host-created world identity. All six homes consume both supplies. Food source
+  stock declines from 256 to 160; initial travel leaves one or two missed portions
+  per home. `cargo tree -p genesis-headless --edges normal` has no
+  wgpu/winit/egui/Bevy dependency closure. Metrics are not performance claims.
+- Native Apple M4/Metal: `target/debug/genesis-app --food-test
+  /private/tmp/genesis-food-final.png` exits 0, verifying actual valley source
+  picking, both supplies consumed, cancelled cargo delivered and exact save
+  continuation. Visually inspected the capture: fruit patch, residents, selected
+  carrier and readable Food overview. Existing `--world-test`, `--interaction-test`,
+  `--save-test` and `--people-test` also exit 0, with captures at
+  `/private/tmp/genesis-food-{world,interaction,save,people}.png`. User save slots
+  and any running user application are untouched. Other graphics hosts remain
+  unverified. `git diff --check` passes; no performance improvement is claimed.
+- No food regrowth, cultivation, health effects or generalized job scheduler is
+  introduced. Existing extraction benchmarks retain their unpopulated workloads.
+  See [food ownership, compatibility and limits](food-gathering.md). The next
+  small design choice is a renewable food source through seasons or cultivation.

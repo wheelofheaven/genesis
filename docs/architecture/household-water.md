@@ -2,6 +2,7 @@
 
 Accepted 15 October 2026, following the typed-resident checkpoint.
 This adds one useful task through existing simulation, navigation, command and save boundaries.
+The current [food gathering slice](food-gathering.md) adds food tasks and schema 5 on top of this historical water contract.
 Rust, the custom wgpu engine and dependencies remain unchanged; there is no ECS migration.
 
 ## Ownership and accounting

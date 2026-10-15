@@ -9,8 +9,8 @@ mise exec -- cargo run -p genesis-headless -- --scenario fixture --ticks 100 --c
 mise exec -- cargo tree -p genesis-headless --edges normal
 ```
 
-`--scenario` accepts `coast` (default), `highlands`, `island`, `fixture`, `settlement`, or `water`.
-Generated scenarios default to seed 7319; the authored coastal, settlement and water fixtures use seed 42 and reject `--seed`.
+`--scenario` accepts `coast` (default), `highlands`, `island`, `fixture`, `settlement`, `water`, or `supplies`.
+Generated scenarios default to seed 7319; the authored coastal, settlement, water and supplies fixtures use seed 42 and reject `--seed`.
 `--ticks` defaults to 100; zero inspects initial state without advancing.
 Each gameplay tick runs the same 0.1-second rules step as the interactive application.
 The integer `completed_ticks` is the logical boundary; `simulation_time` retains the old floating accumulator and its rounding for behavior compatibility.
@@ -36,13 +36,15 @@ Existing domain validation limitations also apply here; this slice doesn't redes
 
 Stdout is one JSON metrics record; diagnostics/errors go to stderr.
 It reports seed, generator version, completed ticks, command/event counts, object counts, water storage/recovery, and existing prototype scores.
-`rejected_commands` counts explicit terrain/building/path/well and water-task cancellation rejection events; legacy life-seeding/outpost actions do not all return rejection events.
+`rejected_commands` counts explicit terrain/building/path/well and water/food-task cancellation rejection events; legacy life-seeding/outpost actions do not all return rejection events.
 Terrain event counts include changed, unchanged and rejected requests.
 Metrics are summaries, not a canonical state fingerprint or a world save.
 The `people` array reports resident identities and routine state. Generated settlements and
 `--scenario settlement` run the same resident rules as the game. The original
 `fixture` remains unpopulated. The `water` fixture adds a working well and reports household stocks/use in
 `households`. Use `--scenario water --ticks 1800` to exercise collection and delivery.
+The `supplies` fixture adds finite wild food. `--scenario supplies --ticks 3600`
+reports both resource loops; `food` includes sources, household portions and use.
 There is no wall-clock/FPS performance claim.
 
 The checked-in [coastal command fixture](../sim_core/fixtures/coastal.commands.json) terraforms at tick 1, submits two overlapping dwellings at tick 2 (one accepted), drills at tick 3 and stops pumping at tick 50.
@@ -66,4 +68,4 @@ Saved pending commands execute at the next tick, before any newly supplied comma
 `--save` writes the final boundary and preserves an existing valid destination in a `.bak` sibling.
 Use `--load /path/world.json.bak` to recover a previous save; save it to a new filename if the primary is corrupt.
 Directories must already exist for CLI output.
-The [v4 format with v1–v3 migration](../../docs/architecture/household-water.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.
+The [v5 format with v1–v4 migration](../../docs/architecture/food-gathering.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.

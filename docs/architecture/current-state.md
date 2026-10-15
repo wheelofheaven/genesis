@@ -513,3 +513,29 @@ empty worlds and compact scrolling/layout. Existing water behavior, save schema 
 content and platforms are unchanged. Native overview and interaction checks pass
 on Apple M4/Metal. See the [water overview contract](household-water.md) and
 [checkpoint report](refactor-log.md).
+
+## Food gathering audit — 15 October 2026
+
+Starting from clean `07a6ef9`; baseline `mise run ci` passes 209 tests,
+14 optional checks ignored. Inspected instructions, engine/vision, water/task,
+save migration, scenario generation, presentation, picking and overview paths.
+There is no food stock or gathering mechanic. Water uses resident-owned claims,
+serial ID ordering, checked local routes and transactional pickup/delivery.
+Adopt one finite wild-food patch in new settlements, exact food portions,
+household consumption, explicit water/food arbitration and the same delivery
+safety. Preserve water records and actions; add a versioned food payload rather
+than replacing the entity store. Capture a V4 cargo fixture before editing.
+Migrate older saves with empty food stores and no invented source. Verify both
+resources progress, depletion, cancelled/blocked routes, no cargo loss, saved
+gathering/priority state, source visibility/picking and supply inspection.
+
+Implemented: `sim_core/food.rs` owns finite patches and household portions;
+`people/food.rs` owns task admission, claims, pickup and delivery alongside water.
+Food logistics are now **partial**, with finite gathering and consumption but no
+regrowth, farming or health effects. Presentation supplies selectable patches,
+baskets and a Food tab through read-only views. Schema 5 / rules 4 supports V1–V4
+migration without inventing food; generator recipe 10 seeds only new settlements.
+CI passes 216 tests with 14 optional checks ignored; workspace build and CPU-only
+save continuation pass. Native food/world/interaction/save/resident checks pass on
+Apple M4/Metal. No performance or additional platform claim.
+See [ownership and limits](food-gathering.md) and [checkpoint evidence](refactor-log.md).

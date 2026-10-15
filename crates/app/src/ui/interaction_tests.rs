@@ -42,7 +42,7 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
         egui::vec2(1120., 540.),
         egui::vec2(1280., 800.),
     ] {
-        for tool in 0..12 {
+        for tool in 0..15 {
             let ctx = egui::Context::default();
             theme::install(&ctx);
             let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
@@ -70,6 +70,21 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
             if tool == 11 {
                 session.replace_sim(genesis_sim_core::scenarios::coastal_outpost());
                 session.water_overview = true;
+            }
+            if tool >= 12 {
+                let mut state = genesis_sim_core::scenarios::supplied_settlement();
+                state.subsurface.wells[0].active = false;
+                for _ in 0..20 {
+                    state.step(0.1, &[]);
+                }
+                session.replace_sim(state);
+                session.water_overview = tool == 12;
+                session.supply_food = true;
+                session.selected_object = Some(if tool == 13 {
+                    crate::interaction::Object::FoodSource(session.sim.food.sources()[0].id)
+                } else {
+                    crate::interaction::Object::Person(session.sim.people.all()[0].id)
+                });
             }
             session.path.active = tool == 5;
             if tool == 6 {
@@ -122,11 +137,11 @@ fn dock_switches_tools_and_menu_is_reachable() {
     let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
     let mut front = crate::frontend::Frontend::default();
     for (label, expected) in [
-        ("Water supply", 7),
+        ("Supplies", 7),
         ("Paths", 6),
         ("Build", 1),
         ("Survey", 2),
-        ("Water supply", 7),
+        ("Supplies", 7),
         ("Landscape", 3),
         ("Explore", 0),
         ("Region", 4),
@@ -354,4 +369,67 @@ fn water_overview_focuses_stable_home_without_changing_the_simulation() {
     session.replace_sim(genesis_sim_core::scenarios::coastal_outpost());
     assert!(!session.water_overview);
     assert_eq!(session.selected_object, None);
+}
+
+#[test]
+fn food_inspection_is_read_only_and_cancellation_uses_the_command_boundary() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::supplied_settlement();
+    state.subsurface.wells[0].active = false;
+    for _ in 0..20 {
+        state.step(0.1, &[]);
+    }
+    let mut session = Session::from_sim(state);
+    let id = session.sim.people.all()[0].id;
+    assert!(session.sim.people.get(id).unwrap().food_task.is_some());
+    session.select_object(
+        Some(crate::interaction::Object::Person(id)),
+        session.position,
+    );
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1100., 800.);
+    for label in ["Cancel gathering", "Food"] {
+        if label == "Food" {
+            session.set_water_overview(true);
+        }
+        let before = serde_json::to_vec(&*session.sim).unwrap();
+        for _ in 0..3 {
+            frame(&ctx, size, &mut session, &mut front, vec![]);
+        }
+        let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+        let point = output
+            .shapes
+            .iter()
+            .find_map(|s| text_position(&s.shape, label))
+            .unwrap();
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                size,
+                &mut session,
+                &mut front,
+                vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    }
+    assert!(session.supply_food);
+    assert_eq!(session.pending_count(), 1);
+    assert!(session.sim.people.get(id).unwrap().food_task.is_some());
+    session.clock.paused = true;
+    session.step_once();
+    assert!(session.sim.people.get(id).unwrap().food_task.is_none());
+    assert_eq!(
+        session.sim.people.get(id).unwrap().food_issue,
+        Some(genesis_sim_core::people::FoodIssue::Cancelled)
+    );
 }

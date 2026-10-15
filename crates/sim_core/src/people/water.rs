@@ -73,6 +73,9 @@ impl People {
     }
     pub(crate) fn prepare_water(&mut self, index: usize, sim: &SimState, ms: u64) {
         let p = &self.entries[index];
+        if p.food_task.is_some() {
+            return;
+        }
         if let Some(t) = &p.water_task {
             if p.activity == Activity::FetchingWater && !working(sim, t.well) {
                 release(&mut self.entries[index], WaterIssue::WellStopped);
@@ -262,6 +265,7 @@ pub(super) fn arrive(
                 amount: p.carried_water,
                 time,
             });
+            p.last_supply = super::SupplyKind::Water;
             p.carried_water = 0.;
             p.water_task = None;
             p.water_issue = None;

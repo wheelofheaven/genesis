@@ -180,6 +180,9 @@ pub fn overlay(session: &Session, cache: Option<&terrain::Cache>) -> Vec<Vertex>
 }
 
 fn residents(session: &Session, out: &mut Vec<Vertex>) {
+    for source in session.sim.food.sources() {
+        crate::forage::mesh(&session.sim, out, source);
+    }
     for p in session.sim.people.all() {
         crate::residents::mesh(&session.sim, out, p, session.person_position(p));
     }

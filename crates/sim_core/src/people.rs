@@ -1,7 +1,11 @@
 //! Persistent residents and a modest outdoor routine, independent of presentation.
-mod navigation;
+mod food;
+pub(crate) mod navigation;
+pub use food::{FoodIssue, FoodTask, SupplyKind};
 mod water;
 pub use water::{WaterIssue, WaterTask};
+#[cfg(test)]
+mod food_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -19,6 +23,9 @@ pub struct PersonId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Activity {
     Resting,
+    FetchingFood,
+    GatheringFood,
+    CarryingFood,
     FetchingWater,
     CarryingWater,
     GoingToMeeting,
@@ -30,6 +37,9 @@ impl Activity {
         match self {
             Self::FetchingWater => "Collecting household water",
             Self::CarryingWater => "Carrying water home",
+            Self::FetchingFood => "Walking to gather food",
+            Self::GatheringFood => "Gathering wild food",
+            Self::CarryingFood => "Carrying food home",
             Self::Resting => "Resting at home",
             Self::GoingToMeeting => "Walking to the meeting place",
             Self::Visiting => "Visiting the meeting place",
@@ -39,7 +49,12 @@ impl Activity {
     fn travelling(self) -> bool {
         matches!(
             self,
-            Self::GoingToMeeting | Self::ReturningHome | Self::FetchingWater | Self::CarryingWater
+            Self::GoingToMeeting
+                | Self::ReturningHome
+                | Self::FetchingWater
+                | Self::CarryingWater
+                | Self::FetchingFood
+                | Self::CarryingFood
         )
     }
 }
@@ -74,6 +89,14 @@ pub struct Person {
     pub carried_water: f64,
     #[serde(default)]
     pub water_issue: Option<WaterIssue>,
+    #[serde(default)]
+    pub food_task: Option<FoodTask>,
+    #[serde(default)]
+    pub carried_food: u32,
+    #[serde(default)]
+    pub food_issue: Option<FoodIssue>,
+    #[serde(default = "SupplyKind::missing")]
+    pub last_supply: SupplyKind,
     /// Remaining logical milliseconds until departure, return, or retry.
     remaining_ms: u64,
     /// Committed continuous route. Every movement still checks current terrain.
@@ -82,6 +105,13 @@ pub struct Person {
 }
 impl Person {
     pub fn destination(&self) -> Position {
+        if matches!(
+            self.activity,
+            Activity::FetchingFood | Activity::GatheringFood
+        ) && let Some(task) = &self.food_task
+        {
+            return task.pickup;
+        }
         if self.activity == Activity::FetchingWater
             && let Some(task) = &self.water_task
         {
@@ -135,16 +165,23 @@ impl People {
         for index in 0..self.entries.len() {
             let before = (self.entries[index].activity, self.entries[index].blocked);
             let water_before = self.entries[index].water_issue;
-            self.prepare_water(index, sim, ms);
+            let food_before = self.entries[index].food_issue;
+            self.prepare_supplies(index, sim, ms);
             let p = &mut self.entries[index];
             if !sim.buildings.iter().any(|b| b.id == p.home) {
                 if p.water_task.is_some() {
                     water::release(p, WaterIssue::RouteBlocked);
                 }
+                if p.food_task.is_some() {
+                    food::release(p, FoodIssue::RouteBlocked);
+                }
                 p.blocked = Some(Blocked::MissingHome);
             } else if !walking::standable(sim, p.position) {
                 if p.water_task.is_some() {
                     water::release(p, WaterIssue::RouteBlocked);
+                }
+                if p.food_task.is_some() {
+                    food::release(p, FoodIssue::RouteBlocked);
                 }
                 p.blocked = Some(Blocked::UnsafeGround);
                 p.route.clear();
@@ -152,7 +189,7 @@ impl People {
             } else {
                 p.remaining_ms = p.remaining_ms.saturating_sub(ms);
                 if p.remaining_ms == 0 {
-                    if !p.activity.travelling() {
+                    if !p.activity.travelling() && p.activity != Activity::GatheringFood {
                         p.activity = if p.activity == Activity::Resting {
                             Activity::GoingToMeeting
                         } else {
@@ -163,7 +200,9 @@ impl People {
                     }
                     if p.next == p.route.len() {
                         if distance(p.position, p.destination()) < metres(0.01) {
-                            if !water::arrive(p, sim, events, sim.time + f64::from(dt)) {
+                            if !water::arrive(p, sim, events, sim.time + f64::from(dt))
+                                && !food::arrive(p, sim, events, sim.time + f64::from(dt))
+                            {
                                 p.activity = if p.activity == Activity::GoingToMeeting {
                                     Activity::Visiting
                                 } else {
@@ -186,6 +225,9 @@ impl People {
                             if p.water_task.is_some() {
                                 water::release(p, WaterIssue::RouteBlocked);
                             }
+                            if p.food_task.is_some() {
+                                food::release(p, FoodIssue::RouteBlocked);
+                            }
                             p.blocked = Some(Blocked::NoLocalRoute);
                             p.remaining_ms = 2000;
                         }
@@ -207,6 +249,9 @@ impl People {
                             p.route.clear();
                             p.next = 0;
                             p.remaining_ms = 2000;
+                            if p.food_task.is_some() {
+                                food::release(p, FoodIssue::RouteBlocked);
+                            }
                             p.blocked = Some(Blocked::NoLocalRoute);
                         } else {
                             p.blocked = None;
@@ -215,9 +260,16 @@ impl People {
                             }
                         }
                     }
-                } else if !p.activity.travelling() {
+                } else if !p.activity.travelling() && p.activity != Activity::GatheringFood {
                     p.blocked = None;
                 }
+            }
+            if food_before != p.food_issue {
+                events.push(SimEvent::FoodTaskStatusChanged {
+                    person: p.id,
+                    issue: p.food_issue,
+                    time: sim.time + f64::from(dt),
+                });
             }
             if water_before != p.water_issue {
                 events.push(SimEvent::WaterTaskStatusChanged {
@@ -246,7 +298,8 @@ impl People {
                 && p.z < sim.grid.height as f32
         };
         let mut ids = std::collections::BTreeSet::new();
-        self.water_valid(sim)
+        self.food_valid(sim)
+            && self.water_valid(sim)
             && self.entries.len() <= 10_000
             && self.entries.iter().map(|p| p.route.len()).sum::<usize>() <= 100_000
             && self.ids.covers(self.entries.iter().map(|p| p.id.0))
@@ -330,10 +383,15 @@ pub(crate) fn populate(sim: &mut SimState) {
             water_task: None,
             carried_water: 0.,
             water_issue: None,
+            food_task: None,
+            carried_food: 0,
+            food_issue: None,
+            last_supply: SupplyKind::default(),
             remaining_ms: 1000 + i as u64 * 1000,
             route: Vec::new(),
             next: 0,
         });
     }
     sim.households.initialize(&sim.people);
+    sim.food.initialize(&sim.people);
 }

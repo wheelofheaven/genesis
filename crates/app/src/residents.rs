@@ -44,6 +44,10 @@ pub fn mesh(sim: &SimState, out: &mut Vec<Vertex>, person: &Person, position: Po
         part([0.40, 0.70, 0.10], [0.30, 0.34, 0.30], [0.43, 0.27, 0.15]);
         part([0.40, 0.88, 0.10], [0.24, 0.02, 0.24], [0.16, 0.57, 0.68]);
     }
+    if person.carried_food > 0 {
+        part([0.40, 0.70, 0.10], [0.35, 0.32, 0.35], [0.55, 0.36, 0.17]);
+        part([0.40, 0.89, 0.10], [0.26, 0.12, 0.26], [0.76, 0.37, 0.16]);
+    }
     let target = person
         .route()
         .first()

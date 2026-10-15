@@ -6,12 +6,14 @@ use glam::Vec3;
 pub enum Object {
     Person(genesis_sim_core::people::PersonId),
     Building(u64),
+    FoodSource(genesis_sim_core::food::SourceId),
     Path(u64),
 }
 impl Object {
     pub fn label(self) -> String {
         match self {
             Self::Person(id) => format!("Resident {}", id.0),
+            Self::FoodSource(id) => format!("Wild-food patch {}", id.0),
             Self::Building(id) => format!("Dwelling {id}"),
             Self::Path(id) => format!("Footpath {id}"),
         }
@@ -67,6 +69,21 @@ pub fn pick_at(
             {
                 limit = t;
                 hit = Some(Object::Person(p.id));
+            }
+        }
+    }
+    for source in sim.food.sources() {
+        mesh.clear();
+        crate::forage::mesh(sim, &mut mesh, source);
+        for tri in mesh.chunks_exact(3) {
+            if let Some(t) = crate::terrain::intersect(
+                origin,
+                dir,
+                std::array::from_fn(|i| Vec3::from_array(tri[i].position)),
+            ) && t < limit
+            {
+                limit = t;
+                hit = Some(Object::FoodSource(source.id));
             }
         }
     }

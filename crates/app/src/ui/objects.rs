@@ -9,6 +9,22 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
     eyebrow(ui, "SELECTED OBJECT");
     ui.heading(object.label());
     match object {
+        Object::FoodSource(id) => {
+            if let Some(source) = session.sim.food.source(id) {
+                ui.label(format!(
+                    "{} portions remaining · {} reserved",
+                    source.remaining,
+                    session.sim.people.reserved_food(id)
+                ));
+                muted(
+                    ui,
+                    "Finite wild-food harvest. Residents gather four portions per trip. No regrowth yet.",
+                );
+                if source.remaining == 0 {
+                    ui.colored_label(ERROR, "Depleted");
+                }
+            }
+        }
         Object::Person(id) => {
             if let Some(p) = session.sim.people.get(id) {
                 ui.heading(&p.name);
@@ -35,8 +51,31 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
                     ));
                 }
                 if let Some(issue) = p.water_issue {
-                    ui.colored_label(ERROR, issue.label());
+                    ui.colored_label(ERROR, format!("Last issue: {}", issue.label()));
                 }
+                if let Some(home) = session.sim.food.home(p.home) {
+                    ui.label(format!(
+                        "Household food · {} / {} portions",
+                        home.stored,
+                        genesis_sim_core::food::CAPACITY
+                    ));
+                }
+                if let Some(task) = &p.food_task {
+                    ui.label(format!(
+                        "Patch {} · {} portions {}",
+                        task.source.0,
+                        task.amount,
+                        if p.carried_food > 0 {
+                            "carried"
+                        } else {
+                            "reserved"
+                        }
+                    ));
+                }
+                if let Some(issue) = p.food_issue {
+                    ui.colored_label(ERROR, format!("Last issue: {}", issue.label()));
+                }
+                let food_cancel = p.food_task.is_some() && p.carried_food == 0;
                 let target = p.destination();
                 ui.label(format!(
                     "Destination · {:.1}, {:.1} m",
@@ -52,6 +91,9 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
                     session
                         .queue(genesis_sim_core::actions::Action::CancelWaterTask { person: id });
                 }
+                if food_cancel && ui.button("Cancel gathering").clicked() {
+                    session.queue(genesis_sim_core::actions::Action::CancelFoodTask { person: id });
+                }
                 muted(
                     ui,
                     "F focuses this resident. Highlighted lines show the current route.",
@@ -59,6 +101,21 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
             }
         }
         Object::Building(id) => {
+            if let Some(home) = session.sim.food.home(id) {
+                ui.label(format!(
+                    "Food · {} / {} portions",
+                    home.stored,
+                    genesis_sim_core::food::CAPACITY
+                ));
+                ui.label(format!(
+                    "Eaten {} · missed portions {}",
+                    home.consumed, home.missed_portions
+                ));
+                if let Some(p) = session.sim.people.food_collector(id) {
+                    ui.label(format!("Resident {} is gathering for this home", p.0));
+                }
+                ui.separator();
+            }
             if let Some(home) = session.sim.households.get(id) {
                 ui.label(format!(
                     "Household water · {:.1} / {:.0} u",

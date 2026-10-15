@@ -28,6 +28,7 @@ pub struct Session {
     pub landscape_tools: bool,
     pub world_tools: bool,
     pub water_overview: bool,
+    pub supply_food: bool,
     pub region_choice: genesis_sim_core::worldgen::Region,
     pub survey: crate::survey::Survey,
     pub message: String,
@@ -76,6 +77,7 @@ impl Session {
             landscape_tools: false,
             world_tools: false,
             water_overview: false,
+            supply_food: false,
             survey: crate::survey::Survey::default(),
             message: String::new(),
             message_is_error: false,
@@ -174,6 +176,14 @@ impl Session {
         self.pending.clear();
         for event in events {
             match &event {
+                SimEvent::FoodTaskCancelled { .. } => {
+                    self.message = "Gathering cancelled; any carried food returns home".into();
+                    self.message_is_error = false;
+                }
+                SimEvent::FoodTaskCancelRejected { .. } => {
+                    self.message = "No current food task for that resident".into();
+                    self.message_is_error = true;
+                }
                 SimEvent::WaterTaskCancelled { .. } => {
                     self.message =
                         "Collection cancelled; resident returns home with any carried water".into();
@@ -351,6 +361,7 @@ impl Session {
     pub fn select_object(&mut self, object: Option<crate::interaction::Object>, ground: Position) {
         use crate::interaction::Object;
         let p = match object {
+            Some(Object::FoodSource(id)) => self.sim.food.source(id).map(|s| s.position),
             Some(Object::Person(id)) => self.sim.people.get(id).map(|p| p.position),
             Some(Object::Building(id)) => self
                 .sim
@@ -632,23 +643,25 @@ mod resident_tests {
     use super::*;
     #[test]
     fn render_pacing_and_inspection_do_not_change_residents() {
-        let initial = genesis_sim_core::scenarios::water_settlement();
+        let initial = genesis_sim_core::scenarios::supplied_settlement();
         let mut a = Session::from_sim(initial.clone());
         let mut b = Session::from_sim(initial);
         let id = a.sim.people.all()[0].id;
         a.select_object(Some(crate::interaction::Object::Person(id)), a.position);
-        for _ in 0..6000 {
+        for _ in 0..18000 {
             a.advance(Duration::from_millis(10));
             let before = a.sim.people.clone();
             let _ = crate::scene::overlay(&a, None);
             assert_eq!(before, a.sim.people);
         }
-        for _ in 0..600 {
+        for _ in 0..1800 {
             b.advance(Duration::from_millis(100));
         }
         assert_eq!(a.sim.completed_ticks(), b.sim.completed_ticks());
         assert_eq!(a.sim.people, b.sim.people);
         assert_eq!(a.sim.households, b.sim.households);
+        assert_eq!(a.sim.food, b.sim.food);
+        assert!(a.sim.food.homes().values().all(|h| h.consumed > 0));
         assert_eq!(a.sim.subsurface.wells, b.sim.subsurface.wells);
         assert!(a.sim.households.all().values().all(|h| h.consumed > 0.));
         assert_eq!(a.position, a.sim.people.get(id).unwrap().position);

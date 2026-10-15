@@ -43,6 +43,7 @@ pub fn run(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let mut sim = worldgen::generate(worldgen::DEFAULT_SEED);
     // Preserve the original unpopulated rendering benchmark workload.
     sim.people = Default::default();
+    sim.food = Default::default();
     let mut camera = Camera::default();
     terrain::home_camera(&sim, &mut camera);
     let building = sim.buildings.first().ok_or("scenario needs a dwelling")?;

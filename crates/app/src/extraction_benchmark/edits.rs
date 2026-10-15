@@ -11,6 +11,7 @@ pub fn run(path: &Path, full_rebuild: bool) -> Result<(), Box<dyn std::error::Er
     let mut initial = worldgen::generate(worldgen::DEFAULT_SEED);
     // Preserve the original unpopulated rendering benchmark workload.
     initial.people = Default::default();
+    initial.food = Default::default();
     let site = initial
         .buildings
         .first()

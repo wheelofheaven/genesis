@@ -38,6 +38,7 @@ pub fn paint(ctx: &egui::Context, session: &Session, world: bool) -> bool {
             session.hovered_object.map(|o| match o {
                 Object::Person(_) => crate::ui::icons::Icon::Person,
                 Object::Building(_) => crate::ui::icons::Icon::House,
+                Object::FoodSource(_) => crate::ui::icons::Icon::Terrain,
                 Object::Path(_) => crate::ui::icons::Icon::Path,
             })
         };

@@ -4,7 +4,7 @@ use std::{cmp::Reverse, collections::BinaryHeap};
 pub(super) const MAX_NODES: usize = 128 * 128;
 const SPACING: f32 = metres(0.5);
 
-pub(super) fn route(sim: &SimState, from: Position, to: Position) -> Option<Vec<Position>> {
+pub(crate) fn route(sim: &SimState, from: Position, to: Position) -> Option<Vec<Position>> {
     let margin = metres(5.);
     let x0 = from.x.min(to.x) - margin;
     let z0 = from.z.min(to.z) - margin;

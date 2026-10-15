@@ -79,7 +79,7 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
     }
     let flow = drainage::route(&mut sim.grid, sim.sea_level);
     sim.geography = Geography {
-        version: 9,
+        version: 10,
         climate: crate::ecology::Climate::for_region(region),
         region,
         rivers: drainage::rivers(
@@ -113,6 +113,7 @@ pub fn generate_scenario(seed: u64, region: Region, inhabited: bool) -> SimState
     sim.geography.cover = cover::generate(&sim);
     if inhabited {
         crate::people::populate(&mut sim);
+        crate::food::populate(&mut sim);
     }
     sim
 }

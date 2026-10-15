@@ -433,8 +433,11 @@ fn v3_residents_migrate_without_inventing_water() {
             .values()
             .all(|h| h.stored == 0. && h.consumed == 0.)
     );
-    let people: genesis_sim_core::people::People =
-        serde_json::from_value(old["state"]["people"].clone()).unwrap();
+    let mut expected_people = old["state"]["people"].clone();
+    for p in expected_people["entries"].as_array_mut().unwrap() {
+        p["last_supply"] = serde_json::json!("Food");
+    }
+    let people: genesis_sim_core::people::People = serde_json::from_value(expected_people).unwrap();
     assert_eq!(loaded.simulation.people, people);
     // Prior extraction is history, not new collectable stock.
     let mut old_wells: serde_json::Value =
@@ -519,4 +522,121 @@ fn water_cargo_roundtrip_rejects_corrupt_commitments() {
         .unwrap()
         .remove("households");
     assert!(decode(&serde_json::to_vec(&missing).unwrap()).is_err());
+}
+
+#[test]
+fn v4_water_commitments_survive_food_migration_without_new_stock() {
+    let old: serde_json::Value =
+        serde_json::from_slice(include_bytes!("../fixtures/v4-water.json")).unwrap();
+    let restored = decode(include_bytes!("../fixtures/v4-water.json")).unwrap();
+    assert_eq!(restored.simulation.completed_ticks(), 100);
+    assert!(restored.simulation.food.sources().is_empty());
+    assert!(
+        restored
+            .simulation
+            .food
+            .homes()
+            .values()
+            .all(|h| h.stored == 0 && h.consumed == 0)
+    );
+    let mut expected_people = old["state"]["people"].clone();
+    for p in expected_people["entries"].as_array_mut().unwrap() {
+        p["last_supply"] = serde_json::json!("Food");
+    }
+    let people: genesis_sim_core::people::People = serde_json::from_value(expected_people).unwrap();
+    let homes: genesis_sim_core::households::Households =
+        serde_json::from_value(old["state"]["households"].clone()).unwrap();
+    assert_eq!(restored.simulation.people, people);
+    assert_eq!(restored.simulation.households, homes);
+    assert!(
+        restored
+            .simulation
+            .people
+            .all()
+            .iter()
+            .any(|p| p.carried_water > 0.)
+    );
+}
+
+#[test]
+fn food_gathering_and_cargo_roundtrip_and_corruption_is_rejected() {
+    use genesis_sim_core::people::Activity;
+    let mut state = scenarios::supplied_settlement();
+    state.subsurface.wells[0].active = false;
+    let mut run = Simulation::new(state);
+    for activity in [Activity::GatheringFood, Activity::CarryingFood] {
+        for _ in 0..1000 {
+            if run.people.all().iter().any(|p| p.activity == activity) {
+                break;
+            }
+            run.advance(&[]);
+        }
+        let i = run
+            .people
+            .all()
+            .iter()
+            .position(|p| p.activity == activity)
+            .unwrap();
+        let pending = if activity == Activity::CarryingFood {
+            vec![Action::CancelFoodTask {
+                person: run.people.all()[i].id,
+            }]
+        } else {
+            vec![]
+        };
+        let snapshot = Snapshot::capture(&run, "food-commitment", &pending).unwrap();
+        let bytes = encode(&snapshot).unwrap();
+        let mut a = decode(&bytes).unwrap();
+        a.simulation.advance(&a.pending);
+        for _ in 0..500 {
+            a.simulation.advance(&[]);
+        }
+        // Also compare encoded continuation against the original in-memory snapshot.
+        let mut direct = snapshot.clone().restore().unwrap();
+        direct.simulation.advance(&direct.pending);
+        for _ in 0..500 {
+            direct.simulation.advance(&[]);
+        }
+        assert_eq!(
+            serde_json::to_vec(&*a.simulation).unwrap(),
+            serde_json::to_vec(&*direct.simulation).unwrap()
+        );
+        let good = serde_json::to_value(snapshot).unwrap();
+        for (pointer, value) in [
+            (
+                format!("/state/people/entries/{i}/food_task/amount"),
+                serde_json::json!(100),
+            ),
+            (
+                format!("/state/people/entries/{i}/food_task/source"),
+                serde_json::json!(999),
+            ),
+            (
+                format!("/state/people/entries/{i}/carried_food"),
+                serde_json::json!(100),
+            ),
+            (
+                "/state/food/sources/0/remaining".into(),
+                serde_json::json!(999),
+            ),
+            ("/state/food/ids".into(), serde_json::json!(1)),
+            ("/state/food/elapsed_ms".into(), serde_json::json!(30_000)),
+        ] {
+            let mut bad = good.clone();
+            *bad.pointer_mut(&pointer).unwrap() = value;
+            assert!(
+                decode(&serde_json::to_vec(&bad).unwrap()).is_err(),
+                "{pointer}"
+            );
+        }
+        let mut no_priority = good.clone();
+        no_priority["state"]["people"]["entries"][i]
+            .as_object_mut()
+            .unwrap()
+            .remove("last_supply");
+        assert!(decode(&serde_json::to_vec(&no_priority).unwrap()).is_err());
+        let mut missing = good;
+        missing["state"].as_object_mut().unwrap().remove("food");
+        assert!(decode(&serde_json::to_vec(&missing).unwrap()).is_err());
+    }
 }

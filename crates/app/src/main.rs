@@ -3,6 +3,8 @@ mod clock;
 mod cursor;
 mod dwelling;
 mod extraction_benchmark;
+mod food_smoke;
+mod forage;
 mod frontend;
 mod ground;
 mod horizon;
@@ -71,6 +73,7 @@ struct App {
     people_smoke: bool,
     water_smoke: bool,
     water_overview_smoke: bool,
+    food_smoke: bool,
     frames: u32,
     menu_smoke: Option<menu_smoke::Check>,
 }
@@ -215,6 +218,15 @@ impl App {
                 self.capture
                     .as_deref()
                     .ok_or("water test needs capture path")?,
+            )?;
+        }
+        if self.food_smoke && self.frames == 26 {
+            food_smoke::check(
+                &mut self.session,
+                &mut self.camera,
+                self.capture
+                    .as_deref()
+                    .ok_or("food test needs capture path")?,
             )?;
         }
         if self.water_overview_smoke && self.frames == 26 {
@@ -719,6 +731,7 @@ fn main() -> Result<()> {
                 || flag == "--people-test"
                 || flag == "--water-test"
                 || flag == "--water-overview-test"
+                || flag == "--food-test"
                 || flag == "--menu-capture"
                 || flag == "--menu-test" =>
         {
@@ -729,7 +742,9 @@ fn main() -> Result<()> {
             app.world_smoke = flag == "--world-test";
             app.interaction_smoke = flag == "--interaction-test";
             app.people_smoke = flag == "--people-test";
-            app.water_smoke = flag == "--water-test" || flag == "--water-overview-test";
+            app.water_smoke =
+                flag == "--water-test" || flag == "--water-overview-test" || flag == "--food-test";
+            app.food_smoke = flag == "--food-test";
             app.water_overview_smoke = flag == "--water-overview-test";
             if flag == "--menu-test" {
                 app.menu_smoke = Some(menu_smoke::Check::default());
@@ -737,7 +752,7 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --water-test output.png | --water-overview-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --water-test output.png | --water-overview-test output.png | --food-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }

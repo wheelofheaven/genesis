@@ -116,3 +116,10 @@ pub fn water_settlement() -> SimState {
     );
     sim
 }
+
+/// Finite forage and water for the shared two-resource acceptance scenario.
+pub fn supplied_settlement() -> SimState {
+    let mut sim = water_settlement();
+    crate::food::populate(&mut sim);
+    sim
+}
