@@ -7,6 +7,7 @@ mod navigation;
 mod objects;
 mod survey;
 pub mod theme;
+mod water;
 mod weather;
 
 use crate::session::Session;
@@ -38,6 +39,7 @@ pub fn show(
         || session.landscape_tools
         || session.survey.open
         || session.world_tools
+        || session.water_overview
     {
         let top = if compact { 148. } else { 88. };
         let available = (occupied[3].top() - top - 50.).max(80.);
@@ -81,7 +83,9 @@ pub fn show(
                                     survey::legend_contents(ui, session)
                                 });
                             }
-                            if session.world_tools {
+                            if session.water_overview {
+                                water::panel(ui, session, camera);
+                            } else if session.world_tools {
                                 weather::show(ui, atmosphere);
                                 ui.separator();
                                 world(ui, session, camera);

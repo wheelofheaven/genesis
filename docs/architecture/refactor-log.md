@@ -886,3 +886,47 @@ milestone: persistent villagers with a visible, explainable routine.
   demolition and generalized job scheduling are absent. See [water ownership and
   limits](household-water.md). Next small step: a settlement supply overview that
   identifies homes lacking reachable water before introducing additional resources.
+
+## 15 October 2026 — settlement water overview
+
+- Started from clean `30dc441`; inspected workspace/project instructions, engine
+  and vision decisions, household water ownership, pinned manifests/lockfile,
+  session/input transitions, HUD, survey and existing UI/native checks.
+  Baseline `mise run ci`: 206 passed, 14 optional tests ignored; no baseline defect.
+- Household supply was visible only by selecting individual people, dwellings or
+  wells. Added `app/ui/water.rs` with borrowed household/resident rows and derived
+  stock totals. Reservations remain a subset of well stock; cargo and cumulative
+  accounting are not double counted. Drawing does no pathfinding or world mutation.
+- The identity card now offers **Water supply** in place of the passive well count;
+  the count and pump/buffer details are in the overview's expandable well list.
+  Household rows show stocks, collector, reservation/cargo, current movement blocks
+  and recorded last-attempt reasons. Clicking a row selects its persistent dwelling
+  ID and focuses the camera while keeping the overview open. Empty worlds explain
+  the absence of households. Existing collection, consumption and navigation rules
+  are unchanged.
+- Reused the scrollable inspector and its world-input exclusion bounds. Session
+  transitions close the overview on other tools, Escape and world replacement.
+  A layout check caught an overlapping survey legend in an unpopulated world;
+  it now uses the same embedded-legend behavior as other inspectors.
+- Final `mise run ci`: **209 tests pass**, 14 optional tests ignored; rustfmt and
+  Clippy with warnings denied pass. `mise run build` and `git diff --check` pass.
+  New checks cover totals with cargo in transit, stock accounting, recorded stopped/
+  empty/blocked collection reasons, immutable inspection, stable-ID focus after
+  storage reordering, compact scrolling to the last household, tool switching and
+  world replacement. Layout checks cover inhabited/uninhabited overviews at all
+  six existing supported test sizes. The resized scroll test waits for egui's
+  measured layout to settle before sending pointer input.
+- Native Apple M4/Metal: `target/debug/genesis-app --water-overview-test
+  /private/tmp/genesis-water-overview.png` and `--interaction-test
+  /private/tmp/genesis-overview-interaction.png` exit 0. The overview smoke reuses
+  actual valley drilling, collection, delivery after pump stop and exact save
+  continuation before opening the panel. Visually inspected the overview capture;
+  cargo, reservations and household rows match committed state. User save slots
+  and any running user application are untouched.
+- No simulation, schema 4/rules 3/content, dependency or platform changes. Native
+  macOS is verified; other graphical hosts are unverified. No performance claim:
+  rows are rebuilt only while open for the current small settlement. Failure
+  reasons are last-attempt observations, not current reachability predictions.
+  [Ownership and view contract](household-water.md) documents these limits.
+- Next small feature candidate: one food-gathering task using the existing stock,
+  reservation and delivery boundaries, after choosing its source and household use.

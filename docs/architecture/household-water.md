@@ -110,4 +110,29 @@ No new browser storage or platform support is claimed.
 Tests cover conservation, overflow accounting, all six households receiving and consuming water, stable scarce-stock arbitration, shared-home claims, cancellation, stopped wells, changed terrain, held cargo, V1–V3 migration, corrupt commitments, encoded continuation, frame partitions, UI cancellation and inspector layout.
 Native verification uses Apple M4/Metal; other graphical hosts remain unverified.
 No performance improvement or population-scale target is claimed.
-The next useful step is a small supply overview showing which households lack reachable water, before expanding into additional jobs or needs.
+
+## Settlement supply overview — 15 October 2026
+
+The **Water supply** button in the settlement identity card opens the shared inspector.
+`app/ui/water.rs` groups borrowed household and resident records by persistent home ID;
+it derives totals from current physical stocks, keeping reservations within well buffers.
+Cumulative extraction, consumption and released-water counters are not counted as stock.
+Rows show home capacity, the active collector and cargo/reservation, current movement blocks,
+or the recorded last collection result. Last-attempt wording deliberately avoids claiming
+that pathfinding or source availability has been reevaluated during drawing.
+Low stock and sufficient stock use the existing simulation thresholds for presentation only.
+The expandable well list reports pump settings, stored and reserved water, and empty/insufficient buffers.
+
+Clicking any household row resolves the home ID against the active world, selects its dwelling
+and focuses the camera while retaining the overview. Tool switching, Escape, close and world
+replacement clear the overview through existing session transitions. The scroll area shares
+the inspector's input exclusion bounds; active survey legends move into the inspector.
+Unpopulated worlds show an empty-state explanation.
+No new domain state, events, rules, content, save schema or rendering dependencies are introduced.
+The view is rebuilt while open, uses no full-world clone or route planner, and retains no history.
+
+Checks cover derived accounting with cargo in transit, last-attempt explanations, stable-ID
+selection after store repacking, camera focus, compact scrolling to the last home, unchanged
+serialized simulation and pending commands, tool transitions and world replacement.
+`--water-overview-test` reuses the generated valley's water/delivery/save check and captures the overview.
+This is validated for the existing small settlement; no population-scale performance claim is made.

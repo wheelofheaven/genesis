@@ -109,6 +109,13 @@ shortcut hints. Exploration keeps the center clear; building, survey, and landsc
 appear only for their active tool. The minimum window is 760 × 540 logical pixels,
 with compact controls and scrolling where needed.
 
+Open **Water supply** beside the resident count to see household stocks, active
+collectors, cargo and recorded shortage reasons. Click a home row to select and
+focus it; scroll for more homes and the expandable well list. Totals separate
+water at home, in transit and in well buffers; reservations are part of buffer
+stock. Failed collection attempts remain labeled as the last attempt until a
+resident tries again. Escape closes the overview.
+
 The clock uses fixed 100 ms ticks, retains fractional time across pause, and
 limits catch-up to eight ticks per frame. A frame contributes at most 250 ms of
 wall time before the speed multiplier; excess whole-tick backlog is discarded.

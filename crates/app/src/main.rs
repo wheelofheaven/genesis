@@ -70,6 +70,7 @@ struct App {
     interaction_smoke: bool,
     people_smoke: bool,
     water_smoke: bool,
+    water_overview_smoke: bool,
     frames: u32,
     menu_smoke: Option<menu_smoke::Check>,
 }
@@ -215,6 +216,11 @@ impl App {
                     .as_deref()
                     .ok_or("water test needs capture path")?,
             )?;
+        }
+        if self.water_overview_smoke && self.frames == 26 {
+            self.session.set_water_overview(true);
+            self.camera
+                .set_visible_height(genesis_sim_core::units::metres(35.));
         }
         if self.people_smoke {
             people_smoke::advance(
@@ -468,7 +474,8 @@ impl ApplicationHandler for App {
                                 || self.session.help
                                 || self.session.landscape_tools
                                 || self.session.survey.open
-                                || self.session.world_tools)
+                                || self.session.world_tools
+                                || self.session.water_overview)
                         {
                             self.input
                                 .key(code, true, &mut self.session, &mut self.camera);
@@ -711,6 +718,7 @@ fn main() -> Result<()> {
                 || flag == "--interaction-test"
                 || flag == "--people-test"
                 || flag == "--water-test"
+                || flag == "--water-overview-test"
                 || flag == "--menu-capture"
                 || flag == "--menu-test" =>
         {
@@ -721,14 +729,15 @@ fn main() -> Result<()> {
             app.world_smoke = flag == "--world-test";
             app.interaction_smoke = flag == "--interaction-test";
             app.people_smoke = flag == "--people-test";
-            app.water_smoke = flag == "--water-test";
+            app.water_smoke = flag == "--water-test" || flag == "--water-overview-test";
+            app.water_overview_smoke = flag == "--water-overview-test";
             if flag == "--menu-test" {
                 app.menu_smoke = Some(menu_smoke::Check::default());
             }
         }
         _ => {
             return Err(
-                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --water-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --water-test output.png | --water-overview-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }

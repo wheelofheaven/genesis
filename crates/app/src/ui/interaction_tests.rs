@@ -7,6 +7,17 @@ fn frame(
     front: &mut crate::frontend::Frontend,
     events: Vec<egui::Event>,
 ) -> (egui::FullOutput, Vec<egui::Rect>) {
+    frame_with_camera(ctx, size, session, front, events, &mut Camera::default())
+}
+
+fn frame_with_camera(
+    ctx: &egui::Context,
+    size: egui::Vec2,
+    session: &mut Session,
+    front: &mut crate::frontend::Frontend,
+    events: Vec<egui::Event>,
+    camera: &mut Camera,
+) -> (egui::FullOutput, Vec<egui::Rect>) {
     let mut occupied = Vec::new();
     let output = ctx.run(
         egui::RawInput {
@@ -15,13 +26,7 @@ fn frame(
             ..Default::default()
         },
         |ctx| {
-            occupied = show(
-                ctx,
-                session,
-                &mut Camera::default(),
-                front,
-                &mut Default::default(),
-            );
+            occupied = show(ctx, session, camera, front, &mut Default::default());
         },
     );
     (output, occupied)
@@ -37,7 +42,7 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
         egui::vec2(1120., 540.),
         egui::vec2(1280., 800.),
     ] {
-        for tool in 0..10 {
+        for tool in 0..12 {
             let ctx = egui::Context::default();
             theme::install(&ctx);
             let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
@@ -60,6 +65,11 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
                 session.selected_object = Some(crate::interaction::Object::Person(
                     session.sim.people.all()[0].id,
                 ));
+            }
+            session.water_overview = tool >= 10;
+            if tool == 11 {
+                session.replace_sim(genesis_sim_core::scenarios::coastal_outpost());
+                session.water_overview = true;
             }
             session.path.active = tool == 5;
             if tool == 6 {
@@ -112,9 +122,11 @@ fn dock_switches_tools_and_menu_is_reachable() {
     let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
     let mut front = crate::frontend::Frontend::default();
     for (label, expected) in [
+        ("Water supply", 7),
         ("Paths", 6),
         ("Build", 1),
         ("Survey", 2),
+        ("Water supply", 7),
         ("Landscape", 3),
         ("Explore", 0),
         ("Region", 4),
@@ -151,6 +163,7 @@ fn dock_switches_tools_and_menu_is_reachable() {
                 ],
             );
         }
+        assert_eq!(session.water_overview, expected == 7);
         assert_eq!(session.path.active, expected == 6);
         assert_eq!(session.placing, expected == 1);
         assert_eq!(session.survey.open, expected == 2);
@@ -215,4 +228,130 @@ fn collection_cancel_button_queues_a_validated_action() {
         session.sim.people.get(id).unwrap().water_issue,
         Some(genesis_sim_core::people::WaterIssue::Cancelled)
     );
+}
+
+#[test]
+fn water_overview_focuses_stable_home_without_changing_the_simulation() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::water_settlement();
+    state.buildings.reverse();
+    let mut session = Session::from_sim(state);
+    session.set_water_overview(true);
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    let mut camera = Camera::default();
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1280., 800.);
+    for _ in 0..3 {
+        frame_with_camera(&ctx, size, &mut session, &mut front, vec![], &mut camera);
+    }
+    let rect = ctx
+        .data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("water_home", 1_u64))))
+        .unwrap();
+    for pressed in [true, false] {
+        frame_with_camera(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::PointerButton {
+                    pos: rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            &mut camera,
+        );
+    }
+    assert_eq!(
+        session.selected_object,
+        Some(crate::interaction::Object::Building(1))
+    );
+    assert!(session.water_overview);
+    assert_eq!(
+        session.position,
+        session
+            .sim
+            .buildings
+            .iter()
+            .find(|b| b.id == 1)
+            .unwrap()
+            .position
+    );
+    let projected = camera
+        .view_projection(size.x / size.y)
+        .project_point3(session.selected_point());
+    assert!(projected.x.abs() < 0.001 && projected.y.abs() < 0.001);
+    // Reach the final row through the real scroll area, including compact layouts.
+    let compact = egui::vec2(760., 540.);
+    for _ in 0..3 {
+        frame_with_camera(&ctx, compact, &mut session, &mut front, vec![], &mut camera);
+    }
+    let (_, bounds) =
+        frame_with_camera(&ctx, compact, &mut session, &mut front, vec![], &mut camera);
+    let pointer = bounds[6].center();
+    frame_with_camera(
+        &ctx,
+        compact,
+        &mut session,
+        &mut front,
+        vec![
+            egui::Event::PointerMoved(pointer),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0., -2000.),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+        &mut camera,
+    );
+    for _ in 0..30 {
+        frame_with_camera(&ctx, compact, &mut session, &mut front, vec![], &mut camera);
+    }
+    let rect = ctx
+        .data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("water_home", 6_u64))))
+        .unwrap();
+    assert!(
+        bounds[6].contains(rect.center()),
+        "last row {rect:?}, panel {:?}",
+        bounds[6]
+    );
+    for pressed in [true, false] {
+        frame_with_camera(
+            &ctx,
+            compact,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::PointerButton {
+                    pos: rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            &mut camera,
+        );
+    }
+    assert_eq!(
+        session.selected_object,
+        Some(crate::interaction::Object::Building(6))
+    );
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert_eq!(session.pending_count(), 0);
+    crate::input::Input::default().key(
+        winit::keyboard::KeyCode::Escape,
+        true,
+        &mut session,
+        &mut camera,
+    );
+    assert!(!session.water_overview);
+    session.set_water_overview(true);
+    session.replace_sim(genesis_sim_core::scenarios::coastal_outpost());
+    assert!(!session.water_overview);
+    assert_eq!(session.selected_object, None);
 }

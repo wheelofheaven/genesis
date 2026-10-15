@@ -17,7 +17,7 @@ fn area(id: &str, anchor: Align2, offset: [f32; 2]) -> egui::Area {
         .fade_in(false)
 }
 
-pub fn identity(ctx: &egui::Context, session: &Session) -> egui::Rect {
+pub fn identity(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
     area("identity", Align2::LEFT_TOP, [16., 16.])
         .show(ctx, |ui| {
             card().inner_margin(12).show(ui, |ui| {
@@ -33,7 +33,6 @@ pub fn identity(ctx: &egui::Context, session: &Session) -> egui::Rect {
                     for (icon, count, label) in [
                         (Icon::House, session.sim.buildings.len(), "Dwellings"),
                         (Icon::Person, session.sim.people.all().len(), "Residents"),
-                        (Icon::Water, session.sim.subsurface.wells.len(), "Boreholes"),
                     ] {
                         let (rect, response) =
                             ui.allocate_exact_size(egui::vec2(18., 18.), egui::Sense::hover());
@@ -42,6 +41,13 @@ pub fn identity(ctx: &egui::Context, session: &Session) -> egui::Rect {
                         ui.label(RichText::new(count.to_string()).size(13.).color(TEXT))
                             .on_hover_text(label);
                         ui.add_space(8.);
+                    }
+                    if ui
+                        .small_button("Water supply")
+                        .on_hover_text("Household stocks, collectors and well supply")
+                        .clicked()
+                    {
+                        session.set_water_overview(!session.water_overview);
                     }
                 });
             });
@@ -165,7 +171,8 @@ pub fn dock(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
                         && !session.path.active
                         && !session.landscape_tools
                         && !session.survey.open
-                        && !session.world_tools;
+                        && !session.world_tools
+                        && !session.water_overview;
                     if icons::button(
                         ui,
                         Icon::Explore,

@@ -27,6 +27,7 @@ pub struct Session {
     pub help: bool,
     pub landscape_tools: bool,
     pub world_tools: bool,
+    pub water_overview: bool,
     pub region_choice: genesis_sim_core::worldgen::Region,
     pub survey: crate::survey::Survey,
     pub message: String,
@@ -74,6 +75,7 @@ impl Session {
             help: false,
             landscape_tools: false,
             world_tools: false,
+            water_overview: false,
             survey: crate::survey::Survey::default(),
             message: String::new(),
             message_is_error: false,
@@ -302,7 +304,15 @@ impl Session {
         self.selected = (position.x.round() as i32, position.z.round() as i32);
         self.overlay_dirty = true;
     }
+    pub fn set_water_overview(&mut self, open: bool) {
+        self.set_placing(false);
+        self.landscape_tools = false;
+        self.world_tools = false;
+        self.survey.open = false;
+        self.water_overview = open;
+    }
     pub fn set_placing(&mut self, placing: bool) {
+        self.water_overview = false;
         self.path.active = false;
         self.path.points.clear();
         self.hovered_object = None;

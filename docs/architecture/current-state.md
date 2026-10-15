@@ -490,3 +490,26 @@ save continuation matches uninterrupted advancement with cargo in transit.
 No new platform or performance claim. Full jobs, health, production and social
 household models remain outside the slice. See [ownership and limits](household-water.md)
 and [checkpoint evidence](refactor-log.md).
+
+## Water overview audit — 15 October 2026
+
+Starting from clean `30dc441`; baseline `mise run ci` passes 206 tests,
+14 optional tests ignored. Household stocks, resident claims/cargo and well
+buffers already have authoritative owners. The app currently exposes them only
+through separate object inspectors (`ui/objects.rs`, `ui/survey.rs`).
+Adopt a read-only settlement view with derived totals, household collection
+status and stable-ID selection/focus. Reuse the existing inspector and input
+exclusion bounds; report recorded route failures as last-attempt information.
+No pathfinding during drawing, rule changes, new stores, dependencies or save
+migration. Acceptance: accurate nonduplicated totals, read-only inspection,
+household selection/focus, empty worlds, tool transitions, narrow layouts and
+native capture with the existing water delivery/save scenario.
+
+Implemented: `app/ui/water.rs` provides the borrowed view and derived totals;
+the identity card opens it, stable home IDs drive focus, and the shared inspector
+handles scrolling and input exclusion. Tests cover nonmutating reads, cargo and
+reservation accounting, recorded failure reasons, stable selection, camera focus,
+empty worlds and compact scrolling/layout. Existing water behavior, save schema 4,
+content and platforms are unchanged. Native overview and interaction checks pass
+on Apple M4/Metal. See the [water overview contract](household-water.md) and
+[checkpoint report](refactor-log.md).
