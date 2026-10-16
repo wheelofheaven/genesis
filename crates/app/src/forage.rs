@@ -2,6 +2,13 @@
 use genesis_renderer::geometry::{Vertex, cuboid};
 use genesis_sim_core::{SimState, food::Source, spatial::Position, units::metres};
 pub fn mesh(sim: &SimState, out: &mut Vec<Vertex>, source: &Source) {
+    if matches!(
+        source.kind,
+        genesis_sim_core::food::cultivation::Kind::Barley(_)
+    ) {
+        crate::crops::mesh(sim, out, source);
+        return;
+    }
     for i in 0..5 {
         let a = i as f32 * std::f32::consts::TAU / 5.;
         let p = Position::new(

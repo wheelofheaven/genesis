@@ -16,12 +16,20 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
                     source.remaining,
                     session.sim.people.reserved_food(id)
                 ));
-                muted(
-                    ui,
-                    "Finite wild-food harvest. Residents gather four portions per trip. No regrowth yet.",
-                );
-                if source.remaining == 0 {
-                    ui.colored_label(ERROR, "Depleted");
+                ui.heading(source.label());
+                if matches!(
+                    source.kind,
+                    genesis_sim_core::food::cultivation::Kind::Barley(_)
+                ) {
+                    super::cultivation::source(ui, &session.sim, source);
+                } else {
+                    muted(
+                        ui,
+                        "Finite wild-food harvest. Residents gather four portions per trip. No regrowth yet.",
+                    );
+                    if source.remaining == 0 {
+                        ui.colored_label(ERROR, "Depleted");
+                    }
                 }
             }
         }

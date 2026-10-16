@@ -20,12 +20,20 @@ pub fn object(
     match object {
         Object::FoodSource(id) => {
             if let Some(source) = sim.food.source(id) {
+                let radius = if matches!(
+                    source.kind,
+                    genesis_sim_core::food::cultivation::Kind::Barley(_)
+                ) {
+                    genesis_sim_core::food::cultivation::RADIUS
+                } else {
+                    metres(1.5)
+                };
                 let ring: Vec<_> = (0..=32)
                     .map(|i| {
                         let a = i as f32 * std::f32::consts::TAU / 32.;
                         Position::new(
-                            source.position.x + a.cos() * metres(1.5),
-                            source.position.z + a.sin() * metres(1.5),
+                            source.position.x + a.cos() * radius,
+                            source.position.z + a.sin() * radius,
                         )
                     })
                     .collect();

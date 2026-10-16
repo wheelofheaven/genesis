@@ -42,7 +42,7 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
         egui::vec2(1120., 540.),
         egui::vec2(1280., 800.),
     ] {
-        for tool in 0..15 {
+        for tool in 0..18 {
             let ctx = egui::Context::default();
             theme::install(&ctx);
             let mut session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
@@ -90,7 +90,17 @@ fn hud_stays_on_screen_without_overlapping_at_supported_scales() {
             if tool == 6 {
                 session.selected_object = Some(crate::interaction::Object::Building(1));
             }
-            session.placing = tool == 1;
+            if tool >= 15 {
+                session.replace_sim(genesis_sim_core::scenarios::cultivated_settlement());
+                session.selected_object = Some(crate::interaction::Object::FoodSource(
+                    session.sim.food.sources()[0].id,
+                ));
+                session.water_overview = tool == 17;
+                session.supply_food = true;
+                session.hover = Some(genesis_sim_core::spatial::Position::new(8.5, 8.));
+            }
+            session.placing = tool == 1 || tool == 15;
+            session.crop_placing = tool == 15;
             session.landscape_tools = tool == 2;
             session.survey.open = tool == 3;
             session.survey.water = true;
@@ -432,4 +442,54 @@ fn food_inspection_is_read_only_and_cancellation_uses_the_command_boundary() {
         session.sim.people.get(id).unwrap().food_issue,
         Some(genesis_sim_core::people::FoodIssue::Cancelled)
     );
+}
+
+#[test]
+fn crop_tool_queues_placement_and_read_only_inspection_uses_current_growth() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut session = Session::from_sim(genesis_sim_core::scenarios::water_settlement());
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1100., 800.);
+    session.set_placing(true);
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    let point = output
+        .shapes
+        .iter()
+        .find_map(|s| text_position(&s.shape, "Barley plot"))
+        .unwrap();
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert!(session.crop_placing);
+    session.set_hover(Some(genesis_sim_core::spatial::Position::new(7.5, 8.)));
+    session.build_hovered(false);
+    assert!(session.sim.food.sources().is_empty());
+    assert_eq!(session.pending_count(), 1);
+    session.clock.paused = true;
+    session.step_once();
+    assert_eq!(session.sim.food.sources().len(), 1);
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert!(session.selected_object.is_some());
 }

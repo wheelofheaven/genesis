@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 /// Player actions fed into the simulation each tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Action {
+    PlantCrop {
+        position: crate::spatial::Position,
+    },
     CancelFoodTask {
         person: crate::people::PersonId,
     },

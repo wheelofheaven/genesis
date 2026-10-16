@@ -1,3 +1,4 @@
+mod cultivation;
 pub mod glass;
 mod hud;
 pub(crate) mod icons;
@@ -188,6 +189,25 @@ fn world(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
 }
 
 fn building(ui: &mut egui::Ui, session: &mut Session, compact: bool) {
+    ui.horizontal(|ui| {
+        if button(ui, "Dwelling", !session.crop_placing, "Place a home") {
+            session.crop_placing = false;
+            session.overlay_dirty = true;
+        }
+        if button(
+            ui,
+            "Barley plot",
+            session.crop_placing,
+            "Plant a renewable food source",
+        ) {
+            session.crop_placing = true;
+            session.overlay_dirty = true;
+        }
+    });
+    if session.crop_placing {
+        cultivation::placement(ui, session);
+        return;
+    }
     ui.heading("A new dwelling");
     muted(ui, "6.5 × 4.8 m · single storey");
     if !compact {

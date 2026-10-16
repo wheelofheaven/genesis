@@ -2,7 +2,7 @@
 
 Accepted 12 October 2026 after the native persistence checkpoint.
 
-Historical V2 contract: new captures use [V5 food and water saves](food-gathering.md).
+Historical V2 contract: new captures use [V6 crop, food and water saves](cultivation.md).
 The allocation rules below remain in force; V1 and V2 saves remain supported.
 
 Buildings and wells retain their existing `u64` IDs. Committed paths now also

@@ -86,6 +86,13 @@ impl SimState {
         // 1. Apply player actions.
         for action in actions {
             match action {
+                Action::PlantCrop { position } => {
+                    let time = self.time + f64::from(dt);
+                    events.push(match food::cultivation::plant(self, *position) {
+                        Ok(source) => SimEvent::CropPlanted { source, time },
+                        Err(reason) => SimEvent::CropPlantRejected { reason, time },
+                    });
+                }
                 Action::CancelFoodTask { person } => {
                     let time = self.time + f64::from(dt);
                     events.push(if self.people.cancel_food(*person) {
@@ -138,20 +145,13 @@ impl SimState {
                 Action::SeedPlants { x, y, radius } => {
                     rules::seed_life(&mut self.grid, *x, *y, *radius, false);
                 }
-                Action::DrillWell { position } => {
-                    match self.subsurface.validate_well(
-                        &self.grid,
-                        self.sea_level,
-                        &self.buildings,
-                        *position,
-                    ) {
-                        Ok(()) => match self.subsurface.drill(*position) {
-                            Ok(id) => events.push(SimEvent::WellDrilled { id }),
-                            Err(reason) => events.push(SimEvent::WellRejected { reason }),
-                        },
+                Action::DrillWell { position } => match self.validate_well(*position) {
+                    Ok(()) => match self.subsurface.drill(*position) {
+                        Ok(id) => events.push(SimEvent::WellDrilled { id }),
                         Err(reason) => events.push(SimEvent::WellRejected { reason }),
-                    }
-                }
+                    },
+                    Err(reason) => events.push(SimEvent::WellRejected { reason }),
+                },
                 Action::SetWellActive { id, active } => {
                     if let Some(well) = self.subsurface.wells.iter_mut().find(|w| w.id == *id) {
                         well.active = *active;
@@ -261,6 +261,7 @@ impl SimState {
 
         self.households.advance(&self.people, dt);
         self.food.advance(&self.people, dt);
+        food::cultivation::advance(self, dt, &mut events);
         let mut people = std::mem::take(&mut self.people);
         people.advance(self, dt, &mut events);
         self.people = people;
@@ -279,6 +280,12 @@ impl SimState {
         settlement::validate_surface(&self.grid, self.sea_level, &self.buildings, building, |p| {
             surface::elevation(self, p)
         })?;
+        if self.food.sources().iter().any(|s| {
+            matches!(s.kind, food::cultivation::Kind::Barley(_))
+                && food::cultivation::overlaps_building(s.position, building)
+        }) {
+            return Err(settlement::PlacementError::Occupied);
+        }
         if self
             .paths
             .iter()
@@ -298,6 +305,19 @@ impl SimState {
         } else {
             Ok(())
         }
+    }
+
+    /// Well placement preview and execution share crop footprint exclusion.
+    pub fn validate_well(&self, p: spatial::Position) -> Result<(), subsurface::WellError> {
+        self.subsurface
+            .validate_well(&self.grid, self.sea_level, &self.buildings, p)?;
+        if self.food.sources().iter().any(|s| {
+            matches!(s.kind, food::cultivation::Kind::Barley(_))
+                && paths::distance(s.position, p) < food::cultivation::RADIUS + units::metres(0.8)
+        }) {
+            return Err(subsurface::WellError::Occupied);
+        }
+        Ok(())
     }
 
     /// Compute a stability score [0.0, 1.0] based on land coverage and life.

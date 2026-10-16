@@ -123,3 +123,19 @@ pub fn supplied_settlement() -> SimState {
     crate::food::populate(&mut sim);
     sim
 }
+
+/// Six households supported by a repeatable crop and the existing well.
+pub fn cultivated_settlement() -> SimState {
+    let mut sim = water_settlement();
+    for cell in sim.grid.cells_mut() {
+        cell.rainfall = 0.9;
+        cell.drainage = 0.;
+    }
+    sim.step(
+        0.,
+        &[Action::PlantCrop {
+            position: Position::new(7.5, 8.),
+        }],
+    );
+    sim
+}

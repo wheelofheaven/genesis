@@ -539,3 +539,31 @@ CI passes 216 tests with 14 optional checks ignored; workspace build and CPU-onl
 save continuation pass. Native food/world/interaction/save/resident checks pass on
 Apple M4/Metal. No performance or additional platform claim.
 See [ownership and limits](food-gathering.md) and [checkpoint evidence](refactor-log.md).
+
+## Cultivation audit — 16 October 2026
+
+Starting from clean `9dafadf`. Inspected project/workspace instructions, engine and
+vision decisions, food accounting/tasks, continuous placement and walking queries,
+climate updates, save migrations, inspector/picking and native checks.
+Food is finite; no cultivation exists. `rules/climate.rs` recomputes moisture from
+environmental proxies each tick, so it cannot be debited as a conserved water stock.
+Retain this field as a growth condition, existing food reservations and delivery,
+and the fixed clock. Add explicit plot production accounting and a bounded barley
+plot store within food sources; placement must revalidate overlapping commands.
+Use the Build inspector for preview/placement, source picking and Supplies for
+inspection. V5 fixture captured before edits protects food and water commitments.
+Acceptance: repeated harvests feed all six homes alongside water, dry ground slows
+or stops growth, invalid placement has no effects, terrain blockage retains stocks,
+and save/load preserves growth, future harvests and cargo. Existing terrain,
+camera, selection, buildings, water and finite forage remain preserved.
+
+Implemented: `food/cultivation.rs` owns crop growth/production, and its placement
+module validates continuous plots. The existing food task harvests and carries
+crop portions; the Build inspector and source view expose placement and growth.
+Cultivation is **partial**: one auto-resowing crop, climate-proxy moisture, no seed
+cost, sowing labour, irrigation, seasons or health consequences. Schema 6 / rules 5
+retain V1–V5 migration, with no automatic crop creation. Baseline CI passed 216
+tests; final CI passes 222, with 14 optional checks ignored. Build, Clippy and
+native crop/food/interaction/world/save checks pass on Apple M4/Metal. Exact
+CPU-only growth/save continuation matches the uninterrupted six-home workload.
+See [cultivation contracts](cultivation.md) and [checkpoint evidence](refactor-log.md).

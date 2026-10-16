@@ -4,6 +4,19 @@ use serde::{Deserialize, Serialize};
 /// Used for expedition log, UI feedback, and debugging.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimEvent {
+    CropPlanted {
+        source: crate::food::SourceId,
+        time: f64,
+    },
+    CropPlantRejected {
+        reason: crate::food::cultivation::Error,
+        time: f64,
+    },
+    CropMatured {
+        source: crate::food::SourceId,
+        portions: u32,
+        time: f64,
+    },
     FoodTaskStatusChanged {
         person: crate::people::PersonId,
         issue: Option<crate::people::FoodIssue>,

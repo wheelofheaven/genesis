@@ -107,12 +107,7 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
                 });
             }
         } else {
-            let valid = session.sim.subsurface.validate_well(
-                &session.sim.grid,
-                session.sim.sea_level,
-                &session.sim.buildings,
-                p,
-            );
+            let valid = session.sim.validate_well(p);
             if ui
                 .add_enabled(valid.is_ok(), egui::Button::new("Drill borehole here"))
                 .on_hover_text("Extract groundwater from this location. Pumping reduces local storage; recharge restores it gradually.")

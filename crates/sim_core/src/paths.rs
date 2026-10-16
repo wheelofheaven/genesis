@@ -154,6 +154,16 @@ pub fn samples(path: &Path) -> Vec<Position> {
 /// Preview and committed actions use exactly the same terrain/obstacle checks.
 pub fn validate(sim: &SimState, waypoints: &[Position], width: f32) -> Result<Path, PathError> {
     let path = route(waypoints, width)?;
+    if sim.food.sources().iter().any(|s| {
+        matches!(s.kind, crate::food::cultivation::Kind::Barley(_))
+            && on_path(
+                &path,
+                s.position,
+                crate::food::cultivation::RADIUS + metres(0.5),
+            )
+    }) {
+        return Err(PathError::Occupied);
+    }
     if sim
         .paths
         .iter()

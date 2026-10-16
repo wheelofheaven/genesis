@@ -38,7 +38,7 @@ impl Activity {
             Self::FetchingWater => "Collecting household water",
             Self::CarryingWater => "Carrying water home",
             Self::FetchingFood => "Walking to gather food",
-            Self::GatheringFood => "Gathering wild food",
+            Self::GatheringFood => "Harvesting food",
             Self::CarryingFood => "Carrying food home",
             Self::Resting => "Resting at home",
             Self::GoingToMeeting => "Walking to the meeting place",

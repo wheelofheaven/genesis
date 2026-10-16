@@ -2,7 +2,7 @@
 
 Accepted 12 October 2026, after the fixed-tick runtime checkpoint.
 
-Historical V1 contract: new saves now use [V5 food and water saves](food-gathering.md),
+Historical V1 contract: new saves now use [V6 crop, food and water saves](cultivation.md),
 building on [V2 durable identities](durable-identity.md).
 V1 files remain supported through staged migration; the original format below
 records the assumptions that migration validates.

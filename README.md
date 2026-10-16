@@ -28,10 +28,14 @@ placeholders. Residents now collect water from working nearby wells and deliver 
 to household stocks. They also gather finite wild food, carry it home in baskets,
 and consume whole portions. Inspect a home or resident for stock and task status;
 use Survey/Hydrology to drill and control wells. New settlements include a selectable
-wild-food patch. Sources do not regrow yet.
+wild-food patch. Wild sources remain finite; **Build → Barley plot** adds a renewable crop.
+Barley grows with soil moisture, pauses on dry or flooded ground, and becomes food
+that residents harvest and deliver. Plots automatically resow after their harvest
+is cleared; seed costs and irrigation are not implemented.
 Further needs, jobs, historical scenarios and the final art pipeline remain future
 work. See [household water](docs/architecture/household-water.md) and
-[food gathering](docs/architecture/food-gathering.md).
+[food gathering](docs/architecture/food-gathering.md), plus
+[cultivation](docs/architecture/cultivation.md).
 
 ## Run
 
@@ -130,12 +134,13 @@ the saved tick. On macOS the slot is
 `~/Library/Application Support/Genesis/world.json`, with the previous valid save
 at `world.json.bak`. Loading resets camera/selection and preserves the active world
 if validation fails. Saves are synchronous; the current main-menu Continue button
-still resumes the live session. New saves use schema v5 with resident routines,
-water/food stocks, task commitments and priority state; v1–v4 worlds migrate on load.
+still resumes the live session. New saves use schema v6 with resident routines,
+water/food stocks, crops, growth and task commitments; v1–v5 worlds migrate on load.
 Existing populations and water commitments are retained. Old worlds gain empty
-food stores without a new food patch; start a new settlement to try gathering.
+food stores without a new food patch when needed. Existing food sources remain
+intact; both old and new worlds can plant barley.
 Historical well recovery does not become collectable water. See [identity and compatibility](docs/architecture/durable-identity.md)
-and [water saves](docs/architecture/household-water.md), plus [save recovery](docs/architecture/saves-v1.md).
+and [crop saves](docs/architecture/cultivation.md), plus [save recovery](docs/architecture/saves-v1.md).
 
 ## Development
 

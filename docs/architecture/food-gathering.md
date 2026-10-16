@@ -1,6 +1,8 @@
 # Decision: finite food gathering alongside household water
 
 Accepted 15 October 2026 after the supply overview checkpoint.
+The [16 October cultivation slice](cultivation.md) adds renewable crop sources and schema 6;
+this document records the original finite-food rules, which remain in effect for wild patches.
 This adds a second explicit resident task; it does not replace the typed stores or introduce an ECS.
 
 ## Ownership and units

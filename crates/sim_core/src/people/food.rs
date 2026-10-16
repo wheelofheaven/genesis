@@ -2,8 +2,7 @@
 mod validation;
 use super::{Activity, People, Person, PersonId, navigation};
 use crate::{
-    SimState, events::SimEvent, food as stock, paths::distance, spatial::Position,
-    surface::walking, units::metres,
+    SimState, events::SimEvent, food as stock, paths::distance, spatial::Position, units::metres,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +28,9 @@ pub struct FoodTask {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FoodIssue {
     NoSource,
+    Growing,
+    Dry,
+    SourceBlocked,
     Empty,
     NoRoute,
     RouteBlocked,
@@ -38,7 +40,10 @@ pub enum FoodIssue {
 impl FoodIssue {
     pub fn label(self) -> &'static str {
         match self {
-            Self::NoSource => "No wild-food source in this world",
+            Self::NoSource => "No food source in this world",
+            Self::Growing => "Waiting for crops to mature",
+            Self::Dry => "Crop growth paused by dry ground",
+            Self::SourceBlocked => "Crop ground is flooded or obstructed",
             Self::Empty => "Not enough unreserved food remains",
             Self::NoRoute => "No reachable food source within local walking range",
             Self::RouteBlocked => "Gathering released: route or source blocked",
@@ -87,7 +92,7 @@ impl People {
                 && sim
                     .food
                     .source(task.source)
-                    .is_none_or(|s| !walking::standable(sim, s.position))
+                    .is_none_or(|s| !stock::cultivation::accessible(sim, s))
             {
                 release(&mut self.entries[index], FoodIssue::RouteBlocked);
             }
@@ -142,12 +147,22 @@ impl People {
                 .saturating_sub(self.reserved_food(source.id))
                 < stock::LOAD
             {
-                issue = FoodIssue::Empty;
+                issue = if matches!(source.kind, stock::cultivation::Kind::Barley(_))
+                    && source.remaining == 0
+                {
+                    match stock::cultivation::status(sim, source) {
+                        stock::cultivation::Status::Dry => FoodIssue::Dry,
+                        stock::cultivation::Status::Blocked => FoodIssue::SourceBlocked,
+                        _ => FoodIssue::Growing,
+                    }
+                } else {
+                    FoodIssue::Empty
+                };
                 continue;
             }
             issue = FoodIssue::NoRoute;
             if distance(p.position, source.position) > metres(50.)
-                || !walking::standable(sim, source.position)
+                || !stock::cultivation::accessible(sim, source)
             {
                 continue;
             }
@@ -208,7 +223,7 @@ pub(super) fn arrive(
         if sim
             .food
             .source(t.source)
-            .is_none_or(|s| !walking::standable(sim, s.position))
+            .is_none_or(|s| !stock::cultivation::accessible(sim, s))
         {
             release(p, FoodIssue::RouteBlocked);
         } else if sim.food.collect(t.source, t.amount) {

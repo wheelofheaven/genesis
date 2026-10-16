@@ -100,7 +100,23 @@ pub fn overlay(session: &Session, cache: Option<&terrain::Cache>) -> Vec<Vertex>
         residents(session, &mut out);
         return out;
     }
-    if session.placing {
+    if session.placing && session.crop_placing {
+        let position = session.candidate().position;
+        let valid = genesis_sim_core::food::cultivation::validate(sim, position).is_ok();
+        highlight(
+            sim,
+            cache,
+            &mut out,
+            &genesis_sim_core::food::cultivation::footprint(position),
+            metres(0.12),
+            if valid {
+                [0.35, 0.85, 0.44]
+            } else {
+                [0.95, 0.23, 0.13]
+            },
+            session.survey.seafloor,
+        );
+    } else if session.placing {
         let b = session.candidate();
         let valid = sim.validate_building(&b).is_ok();
         if valid {

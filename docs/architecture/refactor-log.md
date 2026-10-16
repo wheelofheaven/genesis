@@ -987,3 +987,65 @@ milestone: persistent villagers with a visible, explainable routine.
   introduced. Existing extraction benchmarks retain their unpopulated workloads.
   See [food ownership, compatibility and limits](food-gathering.md). The next
   small design choice is a renewable food source through seasons or cultivation.
+
+## 16 October 2026 — placeable barley and repeated harvests
+
+- Started from clean `9dafadf`; inspected workspace/project instructions, engine
+  and vision decisions, food/water ownership, climate moisture, continuous
+  placement, navigation, save migration, picking and UI/native checks. Baseline
+  `mise run ci`: 216 pass, 14 optional tests ignored; no baseline failure.
+  Moisture is a recomputed climate proxy, so this slice uses it as a growth
+  condition without inventing a conserved soil-water stock or irrigation.
+- `sim_core/food/cultivation.rs` and its placement module add barley growth,
+  cumulative production and validated `PlantCrop` actions. Stable source IDs and
+  existing food claims, cargo, pickup and delivery remain authoritative. New
+  production is an explicit conservation source; wild harvests remain finite.
+  Buildings, paths and wells reject crop overlap in both placement directions.
+  The well inspector and action handler share the new world-level validation API.
+- Intentional gameplay addition: free four-metre plots, 24 portions per mature
+  crop, 60 logical seconds at full moisture, linear slowdown between 60% and 20%
+  moisture, and paused growth below that threshold or on unsafe ground. Clearing
+  a harvest restarts growth automatically; no separate sowing task or seed cost.
+  Mature stock and partial growth survive flooding/obstruction. Water tasks and
+  existing resource priorities continue; there is no health penalty or guarantee
+  of sufficient supply. Plot count is bounded to 64.
+- **Build → Barley plot** queues commands through the normal placement path.
+  `app/crops.rs` derives seedling/mature/partially harvested geometry; picking
+  resolves stable source IDs. Inspectors explain growth, moisture, production and
+  dry/blocked/harvestable status. Supplies retains both resource views. Placeholder
+  art and the existing renderer remain; no ECS or dependency changes.
+- Schema 6 / rules 5 save the explicit source kind, growth accumulator and
+  production. V1–V5 staged migration preserves previous stocks, people, routes,
+  priority and cargo; old sources become wild sources without creating crops.
+  The V5 fixture was captured before edits with `9dafadf`; earlier fixtures are
+  unchanged. Existing worlds can plant through the same action. Generator recipe
+  10 and builtin content marker are unchanged. Old binaries cannot read V6 saves.
+- `mise run ci`: **222 tests pass**, 14 optional checks ignored. Formatting,
+  warnings-denied Clippy and `mise run build` pass. A later extension explicitly
+  covering crop cargo passes `mise exec -- cargo test -p genesis-storage
+  crop_growth_harvest`; final Clippy/build also pass. Tests cover dry versus wet
+  six-home harvests, exact production accounting, growth timing, blocked ground,
+  mature-stock retention, conflicting placement, migration, malformed growth,
+  saves during growth/gathering/carrying, pending planting, UI commands and all
+  six existing layout sizes. Initial UI failure was a test attempting single-step
+  without pausing; corrected setup preserves the normal pause contract.
+- CPU-only `genesis-headless --scenario cultivation`: 100 ticks, save, reload and
+  advance 5900 ticks matches the full uninterrupted 6000-tick snapshot excluding
+  host-created world identity. Six harvests create 144 portions; 16 remain in the
+  plot. Each home consumes 17–18 food portions and 6–10 water units. Initial crop
+  growth and travel leave 2–3 missed food portions per home; some water demand is
+  also missed. This verifies continuing supply, not a balanced self-sufficient
+  settlement. Headless dependency closure still excludes wgpu/winit/egui/Bevy.
+- Native Apple M4/Metal: `target/debug/genesis-app --crop-test
+  /private/tmp/genesis-cultivation-valley.png` passes placement, seedling picking,
+  maturity and exact save continuation. Visually inspected the golden crop rows,
+  selection and inspector (24 produced, 20 remaining at capture). Existing
+  `--food-test`, `--interaction-test`, `--world-test` and `--save-test` also exit 0;
+  captures are `/private/tmp/genesis-cultivation-{food,interaction,world,save}.png`.
+  The first crop smoke inherited a pending pump-stop action from the water smoke;
+  it now commits that boundary before testing its own planting queue. No user save
+  slot or running application was replaced. Other graphical hosts are unverified.
+- `git diff --check` passes. No performance improvement or larger-population claim;
+  no new async work. See [cultivation ownership and limits](cultivation.md).
+  Next useful slice: a scoped irrigation intervention with an explicit applied-water
+  owner, soil storage and loss accounting, before connecting it to crop growth.

@@ -16,6 +16,7 @@ pub struct Session {
     pub position: Position,
     pub building_rotation: f32,
     pub placing: bool,
+    pub crop_placing: bool,
     pub path: crate::path_tool::Draft,
     pub selected_object: Option<crate::interaction::Object>,
     pub hovered_object: Option<crate::interaction::Object>,
@@ -65,6 +66,7 @@ impl Session {
             position,
             building_rotation: 0.,
             placing: false,
+            crop_placing: false,
             path: crate::path_tool::Draft::default(),
             selected_object: None,
             hovered_object: None,
@@ -176,6 +178,18 @@ impl Session {
         self.pending.clear();
         for event in events {
             match &event {
+                SimEvent::CropPlanted { source, .. } => {
+                    self.select_object(
+                        Some(crate::interaction::Object::FoodSource(*source)),
+                        self.position,
+                    );
+                    self.message = "Barley planted".into();
+                    self.message_is_error = false;
+                }
+                SimEvent::CropPlantRejected { reason, .. } => {
+                    self.message = reason.to_string();
+                    self.message_is_error = true;
+                }
                 SimEvent::FoodTaskCancelled { .. } => {
                     self.message = "Gathering cancelled; any carried food returns home".into();
                     self.message_is_error = false;
@@ -401,6 +415,23 @@ impl Session {
             return;
         }
         let candidate = self.candidate();
+        if self.crop_placing {
+            match genesis_sim_core::food::cultivation::validate(&self.sim, candidate.position) {
+                Ok(()) => {
+                    self.select(candidate.position);
+                    self.queue(Action::PlantCrop {
+                        position: candidate.position,
+                    });
+                    self.set_placing(repeat);
+                    self.message = "Planting queued · resume or step to apply".into();
+                }
+                Err(reason) => {
+                    self.message = reason.to_string();
+                    self.message_is_error = true;
+                }
+            }
+            return;
+        }
         match self.sim.validate_building(&candidate) {
             Ok(()) => {
                 self.select(candidate.position);

@@ -194,7 +194,7 @@ pub fn dock(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
                         "Build",
                         session.placing,
                         true,
-                        "Place a dwelling · B\nQ / E: rotate · Shift-click: repeat",
+                        "Place a dwelling or barley plot · B\nQ / E: rotate dwelling · Shift-click: repeat",
                     )
                     .clicked()
                     {

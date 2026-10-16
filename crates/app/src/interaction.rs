@@ -13,7 +13,7 @@ impl Object {
     pub fn label(self) -> String {
         match self {
             Self::Person(id) => format!("Resident {}", id.0),
-            Self::FoodSource(id) => format!("Wild-food patch {}", id.0),
+            Self::FoodSource(id) => format!("Food source {}", id.0),
             Self::Building(id) => format!("Dwelling {id}"),
             Self::Path(id) => format!("Footpath {id}"),
         }

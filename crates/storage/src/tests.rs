@@ -640,3 +640,86 @@ fn food_gathering_and_cargo_roundtrip_and_corruption_is_rejected() {
         assert!(decode(&serde_json::to_vec(&missing).unwrap()).is_err());
     }
 }
+
+#[test]
+fn v5_food_migrates_without_creating_crops_or_changing_commitments() {
+    let bytes = include_bytes!("../fixtures/v5-food.json");
+    let old: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let restored = decode(bytes).unwrap();
+    let mut expected: genesis_sim_core::SimState =
+        serde_json::from_value(old["state"].clone()).unwrap();
+    let mut json = serde_json::to_value(&expected).unwrap();
+    for source in json["food"]["sources"].as_array_mut().unwrap() {
+        source["kind"] = serde_json::json!("Wild");
+    }
+    expected = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        serde_json::to_value(&*restored.simulation).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    assert_eq!(restored.simulation.completed_ticks(), 140);
+}
+
+#[test]
+fn crop_growth_harvest_and_pending_planting_continue_exactly_and_corruption_fails() {
+    use genesis_sim_core::food::cultivation::{GROWTH_UNITS, Kind};
+    let mut run = Simulation::new(scenarios::cultivated_settlement());
+    for target in [100, 900, 901] {
+        while run.completed_ticks() < target {
+            run.advance(&[]);
+        }
+        if target == 901 {
+            while run.completed_ticks() < 2000
+                && !run.people.all().iter().any(|p| p.carried_food > 0)
+            {
+                run.advance(&[]);
+            }
+            assert!(run.people.all().iter().any(|p| p.carried_food > 0));
+        }
+        let pending = [Action::PlantCrop {
+            position: Position::new(8.5, 8.),
+        }];
+        let snapshot = Snapshot::capture(&run, "crops", &pending).unwrap();
+        let mut decoded = decode(&encode(&snapshot).unwrap()).unwrap();
+        let mut direct = snapshot.clone().restore().unwrap();
+        assert!(matches!(run.food.sources()[0].kind, Kind::Barley(_)));
+        for restored in [&mut decoded, &mut direct] {
+            restored.simulation.advance(&restored.pending);
+            for _ in 0..2000 {
+                restored.simulation.advance(&[]);
+            }
+        }
+        assert_eq!(
+            serde_json::to_vec(&*decoded.simulation).unwrap(),
+            serde_json::to_vec(&*direct.simulation).unwrap()
+        );
+        assert_eq!(decoded.simulation.food.sources().len(), 2);
+        assert!(decoded.simulation.food.sources()[0].produced() >= 48);
+        let good = serde_json::to_value(snapshot).unwrap();
+        for (pointer, value) in [
+            (
+                "/state/food/sources/0/kind/Barley/growth_units",
+                serde_json::json!(GROWTH_UNITS),
+            ),
+            (
+                "/state/food/sources/0/kind/Barley/produced",
+                serde_json::json!(1),
+            ),
+            ("/state/food/sources/0/remaining", serde_json::json!(25)),
+            ("/state/food/sources/0/initial", serde_json::json!(24)),
+        ] {
+            let mut bad = good.clone();
+            *bad.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                decode(&serde_json::to_vec(&bad).unwrap()).is_err(),
+                "{pointer}"
+            );
+        }
+        let mut bad = good;
+        bad["state"]["food"]["sources"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("kind");
+        assert!(decode(&serde_json::to_vec(&bad).unwrap()).is_err());
+    }
+}

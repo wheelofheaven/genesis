@@ -56,6 +56,23 @@ pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
         save.state.food = crate::food::Food::default();
         save.state.food.initialize(&save.state.people);
         save.state.people.initialize_food_priority();
+        save.schema = 5;
+        save.rules = "genesis:rules/4".into();
+    }
+    if save.schema == 5 {
+        if save.rules != "genesis:rules/4"
+            || save
+                .state
+                .food
+                .sources()
+                .iter()
+                .any(|s| s.kind != crate::food::cultivation::Kind::Legacy)
+        {
+            return Err(SaveError("invalid V5 rules or unexpected crops".into()));
+        }
+        for s in &mut save.state.food.sources {
+            s.kind = crate::food::cultivation::Kind::Wild;
+        }
         save.schema = super::SCHEMA;
         save.rules = super::RULES.into();
     }

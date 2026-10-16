@@ -1,4 +1,5 @@
 //! Finite wild-food sources and exact household portions; no decorative biomass ownership.
+pub mod cultivation;
 mod validation;
 use crate::{SimState, identity::Allocator, people::People, spatial::Position};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,23 @@ pub struct Source {
     pub remaining: u32,
     /// Initial finite harvest, for conservation accounting; not an inventory.
     pub initial: u32,
+    #[serde(default)]
+    pub kind: cultivation::Kind,
+}
+impl Source {
+    pub fn label(&self) -> &'static str {
+        if matches!(self.kind, cultivation::Kind::Barley(_)) {
+            "Barley plot"
+        } else {
+            "Wild-food patch"
+        }
+    }
+    pub fn produced(&self) -> u64 {
+        match &self.kind {
+            cultivation::Kind::Barley(c) => c.produced,
+            _ => 0,
+        }
+    }
 }
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct HomeFood {
@@ -146,6 +164,7 @@ pub(crate) fn populate(sim: &mut SimState) {
             position,
             remaining: 256,
             initial: 256,
+            kind: cultivation::Kind::Wild,
         });
     }
 }

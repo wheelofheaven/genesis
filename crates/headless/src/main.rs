@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{error::Error, path::PathBuf};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement|water|supplies] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture, settlement, water and supplies are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
+const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement|water|supplies|cultivation] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture, settlement, water, supplies and cultivation are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
 
 struct Options {
     scenario: String,
@@ -52,15 +52,22 @@ impl Options {
         }
         if !matches!(
             options.scenario.as_str(),
-            "coast" | "highlands" | "island" | "fixture" | "settlement" | "water" | "supplies"
+            "coast"
+                | "highlands"
+                | "island"
+                | "fixture"
+                | "settlement"
+                | "water"
+                | "supplies"
+                | "cultivation"
         ) {
             return Err(
-                "--scenario must be coast, highlands, island, fixture, settlement, water, or supplies".into(),
+                "--scenario must be coast, highlands, island, fixture, settlement, water, supplies, or cultivation".into(),
             );
         }
         if matches!(
             options.scenario.as_str(),
-            "fixture" | "settlement" | "water" | "supplies"
+            "fixture" | "settlement" | "water" | "supplies" | "cultivation"
         ) && seen.contains("--seed")
         {
             return Err(
@@ -127,6 +134,7 @@ fn run(options: Options) -> Result<()> {
                 "settlement" => scenarios::living_settlement(),
                 "water" => scenarios::water_settlement(),
                 "supplies" => scenarios::supplied_settlement(),
+                "cultivation" => scenarios::cultivated_settlement(),
                 "highlands" => {
                     worldgen::generate_region(options.seed, worldgen::Region::LevantHighlands)
                 }
@@ -150,7 +158,8 @@ fn run(options: Options) -> Result<()> {
             events += 1;
             if matches!(
                 event,
-                SimEvent::FoodTaskCancelRejected { .. }
+                SimEvent::CropPlantRejected { .. }
+                    | SimEvent::FoodTaskCancelRejected { .. }
                     | SimEvent::WaterTaskCancelRejected { .. }
                     | SimEvent::TerraformRejected { .. }
                     | SimEvent::BuildingRejected { .. }

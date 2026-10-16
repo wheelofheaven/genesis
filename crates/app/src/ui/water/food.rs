@@ -40,8 +40,8 @@ pub(super) fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camer
         .map(|s| u64::from(session.sim.people.reserved_food(s.id)))
         .sum();
     ui.label(format!("At homes {stored} · in transit {carried}"));
-    ui.label(format!("Wild food {remaining} · reserved {reserved}"));
-    muted(ui, "Whole portions. Reservations are part of wild stock.");
+    ui.label(format!("At sources {remaining} · reserved {reserved}"));
+    muted(ui, "Whole portions. Reservations are part of source stock.");
     muted(
         ui,
         "Lower relative reserves first; equal reserves alternate. Unavailable tasks fall back to the other supply.",
@@ -110,20 +110,23 @@ pub(super) fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camer
         }
     }
     ui.separator();
-    ui.label("Wild-food patches");
+    ui.label("Food sources");
     if session.sim.food.sources().is_empty() {
         muted(
             ui,
-            "No patch in this world. New settlements begin with a finite wild-food harvest; older saves keep their existing landscape.",
+            "No source in this world. Use Build → Barley plot to plant food.",
         );
     }
     for source in session.sim.food.sources() {
         if ui
             .button(format!(
-                "Patch {} · {} portions{}",
+                "{} {} · {} portions{}",
+                source.label(),
                 source.id.0,
                 source.remaining,
-                if source.remaining == 0 {
+                if source.remaining == 0
+                    && !matches!(source.kind, food::cultivation::Kind::Barley(_))
+                {
                     " · depleted"
                 } else {
                     ""
@@ -132,6 +135,9 @@ pub(super) fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camer
             .clicked()
         {
             focus = Some(Object::FoodSource(source.id));
+        }
+        if matches!(source.kind, food::cultivation::Kind::Barley(_)) {
+            ui.label(food::cultivation::status(&session.sim, source).label());
         }
     }
     if let Some(object) = focus {
