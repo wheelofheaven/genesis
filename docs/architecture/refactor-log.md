@@ -1235,3 +1235,110 @@ milestone: persistent villagers with a visible, explainable routine.
 - No energy model, pump wear, irrigation network, guaranteed settlement sufficiency,
   performance improvement or other-platform verification is claimed.
   See [buffer-pumping contract](buffer-pumping.md).
+
+
+## 21 October 2026 — household supply outlook
+
+- Started from committed `5349d09`. Added `sim_core::supply_outlook::Outlook`, an
+  immutable query shared by the native UI and headless metrics. Actual residents
+  determine demand; one meal portion and half a water unit per resident follow
+  existing consumption rules. Resource timers retain their independent phases.
+- Delivered home stock covers the next use. Source stocks, reservations and
+  carried supplies do not clear the warning before delivery. Household cargo is
+  reported separately; irrigation cargo belongs to its plot and is excluded.
+- HUD Supplies shows the union of short homes. Opening the warning chooses the
+  resource with more shortages, with Water on ties. Food/Water panels show logical
+  countdowns, missing amounts and carried supplies, order short homes first, and
+  focus homes by persistent identity. Food also recognizes residents busy tending.
+- `mise run ci`: **262 tests pass**, 14 optional checks ignored; formatting and
+  warnings-denied Clippy pass. Workspace build passes. Four core tests, two storage
+  tests and two actual egui interaction tests extend the 254-test baseline. Tests
+  cover independent consumption phases, actual occupancy, delivery boundaries,
+  crop-water exclusion, save continuation, tab selection and focus without state
+  changes. Logs: `/private/tmp/genesis-outlook-{ci,build}.log`.
+- The conserving irrigation fixture at tick 6000 matches
+  `/private/tmp/genesis-conserving-final.json` exactly in all save fields except
+  the independent world identity. New evidence:
+  `/private/tmp/genesis-outlook-final.json` and `genesis-outlook-metrics.json`.
+  It reports three food-short homes, no water-short homes, and 30 logical seconds
+  until each next consumption cycle. Schema 10 / rules 8 are unchanged.
+- Native `--water-overview-test /private/tmp/genesis-supply-outlook.png` exits 0
+  on Apple M4/Metal. Visually reviewed the warning, countdown and household rows,
+  including water in transit that has not yet covered demand. Existing picking
+  and save checks remain part of that smoke route. Captures and saves stay under
+  `/private/tmp`; the player's save slot was untouched.
+- This is current-stock coverage rather than a delivery-time forecast. No health,
+  hunger, new action, persistent state, dependency or performance claim is added.
+  See [supply outlook contract](supply-outlook.md).
+
+
+## 21 October 2026 — resident following and inspection links
+
+- Continued the verified, uncommitted supply-outlook changes. Added resident links
+  to each household in Water/Food and to dwelling inspectors; residents link back
+  to their homes. Links resolve persistent identities against the active world.
+- Added transient `Session` tracking with Follow/Stop following in the resident
+  inspector. Frame updates use rendered resident interpolation and surface height;
+  orbit and zoom remain independent. Wheel zoom stays centered on the resident.
+  Manual panning, another selection, tools, inspector close and F/R/G release it.
+- Successful load and replacement clear the target even if numeric IDs recur.
+  Failed loads keep it. Following and inspecting neither queue domain actions nor
+  change stocks, tasks, routes or logical time. Schema 10 / rules 8 are unchanged.
+- Inspector scroll areas now have distinct page/world identities. Opening a
+  resident from the last household row does not inherit the overview's scroll
+  offset. An actual compact-window scroll-and-click test checks this path.
+- `mise run ci`: **267 tests pass**, 14 optional checks ignored; formatting and
+  warnings-denied Clippy pass. Workspace build passes. Three session tests and two
+  real egui interaction tests extend the 262-test baseline, covering rendered
+  interpolation, unchanged simulation outcomes, pause/step, navigation/tool
+  release, saves, supply/home links and compact scrolling. Logs:
+  `/private/tmp/genesis-follow-{ci,build}.log`.
+- Extended `--people-test /private/tmp/genesis-resident-follow.png`: exit 0 on
+  Apple M4/Metal. Retains generated-world picking and save continuity checks, then
+  verifies read-only follow activation and camera movement across eight steps.
+  Visually reviewed the resident inspector, highlighted route and Stop following
+  control. Capture and save artifacts remain temporary, separate from the player
+  save slot. `git diff --check` passes.
+- This is camera observation and navigation; no new resident behavior, animation,
+  health, simulation rules or other-platform guarantee is added.
+  See [resident-following contract](resident-following.md).
+
+
+## 21 October 2026 — household shortages delay social departures
+
+- Continued the uncommitted outlook/following work. Captured a V10 conserving
+  irrigation save at tick 500 before changing rules. Added a waiting activity for
+  residents whose home-departure food/water/tending search fails while delivered
+  stock cannot cover the next household use. Retries occur every two logical
+  seconds; covered homes retain social visits, and active commitments are preserved.
+- `people/supply_wait.rs` owns the decision and validity checks. Waiting uses the
+  existing resident timer, with no duplicate reservation or resource accounting.
+  Actual home occupancy determines demand. Repeated failures do not spam routine
+  events. Unsafe ground retains the established blocking/recovery behavior.
+- Resident inspectors show the waiting activity, retry countdown and last search
+  issues; both supply panels show the same committed timer. Read-only UI checks
+  preserve paused state and pending command count.
+- Schema 11 / rules 9 preserves staged V1–V10 migration. The pre-change fixture
+  `crates/storage/fixtures/v10-conserving.json` retains pumping, crop and resident
+  state exactly. Tests preserve pending intent and retry phase, compare continued
+  states, and reject legacy waiting plus invalid timer/position/cargo/route state.
+- Final `mise run ci`: **275 tests pass**, 14 optional checks ignored; formatting,
+  warnings-denied Clippy and workspace build pass. Five simulation tests, two
+  storage tests and one UI test extend the 267-test baseline. Social-route tests
+  now start with covered homes while preserving their original movement assertions.
+  The new crop-recovery test initially never reached waiting because water work
+  was available; starting with a stopped well exercises the intended transition.
+  Logs: `/private/tmp/genesis-supply-wait-final-ci.log` and
+  `/private/tmp/genesis-supply-wait-build.log`.
+- CPU `supply-recovery.commands.json` stops the well at tick 1 and resumes at 121.
+  All six residents wait at tick 65; all homes consume water by tick 900. Saving
+  at 65 plus 835 ticks with the resume command matches uninterrupted state/tick.
+  Evidence: `/private/tmp/genesis-supply-recovery-{full,half,resumed}.json` and
+  `.metrics.json` siblings.
+- Native `--supply-wait-test /private/tmp/genesis-supply-wait.png` exits 0 on Apple
+  M4/Metal. The authored fixture verifies waiting, delivery recovery and exact
+  saved retry state. Visually reviewed the waiting inspector and countdown.
+  Temporary capture/save paths remain separate from the player's slot.
+- No health/hunger system, guaranteed sufficiency, interruption of current travel,
+  new resource creation or other-platform verification is claimed.
+  See [supply-waiting contract](supply-waiting.md).

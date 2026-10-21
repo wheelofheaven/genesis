@@ -54,6 +54,7 @@ pub fn show(
                     ui.set_width(248.);
                     ui.set_max_height(available);
                     egui::ScrollArea::vertical()
+                        .id_salt((&session.world_id, inspector_page(session)))
                         .scroll_bar_visibility(
                             egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
                         )
@@ -99,7 +100,7 @@ pub fn show(
                             } else if session.landscape_tools {
                                 landscape(ui, session);
                             } else {
-                                objects::selection(ui, session);
+                                objects::selection(ui, session, camera);
                             }
                         });
                 });
@@ -119,6 +120,29 @@ pub fn show(
         occupied.push(rect);
     }
     occupied
+}
+
+// Each inspector page keeps its own scroll position. Opening a resident from a
+// lower supply row must not inherit the long overview's scroll offset.
+fn inspector_page(session: &Session) -> String {
+    if session.water_overview {
+        if session.supply_food { "food" } else { "water" }.into()
+    } else if session.world_tools {
+        "world".into()
+    } else if session.survey.open {
+        "survey".into()
+    } else if session.placing {
+        "build".into()
+    } else if session.path.active {
+        "path".into()
+    } else if session.landscape_tools {
+        "landscape".into()
+    } else {
+        session
+            .selected_object
+            .map(|o| o.label())
+            .unwrap_or_default()
+    }
 }
 
 fn world(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {

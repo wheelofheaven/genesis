@@ -1,5 +1,6 @@
 //! Read-only household supply presentation. No planning or resource mutation.
 mod food;
+mod outlook;
 use super::theme::*;
 use crate::{interaction::Object, session::Session};
 use genesis_renderer::camera::Camera;
@@ -10,9 +11,11 @@ struct Home<'a> {
     id: u64,
     stock: &'a households::HomeWater,
     residents: Vec<&'a Person>,
+    needs: Option<genesis_sim_core::supply_outlook::Home>,
 }
 struct Overview<'a> {
     homes: Vec<Home<'a>>,
+    outlook: genesis_sim_core::supply_outlook::Outlook,
     stored: f64,
     carried: f64,
     buffered: f64,
@@ -21,6 +24,7 @@ struct Overview<'a> {
 }
 impl<'a> Overview<'a> {
     fn read(sim: &'a SimState) -> Self {
+        let outlook = genesis_sim_core::supply_outlook::Outlook::read(sim);
         let mut residents: BTreeMap<u64, Vec<&Person>> = BTreeMap::new();
         for person in sim.people.all() {
             residents.entry(person.home).or_default().push(person);
@@ -36,6 +40,11 @@ impl<'a> Overview<'a> {
                     id,
                     stock,
                     residents: people,
+                    needs: outlook
+                        .homes
+                        .binary_search_by_key(&id, |h| h.id)
+                        .ok()
+                        .map(|i| outlook.homes[i].clone()),
                 }
             })
             .collect();
@@ -57,6 +66,7 @@ impl<'a> Overview<'a> {
                 .map(|w| sim.people.reserved_water(w.id))
                 .sum(),
             homes,
+            outlook,
         }
     }
 }
@@ -68,6 +78,9 @@ impl Home<'_> {
             self.stock.stored,
             households::CAPACITY
         );
+        if let Some(home) = &self.needs {
+            text.push_str(&format!("\n{}", outlook::home_line(home, false)));
+        }
         if let Some(p) = self.residents.iter().find(|p| p.water_task.is_some()) {
             if let Some(task) = &p.water_task {
                 text.push_str(&format!(
@@ -108,8 +121,21 @@ impl Home<'_> {
         } else if self.residents.is_empty() {
             text.push_str("\nNo resident collector");
         } else {
-            text.push_str("\nLow stock · checks at home departure");
+            text.push_str(
+                if self.residents.iter().any(|p| p.supply_retry_ms().is_some()) {
+                    "\nWaiting at home for supplies"
+                } else {
+                    "\nLow stock · checks at home departure"
+                },
+            );
             for p in &self.residents {
+                if let Some(ms) = p.supply_retry_ms() {
+                    text.push_str(&format!(
+                        "\n{} · supply retry in {:.1} s",
+                        p.name,
+                        ms as f64 / 1000.
+                    ));
+                }
                 if let Some(issue) = p.water_issue {
                     text.push_str(&format!("\n{} · last attempt: {}", p.name, issue.label()));
                 }
@@ -145,7 +171,7 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
         food::panel(ui, session, camera);
         return;
     }
-    let view = Overview::read(&session.sim);
+    let mut view = Overview::read(&session.sim);
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(22., 22.), egui::Sense::hover());
         super::icons::paint(ui.painter(), rect, super::icons::Icon::Water, ACCENT);
@@ -160,6 +186,7 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
             session.sim.completed_ticks()
         ),
     );
+    outlook::summary(ui, &view.outlook, false);
     ui.label(format!(
         "At homes {:.1} u · in transit {:.1} u",
         view.stored, view.carried
@@ -188,6 +215,13 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
         );
     }
     let mut focus = None;
+    let mut resident = None;
+    view.homes.sort_by_key(|h| {
+        (
+            !h.needs.as_ref().is_some_and(|n| n.water_shortfall() > 0.),
+            h.id,
+        )
+    });
     for home in &view.homes {
         ui.separator();
         ui.push_id(home.id, |ui| {
@@ -199,6 +233,9 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
             );
             if response.clicked() {
                 focus = Some(home.id);
+            }
+            if let Some(id) = resident_links(ui, &home.residents) {
+                resident = Some(id);
             }
             #[cfg(test)]
             ui.ctx()
@@ -245,6 +282,26 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
     if let Some(id) = focus {
         focus_home(session, camera, id);
     }
+    if let Some(id) = resident {
+        session.inspect_person(id, camera);
+    }
+}
+
+fn resident_links(
+    ui: &mut egui::Ui,
+    residents: &[&Person],
+) -> Option<genesis_sim_core::people::PersonId> {
+    let mut selected = None;
+    for person in residents {
+        if ui
+            .small_button(format!("Inspect {}", person.name))
+            .on_hover_text("See this resident's activity and route, or follow their journey")
+            .clicked()
+        {
+            selected = Some(person.id);
+        }
+    }
+    selected
 }
 
 pub(crate) fn focus_home(session: &mut Session, camera: &mut Camera, id: u64) {

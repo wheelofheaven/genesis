@@ -65,6 +65,32 @@ pub fn advance(
             let p = &session.sim.people.all()[0];
             session.select_object(Some(Object::Person(p.id)), p.position);
         }
+        26 => {
+            let id = session.sim.people.all()[0].id;
+            let before = serde_json::to_vec(&*session.sim)?;
+            session.follow_person(id, camera);
+            if before != serde_json::to_vec(&*session.sim)? {
+                return Err("following changed resident state".into());
+            }
+            let start = camera.focus;
+            for _ in 0..8 {
+                session.step_once();
+                session.update_follow(camera);
+                let p = session
+                    .sim
+                    .people
+                    .get(id)
+                    .ok_or("followed resident missing")?;
+                let target = terrain::surface_point(&session.sim, session.person_position(p));
+                if camera.focus.distance(target) > 1e-5 {
+                    return Err("camera lost the followed resident".into());
+                }
+            }
+            if start.distance(camera.focus) < 1e-5 {
+                return Err("follow check did not exercise movement".into());
+            }
+            eprintln!("Resident follow: identity, moving camera and read-only start passed");
+        }
         _ => {}
     }
     Ok(())

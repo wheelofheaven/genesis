@@ -107,6 +107,10 @@ fn replace(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod irrigation_tests;
 #[cfg(test)]
+mod outlook_tests;
+#[cfg(test)]
 mod pumping_tests;
+#[cfg(test)]
+mod supply_wait_tests;
 #[cfg(test)]
 mod tests;

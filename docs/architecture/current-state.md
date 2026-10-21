@@ -668,3 +668,71 @@ about 84.9 units. Saving at tick 500 and continuing matches uninterrupted state.
 A final review corrected near-depletion rounding and added a regression before
 repeating checks. No sustained-water-supply or performance guarantee is implied.
 See [buffer-controlled pumping](buffer-pumping.md).
+
+
+## Household-supply outlook audit — 21 October 2026
+
+Added a shared read-only query for the next household meal and drink. Demand follows
+actual occupancy; only delivered household stock covers consumption. Carried food
+and household water are shown separately, and water destined for crops is excluded.
+Countdowns use each resource's existing consumption phase in logical time.
+
+The Supplies button counts distinct homes short of either resource and opens the
+tab with more short homes (Water on ties). Both panels put short homes first, show
+missing amounts and carried supplies, and retain stable-ID click-to-focus behavior.
+Headless metrics expose the same query. This is current-stock coverage, not a
+prediction of delivery time or a new hunger/health system. Schema 10 / rules 8 and
+all simulation arithmetic remain unchanged.
+
+All 262 tests pass, with 14 optional checks ignored; formatting, warnings-denied
+Clippy and workspace build pass. Eight new tests cover occupancy, independent
+consumption phases, reservations/cargo/delivery, crop-water exclusion, exact save
+continuation and real HUD/household input without mutation. The 6000-tick conserving
+fixture matches the prior iteration's saved state exactly. Native Water overview
+checks pass on Apple M4/Metal, and the warning, countdown and rows were visually
+reviewed. See [household supply outlook](supply-outlook.md).
+
+
+## Resident-following audit — 21 October 2026
+
+Supply rows and dwelling inspectors now link to actual residents; resident
+inspectors link back to their homes. Follow/Stop following tracks a persistent
+resident identity using the same interpolated position as geometry and picking.
+Orbit and zoom remain available. Manual panning, selection, tools and F/R/G release
+tracking. Pause and single step retain their existing simulation meaning.
+
+Tracking belongs to the application session. Successful loads and world replacement
+clear it; failed loads retain it. No simulation state, rules or save fields change.
+Inspector pages keep separate scroll positions so opening a resident does not
+inherit the supply overview's offset.
+
+All 267 tests pass, 14 optional checks ignored; formatting, warnings-denied Clippy
+and workspace build pass. Five new tests cover interpolated motion, unchanged
+simulation outcomes, pause/step, release behavior, save/load, actual widget input
+and compact scrolling. Extended native `--people-test` passes on Apple M4/Metal,
+including picking, save continuity and camera motion across eight steps. The
+resident inspector and Stop following control were visually reviewed.
+See [resident following](resident-following.md).
+
+
+## Household-supply waiting audit — 21 October 2026
+
+At home departure, residents still try food/water work and optional crop tending.
+If none is available and delivered stocks cannot cover the household's next use,
+they now wait at home and retry every two logical seconds instead of taking a
+social trip. Covered homes retain their routine; existing trips and cargo are
+not interrupted. Resident and supply inspectors expose the retry countdown.
+
+Schema 11 / rules 9 adds the waiting activity while reusing the resident timer.
+V1–V10 migration preserves materialized state and pending intent; old envelopes
+reject future waiting state. New saves validate the waiting position, timer,
+absence of tasks/cargo and empty route. A pre-change V10 fixture protects migration.
+
+All 275 tests pass, with 14 optional checks ignored; formatting, warnings-denied
+Clippy and workspace build pass. Five new simulation tests, two storage tests and
+one UI test extend the 267-test baseline. Social navigation tests retain their
+assertions with covered homes as the appropriate initial condition.
+The CPU recovery fixture has six waiting residents at tick 65 and water consumed
+by every home at tick 900; split/save continuation matches uninterrupted state.
+Native waiting/recovery/save checks pass on Apple M4/Metal, and the inspector was
+visually reviewed. See [supply waiting](supply-waiting.md).

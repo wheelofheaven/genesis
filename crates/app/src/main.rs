@@ -27,6 +27,7 @@ mod scene;
 mod scenery_capture;
 mod selection;
 mod session;
+mod supply_wait_smoke;
 mod survey;
 mod terrain;
 mod ui;
@@ -74,6 +75,7 @@ struct App {
     world_smoke: bool,
     interaction_smoke: bool,
     people_smoke: bool,
+    supply_wait_smoke: bool,
     water_smoke: bool,
     water_overview_smoke: bool,
     food_smoke: bool,
@@ -126,6 +128,15 @@ impl App {
             world_smoke::advance(self.frames, &mut self.session, &mut self.camera)?;
         }
         self.front.poll(&mut self.session, &mut self.camera);
+        if self.supply_wait_smoke && self.frames == 1 {
+            supply_wait_smoke::check(
+                &mut self.session,
+                &mut self.camera,
+                self.capture
+                    .as_deref()
+                    .ok_or("supply wait check needs capture path")?,
+            )?;
+        }
         if self.front.playing() {
             self.session.advance(elapsed);
             let speed = if self.camera.is_ground() {
@@ -134,11 +145,12 @@ impl App {
                 self.front.settings.sensitivity
             };
             self.input.update_camera(
-                &self.session.sim,
+                &mut self.session,
                 &mut self.camera,
                 elapsed.as_secs_f32() * speed,
                 view.window.inner_size().height as f32,
             );
+            self.session.update_follow(&mut self.camera);
         } else {
             self.input.clear();
             self.session.set_hover(None);
@@ -531,6 +543,7 @@ impl ApplicationHandler for App {
                         );
                     }
                     if playing && self.input.pan {
+                        self.session.stop_following();
                         self.camera.pan(
                             delta * self.front.settings.sensitivity,
                             view.window.inner_size().height as f32,
@@ -591,7 +604,9 @@ impl ApplicationHandler for App {
                     } else {
                         1.
                     };
-                if let Some(cursor) = self.input.cursor {
+                if self.session.following().is_some() {
+                    self.camera.zoom(lines);
+                } else if let Some(cursor) = self.input.cursor {
                     let height = view
                         .pick(&self.session, &self.camera, cursor)
                         .map_or(0., |p| self.session.visible_point(p).y);
@@ -748,6 +763,7 @@ fn main() -> Result<()> {
                 || flag == "--world-test"
                 || flag == "--interaction-test"
                 || flag == "--people-test"
+                || flag == "--supply-wait-test"
                 || flag == "--water-test"
                 || flag == "--water-overview-test"
                 || flag == "--food-test"
@@ -762,6 +778,7 @@ fn main() -> Result<()> {
             app.world_smoke = flag == "--world-test";
             app.interaction_smoke = flag == "--interaction-test";
             app.people_smoke = flag == "--people-test";
+            app.supply_wait_smoke = flag == "--supply-wait-test";
             app.water_smoke =
                 flag == "--water-test" || flag == "--water-overview-test" || flag == "--food-test";
             app.food_smoke = flag == "--food-test";
@@ -774,7 +791,7 @@ fn main() -> Result<()> {
         }
         _ => {
             return Err(
-                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --water-test output.png | --water-overview-test output.png | --food-test output.png | --crop-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
+                "usage: genesis-app [--weather clear|fair|overcast] [--seed number] [--region coast|highlands|island] [--tree broadleaf|pine|riparian (ecology/understorey captures only)] [--rock limestone|sandstone|basalt (rock capture only)] [--menu-capture output.png | --menu-test output.png | --seafloor-capture output.png | --capture output.png | --landscape-capture output.png | --ground-capture output.png | --sky-capture output.png | --house-capture output.png | --rock-capture output.png | --river-capture output.png | --river-ground-capture output.png | --ecology-capture output.png | --ecology-ground-capture output.png | --understorey-capture output.png | --settlement-capture output.png | --world-test output.png | --interaction-test output.png | --people-test output.png | --supply-wait-test output.png | --water-test output.png | --water-overview-test output.png | --food-test output.png | --crop-test output.png | --smoke-test output.png | --survey-test output.png]".into(),
             );
         }
     }
@@ -806,6 +823,11 @@ fn main() -> Result<()> {
         app.session = Session::from_sim(genesis_sim_core::scenarios::coastal_outpost());
     }
     crate::terrain::home_camera(&app.session.sim, &mut app.camera);
+    if app.supply_wait_smoke {
+        app.session = Session::from_sim(genesis_sim_core::scenarios::water_settlement());
+        app.session.clock.paused = true;
+        crate::terrain::home_camera(&app.session.sim, &mut app.camera);
+    }
     if app.world_smoke {
         world_smoke::configure_camera(&app.session, &mut app.camera)?;
     }

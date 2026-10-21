@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "commands": [
+    { "tick": 1, "action": { "SetWellActive": { "id": 1, "active": false } } },
+    { "tick": 121, "action": { "SetWellActive": { "id": 1, "active": true } } }
+  ]
+}

@@ -1,8 +1,24 @@
 use super::*;
 use crate::{runtime::Simulation, scenarios};
+
+// Social/navigation tests begin with genuinely covered homes; empty homes now
+// remain available for supply work instead of leaving for a social visit.
+fn covered_settlement() -> SimState {
+    let mut sim = scenarios::supplied_settlement();
+    let homes: Vec<_> = sim.people.all().iter().map(|p| p.home).collect();
+    for home in homes {
+        assert!(sim.food.deliver(home, crate::food::CAPACITY));
+        sim.food.sources[0].remaining -= crate::food::CAPACITY;
+        assert!(sim.households.deliver(home, crate::households::CAPACITY));
+        sim.subsurface.wells[0].recovered += crate::households::CAPACITY;
+        sim.subsurface.wells[0].supply.as_mut().unwrap().collected += crate::households::CAPACITY;
+    }
+    assert!(sim.food.valid(&sim) && sim.households.valid(&sim));
+    sim
+}
 #[test]
 fn residents_complete_routines_and_survive_repacking_deterministically() {
-    let mut a = scenarios::living_settlement();
+    let mut a = covered_settlement();
     assert_eq!(a.people.all().len(), 6);
     let mut b = a.clone();
     b.people.entries.reverse();
@@ -49,7 +65,7 @@ fn blocked_ground_stops_movement_and_recovers_without_teleporting() {
 }
 #[test]
 fn snapshot_continues_routes_and_scheduled_departures() {
-    let mut a = Simulation::new(scenarios::living_settlement());
+    let mut a = Simulation::new(covered_settlement());
     for _ in 0..35 {
         a.advance(&[]);
     }
@@ -84,7 +100,7 @@ fn navigation_detours_around_a_dwelling_and_refuses_unbounded_search() {
 
 #[test]
 fn changed_route_obstacle_stops_a_committed_journey() {
-    let mut sim = scenarios::living_settlement();
+    let mut sim = covered_settlement();
     for _ in 0..15 {
         sim.step(0.1, &[]);
     }

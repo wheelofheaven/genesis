@@ -62,7 +62,7 @@ pub fn scale(ctx: &egui::Context, camera: &Camera) -> egui::Rect {
         .rect
 }
 
-pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui::Rect {
+pub fn show(ctx: &egui::Context, session: &mut Session, camera: &mut Camera) -> egui::Rect {
     egui::Area::new("navigation".into())
         .anchor(Align2::LEFT_BOTTOM, [16., -68.])
         .order(egui::Order::Foreground)
@@ -109,6 +109,7 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                 )
                 .clicked()
                 {
+                    session.stop_following();
                     crate::ground::toggle(&session.sim, session.position, camera);
                 }
                 if ctx.content_rect().width() < 900. || ctx.content_rect().height() < 650. {
@@ -138,6 +139,7 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                     )
                     .clicked()
                     {
+                        session.stop_following();
                         camera.leave_ground();
                         camera.center(session.selected_point());
                     }
@@ -151,6 +153,7 @@ pub fn show(ctx: &egui::Context, session: &Session, camera: &mut Camera) -> egui
                     )
                     .clicked()
                     {
+                        session.stop_following();
                         crate::terrain::home_camera(&session.sim, camera);
                     }
                 });

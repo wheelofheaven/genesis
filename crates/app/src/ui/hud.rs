@@ -18,6 +18,23 @@ fn area(id: &str, anchor: Align2, offset: [f32; 2]) -> egui::Area {
 }
 
 pub fn identity(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
+    let outlook = genesis_sim_core::supply_outlook::Outlook::read(&session.sim);
+    let short = outlook.short_homes();
+    let label = if short == 0 {
+        "Supplies".into()
+    } else {
+        format!("Supplies · {short} short")
+    };
+    let color = if short == 0 { TEXT } else { ERROR };
+    let hint = if short == 0 {
+        "Household water, food and collection tasks".into()
+    } else {
+        format!(
+            "{} homes short of food · {} short of water for the next use. Counts delivered stocks only; open to inspect households and collection tasks.",
+            outlook.food_short_homes(),
+            outlook.water_short_homes()
+        )
+    };
     area("identity", Align2::LEFT_TOP, [16., 16.])
         .show(ctx, |ui| {
             card().inner_margin(12).show(ui, |ui| {
@@ -43,11 +60,16 @@ pub fn identity(ctx: &egui::Context, session: &mut Session) -> egui::Rect {
                         ui.add_space(8.);
                     }
                     if ui
-                        .small_button("Supplies")
-                        .on_hover_text("Household water, food and collection tasks")
+                        .small_button(RichText::new(label).color(color))
+                        .on_hover_text(hint)
                         .clicked()
                     {
-                        session.set_water_overview(!session.water_overview);
+                        let open = !session.water_overview;
+                        if open && short > 0 {
+                            session.supply_food =
+                                outlook.food_short_homes() > outlook.water_short_homes();
+                        }
+                        session.set_water_overview(open);
                     }
                 });
             });

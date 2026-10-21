@@ -23,10 +23,20 @@ rock. Six freely positioned dwellings seek suitable terrain near water. Terrain
 inspection, terraforming, combined groundwater/mineral surveys, and working
 boreholes are playable. New settlements have up to six named residents who walk
 to a meeting place and return home. Click a resident to inspect their home,
-activity, destination and any blocked route; F focuses the selection. Figures are
+activity, destination and any blocked route; F focuses the selection. **Follow
+resident** keeps the camera on their journey while you orbit and zoom. Figures are
 placeholders. Residents now collect water from working nearby wells and deliver it
 to household stocks. They also gather finite wild food, carry it home in baskets,
-and consume whole portions. Inspect a home or resident for stock and task status;
+and consume whole portions. **Supplies** now flags homes short of food or water for
+their next consumption cycle. The panels show logical countdowns, missing amounts
+and carried supplies, with short households first; click a row to focus its home.
+See [supply outlook](docs/architecture/supply-outlook.md).
+At a planned home departure, residents without enough food or water for the next
+use stay home if no supply or tending job is available. They retry every two
+logical seconds; the inspector shows the countdown and last search results.
+Resuming a well or bringing a crop to maturity can get them working again.
+See [household supply waiting](docs/architecture/supply-waiting.md).
+Inspect a home or resident for stock and task status;
 use Survey/Hydrology to drill and control wells. At a selected borehole, enable
 **Fill buffer only** to preserve groundwater when its collectable store is full.
 Residents can still collect; the pump replenishes the buffer as space opens.
@@ -139,6 +149,14 @@ stock at home, in transit and at the source; reservations are part of source
 stock. Water uses abstract units and food uses whole portions. Failed collection attempts remain labeled as the last attempt until a
 resident tries again. Escape closes the overview.
 
+Use **Inspect [name]** under a household to open its resident's activity and route.
+The dwelling inspector also links to its residents, and each resident links back
+to their home. **Follow resident** tracks their displayed position; **Stop
+following**, panning, another selection, a tool, or F/R/G releases the camera.
+Orbit and zoom remain available while following. Following is a viewing choice
+and clears when a world is loaded or replaced.
+See [resident following](docs/architecture/resident-following.md).
+
 The clock uses fixed 100 ms ticks, retains fractional time across pause, and
 limits catch-up to eight ticks per frame. A frame contributes at most 250 ms of
 wall time before the speed multiplier; excess whole-tick backlog is discarded.
@@ -150,7 +168,7 @@ the saved tick. On macOS the slot is
 `~/Library/Application Support/Genesis/world.json`, with the previous valid save
 at `world.json.bak`. Loading resets camera/selection and preserves the active world
 if validation fails. Saves are synchronous; the current main-menu Continue button
-still resumes the live session; Load saved expedition restores the slot. New saves use schema v10 with expedition role, resident routines,
+still resumes the live session; Load saved expedition restores the slot. New saves use schema v11 with expedition role, resident routines,
 water/food stocks, crops, tending, pump policies and task commitments; v1–v9 worlds migrate on load.
 Existing populations and water commitments are retained. Old worlds gain empty
 food stores without a new food patch when needed. Existing food sources remain

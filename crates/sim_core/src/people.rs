@@ -1,6 +1,7 @@
 //! Persistent residents and a modest outdoor routine, independent of presentation.
 mod food;
 mod irrigation;
+mod supply_wait;
 pub use irrigation::{IrrigationIssue, IrrigationTask};
 pub(crate) mod navigation;
 pub use food::{FoodIssue, FoodTask, SupplyKind};
@@ -25,6 +26,7 @@ pub struct PersonId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Activity {
     Resting,
+    WaitingForSupplies,
     FetchingFood,
     GatheringFood,
     CarryingFood,
@@ -47,6 +49,7 @@ impl Activity {
             Self::GatheringFood => "Harvesting food",
             Self::CarryingFood => "Carrying food home",
             Self::Resting => "Resting at home",
+            Self::WaitingForSupplies => "Waiting for household supplies",
             Self::GoingToMeeting => "Walking to the meeting place",
             Self::Visiting => "Visiting the meeting place",
             Self::ReturningHome => "Returning home",
@@ -116,6 +119,10 @@ pub struct Person {
     next: usize,
 }
 impl Person {
+    /// Time until the next supply attempt while waiting at home, in logical ms.
+    pub fn supply_retry_ms(&self) -> Option<u64> {
+        (self.activity == Activity::WaitingForSupplies).then_some(self.remaining_ms)
+    }
     pub fn destination(&self) -> Position {
         if let Some(task) = &self.irrigation_task {
             return if self.activity == Activity::FetchingIrrigationWater {
@@ -346,6 +353,7 @@ impl People {
             && self.ids.covers(self.entries.iter().map(|p| p.id.0))
             && self.entries.iter().all(|p| {
                 ids.insert(p.id)
+                    && supply_wait::valid(p)
                     && !p.name.is_empty()
                     && p.name.len() <= 80
                     && sim.buildings.iter().any(|b| b.id == p.home)

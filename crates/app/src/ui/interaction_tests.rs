@@ -1,4 +1,6 @@
 use super::*;
+mod follow;
+mod supply_wait;
 
 fn frame(
     ctx: &egui::Context,
@@ -659,4 +661,125 @@ fn pump_mode_checkbox_queues_policy_without_unstopping_the_well() {
     assert!(!session.sim.subsurface.wells[0].active);
     assert_eq!(session.sim.subsurface.wells[0].recovered, 0.);
     assert!(!session.message_is_error);
+}
+
+#[test]
+fn supply_warning_opens_the_resource_with_more_short_homes_without_advancing() {
+    use genesis_sim_core::supply_outlook::Outlook;
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::water_settlement();
+    for _ in 0..1800 {
+        state.step(0.1, &[]);
+    }
+    let outlook = Outlook::read(&state);
+    assert_eq!(outlook.food_short_homes(), 6);
+    assert!(outlook.water_short_homes() < 6);
+    let mut session = Session::from_sim(state);
+    session.clock.paused = true;
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1280., 800.);
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    let point = output
+        .shapes
+        .iter()
+        .find_map(|s| text_position(&s.shape, "Supplies · 6 short"))
+        .unwrap();
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert!(session.water_overview && session.supply_food);
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    assert!(
+        output
+            .shapes
+            .iter()
+            .any(|s| text_position(&s.shape, "6 homes short at current stocks").is_some())
+    );
+    assert_eq!(Outlook::read(&session.sim), outlook);
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert_eq!(session.pending_count(), 0);
+}
+
+#[test]
+fn food_outlook_places_short_home_first_and_focuses_its_persistent_identity() {
+    use genesis_sim_core::{runtime::Simulation, save::Snapshot, scenarios};
+    let mut value = serde_json::to_value(scenarios::supplied_settlement()).unwrap();
+    for home in 1..=5 {
+        value["food"]["homes"][home.to_string()]["stored"] = 4.into();
+    }
+    let remaining = value["food"]["sources"][0]["remaining"].as_u64().unwrap();
+    value["food"]["sources"][0]["remaining"] = (remaining - 20).into();
+    let mut state: genesis_sim_core::SimState = serde_json::from_value(value).unwrap();
+    state.buildings.reverse();
+    Snapshot::capture(&Simulation::new(state.clone()), "outlook-fixture", &[]).unwrap();
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut session = Session::from_sim(state);
+    session.clock.paused = true;
+    session.set_water_overview(true);
+    session.supply_food = true;
+    let mut camera = Camera::default();
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1280., 800.);
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    for _ in 0..3 {
+        frame_with_camera(&ctx, size, &mut session, &mut front, vec![], &mut camera);
+    }
+    let rect = ctx
+        .data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("food_home", 6_u64))))
+        .unwrap();
+    let other = ctx
+        .data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("food_home", 1_u64))))
+        .unwrap();
+    assert!(rect.top() < other.top());
+    for pressed in [true, false] {
+        frame_with_camera(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::PointerButton {
+                    pos: rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            &mut camera,
+        );
+    }
+    assert_eq!(
+        session.selected_object,
+        Some(crate::interaction::Object::Building(6))
+    );
+    let projected = camera
+        .view_projection(size.x / size.y)
+        .project_point3(session.selected_point());
+    assert!(projected.x.abs() < 0.001 && projected.y.abs() < 0.001);
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert_eq!(session.pending_count(), 0);
 }

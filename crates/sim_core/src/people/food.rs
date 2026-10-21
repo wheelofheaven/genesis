@@ -102,6 +102,10 @@ impl People {
             }
             return;
         }
+        if !self.supply_departure(index, sim, ms) {
+            return;
+        }
+        let p = &self.entries[index];
         // Lower fraction of the refill threshold first; alternate equal reserves.
         // Failed admission falls through to the other resource at this same boundary.
         let food = sim
@@ -121,6 +125,7 @@ impl People {
             self.prepare_food(index, sim, ms);
         }
         self.prepare_irrigation(index, sim, ms);
+        self.wait_if_short(index, sim, ms);
     }
     fn prepare_food(&mut self, index: usize, sim: &SimState, ms: u64) {
         let p = &self.entries[index];

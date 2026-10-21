@@ -1,13 +1,17 @@
 use super::theme::*;
 use crate::{interaction::Object, session::Session};
+use genesis_renderer::camera::Camera;
 use genesis_sim_core::{paths, units::METRES_PER_UNIT};
 
-pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
+pub fn selection(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
     let Some(object) = session.selected_object else {
         return;
     };
     eyebrow(ui, "SELECTED OBJECT");
     ui.heading(object.label());
+    let mut inspect_person = None;
+    let mut inspect_home = None;
+    let mut toggle_follow = None;
     match object {
         Object::FoodSource(id) => {
             if let Some(source) = session.sim.food.source(id) {
@@ -38,9 +42,25 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
         Object::Person(id) => {
             if let Some(p) = session.sim.people.get(id) {
                 ui.heading(&p.name);
-                ui.label(format!("Home · dwelling {}", p.home));
+                if ui
+                    .small_button(format!("Home · dwelling {}", p.home))
+                    .clicked()
+                {
+                    inspect_home = Some(p.home);
+                }
+                let following = session.following() == Some(id);
+                if ui.button(if following { "Stop following" } else { "Follow resident" })
+                    .on_hover_text("Keep this resident centered. Orbit and zoom still work; pan, another selection or a tool stops following.")
+                    .clicked()
+                {
+                    toggle_follow = Some(id);
+                }
                 ui.separator();
                 ui.label(p.activity.label());
+                if let Some(ms) = p.supply_retry_ms() {
+                    ui.label(format!("Next supply check · {:.1} logical s", ms as f64 / 1000.))
+                        .on_hover_text("This home lacks enough food or water for its next use. The resident checks for food, water and crop tending every two logical seconds before taking a social trip.");
+                }
                 if let Some(home) = session.sim.households.get(p.home) {
                     ui.label(format!(
                         "Household water · {:.1} / {:.0} u",
@@ -126,6 +146,27 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
             }
         }
         Object::Building(id) => {
+            let mut residents: Vec<_> = session
+                .sim
+                .people
+                .all()
+                .iter()
+                .filter(|p| p.home == id)
+                .collect();
+            residents.sort_by_key(|p| p.id);
+            if !residents.is_empty() {
+                ui.label("Residents");
+                for person in residents {
+                    if ui
+                        .button(format!("{} · {}", person.name, person.activity.label()))
+                        .on_hover_text("Inspect this resident and their current route")
+                        .clicked()
+                    {
+                        inspect_person = Some(person.id);
+                    }
+                }
+                ui.separator();
+            }
             if let Some(home) = session.sim.food.home(id) {
                 ui.label(format!(
                     "Food · {} / {} portions",
@@ -184,6 +225,19 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
                     "P extends the network. New endpoints snap to nearby paths.",
                 );
             }
+        }
+    }
+    if let Some(id) = inspect_person {
+        session.inspect_person(id, camera);
+    }
+    if let Some(id) = inspect_home {
+        super::water::focus_home(session, camera, id);
+    }
+    if let Some(id) = toggle_follow {
+        if session.following() == Some(id) {
+            session.stop_following();
+        } else {
+            session.follow_person(id, camera);
         }
     }
     ui.add_space(8.);

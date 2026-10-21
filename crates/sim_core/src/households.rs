@@ -6,6 +6,7 @@ pub const CAPACITY: f64 = 8.;
 pub const REFILL_BELOW: f64 = 4.;
 pub const CONTAINER: f64 = 2.;
 const USE_INTERVAL_MS: u64 = 30_000;
+pub const USE_PER_PERSON: f64 = 0.5;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct HomeWater {
     pub stored: f64,
@@ -38,6 +39,10 @@ impl Households {
     pub(crate) fn is_missing(&self) -> bool {
         *self == Self::missing()
     }
+    /// Logical time remaining until the next household consumption boundary.
+    pub fn next_use_ms(&self) -> u64 {
+        USE_INTERVAL_MS - self.elapsed_ms
+    }
     pub fn get(&self, home: u64) -> Option<&HomeWater> {
         self.homes.get(&home)
     }
@@ -64,13 +69,13 @@ impl Households {
         for (&home, stock) in &mut self.homes {
             let residents = people.all().iter().filter(|p| p.home == home).count() as u64;
             let count = portions.saturating_mul(residents);
-            let demand = count as f64 * 0.5;
+            let demand = count as f64 * USE_PER_PERSON;
             let used = stock.stored.min(demand);
             stock.stored -= used;
             stock.consumed += used;
             stock.missed_portions = stock
                 .missed_portions
-                .saturating_add(((demand - used) / 0.5).ceil() as u64);
+                .saturating_add(((demand - used) / USE_PER_PERSON).ceil() as u64);
         }
     }
     pub(crate) fn deliver(&mut self, home: u64, amount: f64) -> bool {

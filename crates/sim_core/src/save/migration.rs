@@ -2,6 +2,16 @@ use super::{SaveError, Snapshot};
 use crate::identity::Allocator;
 
 pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
+    if save.schema < 11
+        && save
+            .state
+            .people
+            .all()
+            .iter()
+            .any(|p| p.activity == crate::people::Activity::WaitingForSupplies)
+    {
+        return Err(SaveError("unexpected supply waiting in legacy save".into()));
+    }
     if save.schema < 10
         && (save
             .state
@@ -155,6 +165,13 @@ pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
     if save.schema == 9 {
         if save.rules != "genesis:rules/7" {
             return Err(SaveError("invalid V9 rules".into()));
+        }
+        save.schema = 10;
+        save.rules = "genesis:rules/8".into();
+    }
+    if save.schema == 10 {
+        if save.rules != "genesis:rules/8" {
+            return Err(SaveError("invalid V10 rules".into()));
         }
         save.schema = super::SCHEMA;
         save.rules = super::RULES.into();

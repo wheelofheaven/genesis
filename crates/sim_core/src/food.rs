@@ -8,6 +8,7 @@ pub const CAPACITY: u32 = 12;
 pub const REFILL_BELOW: u32 = 6;
 pub const LOAD: u32 = 4;
 pub const GATHER_MS: u64 = 2000;
+const USE_INTERVAL_MS: u64 = 30_000;
 
 /// Durable source identity, independent of its storage position or display mesh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -73,6 +74,10 @@ impl Food {
     pub(crate) fn is_missing(&self) -> bool {
         *self == Self::missing()
     }
+    /// Logical time remaining until the next household consumption boundary.
+    pub fn next_use_ms(&self) -> u64 {
+        USE_INTERVAL_MS - self.elapsed_ms
+    }
     /// Committed source stocks; reservations remain owned by resident tasks.
     pub fn sources(&self) -> &[Source] {
         &self.sources
@@ -101,8 +106,8 @@ impl Food {
         self.initialize(people);
         let ms = (f64::from(dt) * 1000.).round() as u64;
         let elapsed = self.elapsed_ms.saturating_add(ms);
-        let portions = elapsed / 30_000;
-        self.elapsed_ms = elapsed % 30_000;
+        let portions = elapsed / USE_INTERVAL_MS;
+        self.elapsed_ms = elapsed % USE_INTERVAL_MS;
         if portions == 0 {
             return;
         }

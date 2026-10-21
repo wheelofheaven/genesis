@@ -43,6 +43,15 @@ The `people` array reports resident identities and routine state. Generated sett
 `--scenario settlement` run the same resident rules as the game. The original
 `fixture` remains unpopulated. The `water` fixture adds a working well and reports household stocks/use in
 `households`. Use `--scenario water --ticks 1800` to exercise collection and delivery.
+`supply_outlook` adds read-only next-use countdowns in logical milliseconds and
+per-home occupancy, delivered stock and carried household cargo. Crop water is
+excluded from household cargo. Countdown fields are null when no residents exist;
+source stock and reservations do not count as delivered supplies.
+`people[].activity = "WaitingForSupplies"` means a failed home-departure search
+left the next meal or drink uncovered. `remaining_ms` then records the next retry,
+at most 2000 logical milliseconds away. Try `--scenario water --ticks 900 --commands
+crates/sim_core/fixtures/supply-recovery.commands.json`: it stops the well at tick 1,
+then resumes it at tick 121. Residents wait and retry before collecting water.
 The `supplies` fixture adds finite wild food. `--scenario supplies --ticks 3600`
 reports both resource loops; `food` includes sources, household portions and use.
 The `cultivation` fixture supplies one barley plot and a well. Run
@@ -82,7 +91,7 @@ Saved pending commands execute at the next tick, before any newly supplied comma
 `--save` writes the final boundary and preserves an existing valid destination in a `.bak` sibling.
 Use `--load /path/world.json.bak` to recover a previous save; save it to a new filename if the primary is corrupt.
 Directories must already exist for CLI output.
-The [v10 format with v1–v9 migration](../../docs/architecture/buffer-pumping.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.
+The [v11 format with v1–v10 migration](../../docs/architecture/supply-waiting.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.
 
 Application saves include their expedition role. The runner preserves this metadata
 when resaving a loaded world; authored and generated headless scenarios leave it unspecified.

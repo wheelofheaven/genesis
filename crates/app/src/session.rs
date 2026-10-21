@@ -1,4 +1,5 @@
 //! Application session owning simulation, pending commands, and presentation choices.
+mod follow;
 use crate::clock::Clock;
 use genesis_sim_core::{
     SimState, actions::Action, events::SimEvent, runtime::Simulation, settlement::Building,
@@ -19,6 +20,7 @@ pub struct Session {
     pub crop_placing: bool,
     pub path: crate::path_tool::Draft,
     pub selected_object: Option<crate::interaction::Object>,
+    following: Option<genesis_sim_core::people::PersonId>,
     pub hovered_object: Option<crate::interaction::Object>,
     pub hover: Option<Position>,
     pub overlay_dirty: bool,
@@ -69,6 +71,7 @@ impl Session {
             crop_placing: false,
             path: crate::path_tool::Draft::default(),
             selected_object: None,
+            following: None,
             hovered_object: None,
             hover: None,
             overlay_dirty: true,
@@ -349,6 +352,7 @@ impl Session {
         }
     }
     pub fn select(&mut self, position: Position) {
+        self.stop_following();
         self.selected_object = None;
         self.position = position;
         self.selected = (position.x.round() as i32, position.z.round() as i32);
@@ -362,6 +366,7 @@ impl Session {
         self.water_overview = open;
     }
     pub fn set_placing(&mut self, placing: bool) {
+        self.stop_following();
         self.water_overview = false;
         self.path.active = false;
         self.path.points.clear();

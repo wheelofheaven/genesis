@@ -16,6 +16,7 @@ pub mod scenarios;
 pub mod settlement;
 pub mod spatial;
 pub mod subsurface;
+pub mod supply_outlook;
 pub mod surface;
 pub mod units;
 pub mod worldgen;

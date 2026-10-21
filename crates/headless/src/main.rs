@@ -98,6 +98,7 @@ struct Metrics<'a> {
     people: &'a [genesis_sim_core::people::Person],
     households: &'a genesis_sim_core::households::Households,
     food: &'a genesis_sim_core::food::Food,
+    supply_outlook: genesis_sim_core::supply_outlook::Outlook,
     paths: usize,
     wells: usize,
     aquifer_stored: f64,
@@ -204,6 +205,7 @@ fn run(options: Options) -> Result<()> {
         people: sim.people.all(),
         households: &sim.households,
         food: &sim.food,
+        supply_outlook: genesis_sim_core::supply_outlook::Outlook::read(&sim),
         paths: sim.paths.len(),
         wells: sim.subsurface.wells.len(),
         aquifer_stored: sim

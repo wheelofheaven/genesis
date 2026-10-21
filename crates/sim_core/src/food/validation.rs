@@ -3,7 +3,7 @@ impl Food {
     pub(crate) fn valid(&self, sim: &SimState) -> bool {
         let mut ids = std::collections::BTreeSet::new();
         if !self.initialized
-            || self.elapsed_ms >= 30_000
+            || self.elapsed_ms >= USE_INTERVAL_MS
             || self.homes.len() > 10_000
             || self.sources.len() > 10_000
             || self

@@ -79,8 +79,14 @@ impl Input {
             KeyCode::Digit1 => session.clock.set_speed(1),
             KeyCode::Digit2 => session.clock.set_speed(4),
             KeyCode::Digit3 => session.clock.set_speed(16),
-            KeyCode::KeyG => crate::ground::toggle(&session.sim, session.position, camera),
-            KeyCode::KeyR => crate::terrain::home_camera(&session.sim, camera),
+            KeyCode::KeyG => {
+                session.stop_following();
+                crate::ground::toggle(&session.sim, session.position, camera);
+            }
+            KeyCode::KeyR => {
+                session.stop_following();
+                crate::terrain::home_camera(&session.sim, camera);
+            }
             KeyCode::KeyP => session.set_path_tool(!session.path.active),
             KeyCode::Enter if session.path.active => session.finish_path(),
             KeyCode::Backspace if session.path.active => session.undo_path_point(),
@@ -95,6 +101,7 @@ impl Input {
                 session.world_tools = false;
             }
             KeyCode::KeyF => {
+                session.stop_following();
                 camera.leave_ground();
                 camera.center(session.selected_point());
             }
@@ -113,7 +120,7 @@ impl Input {
     }
     pub fn update_camera(
         &self,
-        sim: &genesis_sim_core::SimState,
+        session: &mut Session,
         camera: &mut Camera,
         seconds: f32,
         height: f32,
@@ -123,9 +130,12 @@ impl Input {
             - i32::from(has(KeyCode::KeyD, KeyCode::ArrowRight));
         let y = i32::from(has(KeyCode::KeyW, KeyCode::ArrowUp))
             - i32::from(has(KeyCode::KeyS, KeyCode::ArrowDown));
+        if x != 0 || y != 0 {
+            session.stop_following();
+        }
         if camera.is_ground() {
             crate::ground::travel(
-                sim,
+                &session.sim,
                 camera,
                 Vec2::new(x as f32, y as f32).normalize_or_zero(),
                 seconds,
@@ -158,7 +168,7 @@ mod tests {
         input.key(KeyCode::KeyW, true, &mut session, &mut camera);
         input.clear();
         let before = camera.focus;
-        input.update_camera(&session.sim, &mut camera, 0.1, 800.);
+        input.update_camera(&mut session, &mut camera, 0.1, 800.);
         assert_eq!(before, camera.focus);
     }
 }
