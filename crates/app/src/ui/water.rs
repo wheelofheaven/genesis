@@ -3,10 +3,7 @@ mod food;
 use super::theme::*;
 use crate::{interaction::Object, session::Session};
 use genesis_renderer::camera::Camera;
-use genesis_sim_core::{
-    SimState, households,
-    people::{Activity, Person},
-};
+use genesis_sim_core::{SimState, households, people::Person};
 use std::collections::BTreeMap;
 
 struct Home<'a> {
@@ -54,12 +51,10 @@ impl<'a> Overview<'a> {
                 .map(|s| s.stored)
                 .sum(),
             reserved: sim
-                .people
-                .all()
+                .subsurface
+                .wells
                 .iter()
-                .filter(|p| p.activity == Activity::FetchingWater)
-                .filter_map(|p| p.water_task.as_ref())
-                .map(|t| t.amount)
+                .map(|w| sim.people.reserved_water(w.id))
                 .sum(),
             homes,
         }
@@ -98,7 +93,11 @@ impl Home<'_> {
                     text.push_str(&format!("\nBlocked: {}", blocked.label()));
                 }
             }
-        } else if let Some(p) = self.residents.iter().find(|p| p.food_task.is_some()) {
+        } else if let Some(p) = self
+            .residents
+            .iter()
+            .find(|p| p.food_task.is_some() || p.irrigation_task.is_some())
+        {
             text.push_str(&format!(
                 "\n{} · {}\nWater reconsidered at home departure",
                 p.name,
@@ -166,6 +165,13 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
         view.stored, view.carried
     ));
     ui.label(format!("Well buffers {:.1} u", view.buffered));
+    let irrigated = genesis_sim_core::food::cultivation::irrigation::total_applied(&session.sim);
+    if irrigated > 0. {
+        muted(
+            ui,
+            format!("Applied to crops · {irrigated:.1} u total (includes losses)"),
+        );
+    }
     muted(
         ui,
         format!("{:.1} u reserved within those buffers", view.reserved),
@@ -210,21 +216,18 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session, camera: &mut Camera) {
                 );
             }
             for well in &session.sim.subsurface.wells {
-                ui.label(format!(
-                    "Well {} · {}",
-                    well.id,
-                    if well.active {
-                        "pump enabled"
-                    } else {
-                        "pump stopped"
-                    }
-                ));
+                ui.label(format!("Well {} · {}", well.id, well.pump_mode.label()));
+                muted(
+                    ui,
+                    well.pumping_status(&session.sim.grid, session.sim.sea_level),
+                );
                 if let Some(stock) = &well.supply {
                     let reserved = session.sim.people.reserved_water(well.id);
                     muted(
                         ui,
                         format!("{:.1} u stored · {:.1} u reserved", stock.stored, reserved),
                     );
+                    muted(ui, format!("Released water · {:.1} u", stock.released));
                     muted(
                         ui,
                         if stock.stored == 0. {

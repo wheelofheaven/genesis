@@ -493,3 +493,170 @@ fn crop_tool_queues_placement_and_read_only_inspection_uses_current_growth() {
     assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
     assert!(session.selected_object.is_some());
 }
+
+#[test]
+fn irrigation_button_queues_transfer_without_mutating_paused_world() {
+    use genesis_sim_core::food::cultivation::irrigation;
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::cultivated_settlement();
+    for c in state.grid.cells_mut() {
+        c.rainfall = 0.01;
+    }
+    for _ in 0..200 {
+        state.step(0.1, &[]);
+    }
+    let mut session = Session::from_sim(state);
+    session.clock.paused = true;
+    session.selected_object = Some(crate::interaction::Object::FoodSource(
+        session.sim.food.sources()[0].id,
+    ));
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1100., 800.);
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    let point = output
+        .shapes
+        .iter()
+        .find_map(|s| text_position(&s.shape, "Apply 2 u water"))
+        .unwrap();
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert_eq!(session.pending_count(), 1);
+    session.step_once();
+    assert_eq!(session.pending_count(), 0);
+    assert_eq!(irrigation::total_applied(&session.sim), 2.);
+    assert!(!session.message_is_error);
+}
+
+#[test]
+fn tending_checkbox_queues_opt_in_without_mutating_paused_world() {
+    use genesis_sim_core::food::cultivation::Kind;
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::cultivated_settlement();
+    for c in state.grid.cells_mut() {
+        c.rainfall = 0.01;
+    }
+    for _ in 0..200 {
+        state.step(0.1, &[]);
+    }
+    let mut session = Session::from_sim(state);
+    session.clock.paused = true;
+    session.selected_object = Some(crate::interaction::Object::FoodSource(
+        session.sim.food.sources()[0].id,
+    ));
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1100., 800.);
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    let point = output
+        .shapes
+        .iter()
+        .find_map(|s| text_position(&s.shape, "Residents tend this plot"))
+        .unwrap();
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert_eq!(session.pending_count(), 1);
+    session.step_once();
+    assert_eq!(session.pending_count(), 0);
+    assert!(matches!(&session.sim.food.sources()[0].kind, Kind::Barley(c) if c.tending));
+    assert!(!session.message_is_error);
+}
+
+#[test]
+fn pump_mode_checkbox_queues_policy_without_unstopping_the_well() {
+    use genesis_sim_core::{actions::Action, subsurface::PumpMode};
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut state = genesis_sim_core::scenarios::water_settlement();
+    state.step(
+        0.,
+        &[Action::SetWellActive {
+            id: 1,
+            active: false,
+        }],
+    );
+    let point = state.subsurface.wells[0].position;
+    let mut session = Session::from_sim(state);
+    session.clock.paused = true;
+    session.select(point);
+    session.set_survey(true);
+    let mut front = crate::frontend::Frontend::default();
+    let size = egui::vec2(1100., 800.);
+    let before = serde_json::to_vec(&*session.sim).unwrap();
+    for _ in 0..3 {
+        frame(&ctx, size, &mut session, &mut front, vec![]);
+    }
+    let (output, _) = frame(&ctx, size, &mut session, &mut front, vec![]);
+    let point = output
+        .shapes
+        .iter()
+        .find_map(|s| text_position(&s.shape, "Fill buffer only"))
+        .unwrap();
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            size,
+            &mut session,
+            &mut front,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(serde_json::to_vec(&*session.sim).unwrap(), before);
+    assert_eq!(session.pending_count(), 1);
+    session.step_once();
+    assert_eq!(
+        session.sim.subsurface.wells[0].pump_mode,
+        PumpMode::FillBuffer
+    );
+    assert!(!session.sim.subsurface.wells[0].active);
+    assert_eq!(session.sim.subsurface.wells[0].recovered, 0.);
+    assert!(!session.message_is_error);
+}

@@ -1,5 +1,7 @@
 //! Persistent residents and a modest outdoor routine, independent of presentation.
 mod food;
+mod irrigation;
+pub use irrigation::{IrrigationIssue, IrrigationTask};
 pub(crate) mod navigation;
 pub use food::{FoodIssue, FoodTask, SupplyKind};
 mod water;
@@ -28,6 +30,8 @@ pub enum Activity {
     CarryingFood,
     FetchingWater,
     CarryingWater,
+    FetchingIrrigationWater,
+    WateringCrop,
     GoingToMeeting,
     Visiting,
     ReturningHome,
@@ -35,6 +39,8 @@ pub enum Activity {
 impl Activity {
     pub fn label(self) -> &'static str {
         match self {
+            Self::FetchingIrrigationWater => "Collecting crop water",
+            Self::WateringCrop => "Carrying water to a crop",
             Self::FetchingWater => "Collecting household water",
             Self::CarryingWater => "Carrying water home",
             Self::FetchingFood => "Walking to gather food",
@@ -53,6 +59,8 @@ impl Activity {
                 | Self::ReturningHome
                 | Self::FetchingWater
                 | Self::CarryingWater
+                | Self::FetchingIrrigationWater
+                | Self::WateringCrop
                 | Self::FetchingFood
                 | Self::CarryingFood
         )
@@ -86,6 +94,10 @@ pub struct Person {
     #[serde(default)]
     pub water_task: Option<WaterTask>,
     #[serde(default)]
+    pub irrigation_task: Option<IrrigationTask>,
+    #[serde(default)]
+    pub irrigation_issue: Option<IrrigationIssue>,
+    #[serde(default)]
     pub carried_water: f64,
     #[serde(default)]
     pub water_issue: Option<WaterIssue>,
@@ -105,6 +117,13 @@ pub struct Person {
 }
 impl Person {
     pub fn destination(&self) -> Position {
+        if let Some(task) = &self.irrigation_task {
+            return if self.activity == Activity::FetchingIrrigationWater {
+                task.pickup
+            } else {
+                task.delivery
+            };
+        }
         if matches!(
             self.activity,
             Activity::FetchingFood | Activity::GatheringFood
@@ -166,11 +185,15 @@ impl People {
             let before = (self.entries[index].activity, self.entries[index].blocked);
             let water_before = self.entries[index].water_issue;
             let food_before = self.entries[index].food_issue;
+            let irrigation_before = self.entries[index].irrigation_issue;
             self.prepare_supplies(index, sim, ms);
             let p = &mut self.entries[index];
             if !sim.buildings.iter().any(|b| b.id == p.home) {
                 if p.water_task.is_some() {
                     water::release(p, WaterIssue::RouteBlocked);
+                }
+                if p.irrigation_task.is_some() {
+                    irrigation::release(p, IrrigationIssue::RouteBlocked);
                 }
                 if p.food_task.is_some() {
                     food::release(p, FoodIssue::RouteBlocked);
@@ -179,6 +202,9 @@ impl People {
             } else if !walking::standable(sim, p.position) {
                 if p.water_task.is_some() {
                     water::release(p, WaterIssue::RouteBlocked);
+                }
+                if p.irrigation_task.is_some() {
+                    irrigation::release(p, IrrigationIssue::RouteBlocked);
                 }
                 if p.food_task.is_some() {
                     food::release(p, FoodIssue::RouteBlocked);
@@ -202,6 +228,7 @@ impl People {
                         if distance(p.position, p.destination()) < metres(0.01) {
                             if !water::arrive(p, sim, events, sim.time + f64::from(dt))
                                 && !food::arrive(p, sim, events, sim.time + f64::from(dt))
+                                && !irrigation::arrive(p, sim, events, sim.time + f64::from(dt))
                             {
                                 p.activity = if p.activity == Activity::GoingToMeeting {
                                     Activity::Visiting
@@ -224,6 +251,9 @@ impl People {
                         } else {
                             if p.water_task.is_some() {
                                 water::release(p, WaterIssue::RouteBlocked);
+                            }
+                            if p.irrigation_task.is_some() {
+                                irrigation::release(p, IrrigationIssue::RouteBlocked);
                             }
                             if p.food_task.is_some() {
                                 food::release(p, FoodIssue::RouteBlocked);
@@ -249,6 +279,9 @@ impl People {
                             p.route.clear();
                             p.next = 0;
                             p.remaining_ms = 2000;
+                            if p.irrigation_task.is_some() {
+                                irrigation::release(p, IrrigationIssue::RouteBlocked);
+                            }
                             if p.food_task.is_some() {
                                 food::release(p, FoodIssue::RouteBlocked);
                             }
@@ -263,6 +296,13 @@ impl People {
                 } else if !p.activity.travelling() && p.activity != Activity::GatheringFood {
                     p.blocked = None;
                 }
+            }
+            if irrigation_before != p.irrigation_issue {
+                events.push(SimEvent::IrrigationTaskStatusChanged {
+                    person: p.id,
+                    issue: p.irrigation_issue,
+                    time: sim.time + f64::from(dt),
+                });
             }
             if food_before != p.food_issue {
                 events.push(SimEvent::FoodTaskStatusChanged {
@@ -300,6 +340,7 @@ impl People {
         let mut ids = std::collections::BTreeSet::new();
         self.food_valid(sim)
             && self.water_valid(sim)
+            && self.irrigation_valid(sim)
             && self.entries.len() <= 10_000
             && self.entries.iter().map(|p| p.route.len()).sum::<usize>() <= 100_000
             && self.ids.covers(self.entries.iter().map(|p| p.id.0))
@@ -381,6 +422,8 @@ pub(crate) fn populate(sim: &mut SimState) {
             activity: Activity::Resting,
             blocked: None,
             water_task: None,
+            irrigation_task: None,
+            irrigation_issue: None,
             carried_water: 0.,
             water_issue: None,
             food_task: None,

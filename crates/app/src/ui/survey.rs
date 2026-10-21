@@ -3,7 +3,11 @@ use super::theme::*;
 use crate::{session::Session, terrain};
 use egui::{Align2, Color32, FontId, RichText, Sense, Stroke};
 use genesis_renderer::camera::Camera;
-use genesis_sim_core::{actions::Action, spatial, subsurface::Mineral};
+use genesis_sim_core::{
+    actions::Action,
+    spatial,
+    subsurface::{Mineral, PumpMode},
+};
 
 pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
     ui.spacing_mut().item_spacing.y = 6.;
@@ -68,7 +72,9 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
         }) {
             let id = well.id;
             let active = well.active;
+            let mut fill_buffer = well.pump_mode == PumpMode::FillBuffer;
             ui.label(RichText::new(format!("Borehole {id}")).strong());
+            ui.label(well.pumping_status(&session.sim.grid, session.sim.sea_level));
             muted(
                 ui,
                 format!(
@@ -85,11 +91,16 @@ pub fn panel(ui: &mut egui::Ui, session: &mut Session) {
                 muted(
                     ui,
                     format!(
-                        "Reserved {:.1} u · carried away {:.1} u",
+                        "Reserved {:.1} u · collected {:.1} u",
                         session.sim.people.reserved_water(id),
                         supply.collected
                     ),
                 );
+            }
+            if ui.checkbox(&mut fill_buffer, "Fill buffer only")
+                .on_hover_text("Pause extraction at capacity and refill as water is collected. Uncheck for continuous pumping, which releases surplus water. Stop pumping overrides either mode.")
+                .changed() {
+                session.queue(Action::SetWellPumpMode { id, mode: if fill_buffer { PumpMode::FillBuffer } else { PumpMode::Continuous } });
             }
             if button(
                 ui,

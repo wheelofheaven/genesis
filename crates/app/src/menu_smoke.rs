@@ -13,6 +13,8 @@ pub struct Check {
     time: f64,
     revision: u64,
     changed_at: u32,
+    saved_state: Vec<u8>,
+    saved_identity: String,
 }
 impl Check {
     /// Returns a capture suffix. The final capture happens only after completion.
@@ -111,6 +113,17 @@ impl Check {
             if session.sim.time != self.time {
                 return Err("paused menu advanced simulation".into());
             }
+            session.queue(genesis_sim_core::actions::Action::SeedPlants {
+                x: 12,
+                y: 12,
+                radius: 1,
+            });
+            self.saved_state = serde_json::to_vec(&*session.sim)?;
+            self.saved_identity = session.world_id.clone();
+            if !front.save_expedition(session) {
+                return Err(format!("menu save failed: {}", front.message).into());
+            }
+            session.step_once();
             front.screen = Screen::Home;
             if !front.has_session {
                 return Err("main menu lost the session".into());
@@ -119,11 +132,37 @@ impl Check {
             return Ok(Some("continue.png"));
         }
         if self.stage == 3 && frame.is_multiple_of(10) {
-            front.screen = Screen::Playing;
-            if !session.clock.paused {
-                return Err("resume changed the user's pause state".into());
+            front.request_load(session, camera);
+            if front.screen != Screen::ConfirmLoad {
+                return Err("loading over a live expedition skipped confirmation".into());
             }
-            crate::terrain::home_camera(&session.sim, camera);
+            self.stage = 10;
+            self.changed_at = frame;
+            return Ok(None);
+        }
+        if self.stage == 10 && frame >= self.changed_at + 4 {
+            self.stage = 11;
+            self.changed_at = frame;
+            return Ok(Some("load-confirmation.png"));
+        }
+        if self.stage == 11 && frame >= self.changed_at + 4 {
+            front.escape();
+            if front.screen != Screen::Home || session.sim.time == self.time {
+                return Err("cancelled load changed the live expedition".into());
+            }
+            // Model a fresh application's placeholder world, retaining only the save path.
+            front.has_session = false;
+            session.replace_sim(genesis_sim_core::scenarios::coastal_outpost());
+            front.request_load(session, camera);
+            if !front.playing()
+                || !front.has_session
+                || !session.clock.paused
+                || session.world_id != self.saved_identity
+                || session.pending_count() != 1
+                || serde_json::to_vec(&*session.sim)? != self.saved_state
+            {
+                return Err("menu load did not restore the saved expedition".into());
+            }
             self.stage = 4;
             self.changed_at = frame;
         }

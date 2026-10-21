@@ -27,11 +27,23 @@ activity, destination and any blocked route; F focuses the selection. Figures ar
 placeholders. Residents now collect water from working nearby wells and deliver it
 to household stocks. They also gather finite wild food, carry it home in baskets,
 and consume whole portions. Inspect a home or resident for stock and task status;
-use Survey/Hydrology to drill and control wells. New settlements include a selectable
+use Survey/Hydrology to drill and control wells. At a selected borehole, enable
+**Fill buffer only** to preserve groundwater when its collectable store is full.
+Residents can still collect; the pump replenishes the buffer as space opens.
+Continuous pumping and the manual stop/resume control remain available.
+See [buffer-controlled pumping](docs/architecture/buffer-pumping.md).
+New settlements include a selectable
 wild-food patch. Wild sources remain finite; **Build → Barley plot** adds a renewable crop.
 Barley grows with soil moisture, pauses on dry or flooded ground, and becomes food
 that residents harvest and deliver. Plots automatically resow after their harvest
-is cleared; seed costs and irrigation are not implemented.
+is cleared. Select a plot and use **Apply 2 u water** to draw from a working well
+within 30 m. Its four-unit store drains over time and supports growth on dry ground;
+existing household water reservations are protected. Enable **Residents tend this plot**
+for residents to fetch and carry two-unit doses after their own household supply jobs.
+Plot and well reservations protect water in transit; stopping tending releases
+uncollected doses while carried water still delivers. Seed costs remain unimplemented.
+See [resident tending](docs/architecture/resident-tending.md) and
+[irrigation](docs/architecture/irrigation.md).
 Further needs, jobs, historical scenarios and the final art pipeline remain future
 work. See [household water](docs/architecture/household-water.md) and
 [food gathering](docs/architecture/food-gathering.md), plus
@@ -69,8 +81,12 @@ and expedition logistics remain future systems.
 
 **Menu** (or **Escape** after closing a tool) suspends world time. Return to the
 main menu and choose **Continue expedition** to resume the same live session.
-Use **F5** to save the world and **F9** to load it across application sessions.
-Replacing a session or quitting asks for confirmation.
+Use **Save expedition** in the pause menu, or **F5**, to save the world.
+**Load saved expedition** is available from both the title and pause menus; **F9**
+also loads during play. Loading over an open world asks for confirmation and opens
+the saved world paused. The quit dialog offers **Save and quit**; starting another
+expedition offers **Save and deploy**. Failed saves keep the current world open.
+See [menu saves](docs/architecture/menu-saves.md).
 
 **Settings** provides fullscreen, interface scale, a 30/60/120 frame limit, camera
 sensitivity, and reversed scroll zoom. Apply saves these preferences to
@@ -134,8 +150,8 @@ the saved tick. On macOS the slot is
 `~/Library/Application Support/Genesis/world.json`, with the previous valid save
 at `world.json.bak`. Loading resets camera/selection and preserves the active world
 if validation fails. Saves are synchronous; the current main-menu Continue button
-still resumes the live session. New saves use schema v6 with resident routines,
-water/food stocks, crops, growth and task commitments; v1–v5 worlds migrate on load.
+still resumes the live session; Load saved expedition restores the slot. New saves use schema v10 with expedition role, resident routines,
+water/food stocks, crops, tending, pump policies and task commitments; v1–v9 worlds migrate on load.
 Existing populations and water commitments are retained. Old worlds gain empty
 food stores without a new food patch when needed. Existing food sources remain
 intact; both old and new worlds can plant barley.
@@ -176,8 +192,9 @@ identical continuation, using a temporary sibling `.world.json` instead of the
 normal quicksave slot.
 `--menu-test /tmp/genesis-menu.png` checks the destination/region/briefing flow,
 small-window settings, asynchronous settlement creation, paused arrival, pause,
-and return/continue without losing the prior pause state. It captures each menu,
-the arrival, and the resumed world.
+return/continue, menu saving, load confirmation and restoration from the title screen.
+It captures each menu, the arrival, and the paused restored world, using a temporary
+sibling save slot.
 
 Other capture commands bypass the menu to preserve scene regression checks.
 `--capture /tmp/genesis.png` captures the initial scene without the smoke actions.
@@ -488,9 +505,9 @@ See [the edit-preparation baseline](docs/architecture/terrain-edit-performance.m
 
 ## Next milestone
 
-Introduce one persistent person with needs, a daily routine, and an inspector
-that explains their choices; establish character loading and animation alongside
-that slice. Expand into relationships and a living settlement incrementally.
+Deepen the existing six-resident settlement with watering labour and clearer
+household consequences, and establish character loading and animation. Expand
+into relationships and individual motivations incrementally.
 The original biosphere score remains a prototype mechanic, not the overall goal.
 
 ## License

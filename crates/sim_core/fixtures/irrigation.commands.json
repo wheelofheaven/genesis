@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "commands": [
+    { "tick": 201, "action": { "IrrigateCrop": { "source": 1, "well": 1 } } },
+    { "tick": 201, "action": { "IrrigateCrop": { "source": 1, "well": 1 } } }
+  ]
+}

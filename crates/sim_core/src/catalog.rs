@@ -3,6 +3,32 @@
 //! scenario providers and physical models, not an Earth region with a new name.
 use crate::worldgen::Region;
 
+/// Player role, separate from the materialized world and its population.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExpeditionMode {
+    #[default]
+    Settlement,
+    WorldBuilder,
+}
+impl ExpeditionMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Settlement => "Settlement",
+            Self::WorldBuilder => "World Builder",
+        }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Settlement => {
+                "Begin with a small village. Place dwellings, shape the land and investigate the water and minerals that sustain a settlement."
+            }
+            Self::WorldBuilder => {
+                "Begin with uninhabited terrain. Explore the land and seafloor, shape a region, and choose where its first settlement will grow."
+            }
+        }
+    }
+}
+
 pub struct PlanetDefinition {
     pub id: &'static str,
     pub name: &'static str,

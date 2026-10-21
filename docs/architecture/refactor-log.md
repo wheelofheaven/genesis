@@ -1049,3 +1049,189 @@ milestone: persistent villagers with a visible, explainable routine.
   no new async work. See [cultivation ownership and limits](cultivation.md).
   Next useful slice: a scoped irrigation intervention with an explicit applied-water
   owner, soil storage and loss accounting, before connecting it to crop growth.
+
+## 21 October 2026 — finite plot irrigation
+
+- Continued clean `5ef1af4` and the cultivation checkpoint's next step after
+  reading the project instructions, vision/engine decisions and existing supply,
+  crop, save and presentation code. Baseline CI passed 222 tests with 14 optional
+  checks ignored. Captured `storage/fixtures/v6-crops.json` with the unchanged V6
+  runner at tick 100 before editing the active simulation.
+- `food/cultivation/irrigation.rs` adds manual expedition applications: two
+  abstract water units from an active, unsubmerged well within 30 m, preserving
+  existing resident claims. Nearest eligible well selection uses distance/ID;
+  commands record explicit targets and revalidate at commit. Each plot holds four
+  units, tracked in integer millionths, with a combined 0.05-unit/second loss.
+  Only the wet part of a growth interval receives the irrigation benefit.
+  Mature and blocked plots continue draining. Plot applications join the global
+  water conservation equation; rejected actions have no transfer effects.
+- The selected crop inspector displays ambient/growth moisture, stored water,
+  application/loss totals, well eligibility and **Apply 2 u water**. The Water
+  overview separately reports cumulative crop applications. Buttons queue actions
+  while paused, and dry crop appearance reads the same effective growth condition.
+  Existing food tasks harvest and carry the result; no general job system or
+  renderer change is introduced.
+- Schema 7 / rules 6 preserve active stores and pending applications. V1–V6 staged
+  migration adds empty plot stores without inventing water or changing existing
+  crops and commitments. New saves reject missing/invalid storage and conservation
+  mismatches. Generator/content markers are unchanged. V7 saves require a new
+  executable; migration is not a promise of replay equivalence with old rules.
+- `mise run ci`: **230 tests pass**, 14 optional checks ignored; formatting and
+  warnings-denied Clippy pass. `mise run build` passes. Coverage includes dry versus
+  watered harvests, full/empty/stopped/distant/blocked rejection, protected claims,
+  stable source choice, drainage during blockage/standing harvest, frame partitions,
+  V6 migration, corrupt saves, pending/active continuation and real egui button input.
+  Early verification caught two lint suggestions and a migration-test comparison
+  that mixed raw JSON decimals with typed f32 serialization; normalized the latter
+  through the domain type and reran the checks successfully.
+- CPU-only `--scenario irrigation --ticks 2200` with the checked-in command file
+  applies four units at tick 201, produces 24 portions and records four units lost.
+  All six homes consume 3–4 portions; the no-command control produces none.
+  Saving at tick 500 then advancing 1700 ticks exactly matches uninterrupted state,
+  excluding host-created world identity. Reports/saves are
+  `/private/tmp/genesis-irrigation-{full,part,continued,dry}*`.
+- Native Apple M4/Metal `--crop-test` exits 0, including the preceding water smoke,
+  seedling picking, application, maturity and exact saved active/pending irrigation
+  continuation. The first capture was obscured by a quit dialog; a repeat also
+  exits 0 and was visually inspected at
+  `/private/tmp/genesis-irrigation-inspector.png`. The plot inspector is readable,
+  showing eight remaining portions, two stored water units and explicit applied/
+  lost totals. Captures and save siblings are temporary; user save slots were not
+  replaced. Other graphical hosts remain unverified. `git diff --check` passes.
+- No calibrated hydrology, watering labour, automatic irrigation, health effects,
+  performance improvement or increased population scale is claimed.
+  See [irrigation contracts and limits](irrigation.md).
+
+## 21 October 2026 — menu saves and expedition role persistence
+
+- Continued the verified, uncommitted irrigation working tree and preserved that
+  work. Inspected native storage, session replacement, keyboard input, menu state,
+  confirmation returns and existing smoke checks. Captured a pre-change V7 fixture
+  at tick 500 with active irrigation. Menu text incorrectly claimed saves were
+  unavailable, and only F5/F9 reached the existing world slot.
+- Added **Save expedition** to Pause and **Load saved expedition** to Pause/Home.
+  Loading over a live session has confirmation/cancellation; a failed load retains
+  identity, pending commands, mode, camera and view revision. **Save and quit** and
+  **Save and deploy** proceed only after successful storage. Current slot and
+  previous-valid-file backup behavior are unchanged. Error and success feedback
+  appear in the menu; drawing widgets performs no I/O or simulation advancement.
+- Moved the typed expedition role into the engine-independent catalogue and added
+  optional role metadata in schema 8. Rules remain version 6. App saves record the
+  active session role, while headless resaves preserve loaded metadata. V1–V7 files
+  leave role unspecified; the app retains its current role (Settlement on a fresh
+  launch). Legacy files with injected role metadata and unknown roles are rejected.
+  Population is never used to guess role. The V7 irrigation fixture migrates with
+  exactly preserved domain state.
+- `mise run ci`: **235 tests pass**, 14 optional checks ignored; formatting,
+  warnings-denied Clippy and workspace build pass. Real egui tests cover save/load,
+  fresh-launch restoration, pending irrigation exactly once, role preservation,
+  load cancellation, missing/corrupt files, failure-safe quit/deployment and backups.
+  Controls remain visible at 563×400, 760×540 and 1280×800 without writes on draw.
+- CPU-only V7 load/V8 resave with WorldBuilder metadata preserves the entire
+  snapshot. Temporary evidence is `/private/tmp/genesis-role-{original,resaved}.json`.
+  Native `--menu-test` now saves pending intent, captures load confirmation, cancels
+  it, replaces the placeholder world and restores the saved identity/state paused.
+  The first native run passed on Apple M4/Metal. Visual review found that the old
+  regional camera reset opened far from the village, so shared menu/F9 loading now
+  focuses existing buildings at 100 m view height. All 11 frontend tests, Clippy
+  and build pass after that adjustment.
+- Repeated native `--menu-test` after the camera change: exit 0. Visually reviewed
+  `/private/tmp/genesis-menu-saves.pause.png`, `.load-confirmation.png` and the
+  final `.png`; save/load controls are readable and the restored camera frames the
+  six-home settlement with its pending action intact. Temporary `.menu.world.json`
+  and backup files are separate from the user's save slot. `git diff --check` passes.
+- This remains one synchronous save slot. Backup recovery, multiple slots,
+  autosave and asynchronous storage are future work. No simulation-rule,
+  performance or additional-platform claim. See [menu-save contract](menu-saves.md).
+
+
+## 21 October 2026 — resident crop tending
+
+- Continued the uncommitted irrigation and menu-save changes. Captured a pre-change
+  V8 irrigation fixture at tick 500 before changing rules. Added opt-in per-plot
+  tending, an explicit setting action/events, and a resident well-to-plot task.
+  Household food/water admissions take precedence for each departing resident.
+  Source selection uses stable distance/identity order and bounded route attempts.
+- One worker reserves a two-unit dose and plot capacity. Pickup transfers water
+  into existing resident cargo; delivery transfers it into plot storage. Manual
+  applications protect both claims. Pre-pickup cancellation releases reservations;
+  already-carried water retains its destination through stopped tending, stopped
+  wells, flooded terrain and retries. Existing water conservation includes cargo
+  and plot applications, with no new duplicate reservation store.
+- Added task/issue presentation to the resident inspector and worker/claim status
+  to the crop inspector. The Water overview now includes irrigation claims in its
+  buffer totals and describes residents busy tending. Existing container geometry
+  displays carried crop water. The setting remains queued while paused.
+- Schema 9 / rules 7 preserves V1–V8 migration and defaults old plots to manual
+  tending. Tests preserve old materialized state and reject future commitments in
+  old envelopes, invalid task references/positions, duplicate claims and bad cargo.
+  Pre-pickup and carrying JSON saves with pending stop commands continue exactly.
+- `mise run ci`: **244 tests pass**, 14 optional checks ignored; formatting,
+  warnings-denied Clippy and workspace build pass. Six new simulation tests cover
+  repeated harvests/conservation, household priority/stable ordering, shared manual
+  reservations, cancellation/stopped wells, blocked cargo recovery and humid plots.
+  Two storage tests cover V8 migration and both task phases; one real egui test
+  covers queued tending. The UI regression test initially caught extra help text
+  pushing manual irrigation off-screen. Compact text plus tooltip restores it.
+- CPU fixture: `--scenario irrigation --ticks 2200 --commands
+  crates/sim_core/fixtures/tending.commands.json` produces 24 portions from 4 units
+  carried by residents, with 4 portions still standing. Three homes have consumed
+  food by that boundary. Saving at tick 500 and advancing 1700 more ticks matches
+  uninterrupted materialized state and logical tick exactly. Evidence lives in
+  `/private/tmp/genesis-tended-{full,half,resumed}.json` and metrics siblings.
+  Repeated harvest testing uses a larger finite aquifer: the default fixture's
+  early overflow and finite water supply remain consequential.
+- Native `--crop-test /private/tmp/genesis-resident-tending.png`: exit 0, Apple
+  M4/Metal. Retains manual irrigation, picking and save checks, and now round-trips
+  pending tending intent. Visually reviewed the final inspector: enabled checkbox,
+  growth/water accounting and manual button are readable. Save/capture artifacts
+  stay under `/private/tmp`; no player save was touched. `git diff --check` passes.
+- No generalized labour scheduler, sowing costs, irrigation network, calibrated
+  hydrology, health effects, performance gain or other-platform verification is
+  claimed. See [resident tending](resident-tending.md).
+
+
+## 21 October 2026 — buffer-controlled well pumping
+
+- Continued the uncommitted tending/menu-save/irrigation working tree. The dry
+  fixture exposed continuous well overflow as a substantial loss before later
+  household and crop demand. Captured `v9-tending.json` at tick 500 before changes.
+- Added `PumpMode::{Continuous, FillBuffer}` and explicit `SetWellPumpMode` commands.
+  Fill-buffer mode limits extraction to receiving capacity and waits automatically
+  at full storage while keeping `active` and all resident claims. Existing manual
+  stop/submersion overrides remain. New and migrated wells default to Continuous.
+- `subsurface/pumping.rs` owns mode, status and conservative withdrawal. Actual
+  representable f32 column losses are credited to f64 well accounts. Final review
+  found that correcting only one ULP after a rounded withdrawal could fail when
+  the source balance approached zero. The final implementation computes the target
+  balance in f64 and rounds that balance upward; a dedicated depleted-column test
+  protects this case across fractional/edge taps and large source values.
+- Survey shows **Fill buffer only**, full-buffer waiting, and Stop/Resume; the
+  Water overview shows mode/status and released water. A real egui interaction
+  confirms that paused input queues a policy change without mutating state or
+  implicitly resuming a manually stopped well.
+- Schema 10 / rules 8 retains staged V1–V9 migration. Old wells retain Continuous
+  and old state exactly; old envelopes reject future policy state/intent. Tests
+  preserve full and working buffers with pending mode changes and reject unknown
+  modes. Continuous withdrawal/yield arithmetic remains unchanged.
+- Final `mise run ci`: **254 tests pass**, 14 optional checks ignored. Formatting,
+  warnings-denied Clippy and workspace build pass. Seven new simulation tests,
+  two storage tests and one widget test extend the 244-test baseline. Final logs:
+  `/private/tmp/genesis-pumping-final-{ci,build}.log`.
+- CPU comparison at 6000 ticks: conserving mode produces 96 crop portions, with
+  73 consumed across all six homes, 20 well-buffer units, 100 units collected and
+  zero released. Continuous produces 24 portions and releases approximately
+  84.9188 units. Both use the same finite dry fixture and tending policy. The
+  tick-500 save plus 5500 ticks matches full-run state exactly after the final
+  rounding fix. Evidence: `/private/tmp/genesis-conserving-final.json`,
+  `genesis-conserving-final-resumed.json`, and `genesis-overflow-full.json`.
+- Extended native `--survey-test` with automatic waiting, no extra withdrawal or
+  release at full capacity, and a pending-policy save/load comparison. Initial and
+  final runs exit 0 on Apple M4/Metal. Visually reviewed
+  `/private/tmp/genesis-buffer-pumping.png`: full buffer, zero yield, enabled policy
+  and manual stop are readable. The final repeat is
+  `/private/tmp/genesis-buffer-pumping-final.png`. All saves remain in temporary
+  sibling paths, separate from the player's slot. `git diff --check` passes.
+- No energy model, pump wear, irrigation network, guaranteed settlement sufficiency,
+  performance improvement or other-platform verification is claimed.
+  See [buffer-pumping contract](buffer-pumping.md).

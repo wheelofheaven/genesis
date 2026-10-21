@@ -18,7 +18,7 @@ pub fn mesh(sim: &SimState, out: &mut Vec<Vertex>, source: &Source) {
     } else {
         crop.growth_units as f32 / cultivation::GROWTH_UNITS as f32
     };
-    let dry = cultivation::moisture(sim, source.position) <= 0.2;
+    let dry = cultivation::effective_moisture(sim, source) <= 0.2;
     let color = if source.remaining > 0 {
         [0.78, 0.64, 0.26]
     } else if dry {

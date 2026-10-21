@@ -63,13 +63,13 @@ pub fn show(
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     match front.screen {
-                        Screen::Home => home(front, ui),
+                        Screen::Home => home(front, ui, session, camera),
                         Screen::Destination => super::expedition::destination(front, ui),
                         Screen::Setup => super::expedition::region(front, ui),
                         Screen::Briefing => super::expedition::briefing(front, ui),
                         Screen::Settings => settings(front, ui),
                         Screen::Controls => controls(front, ui),
-                        Screen::Pause => pause(front, ui),
+                        Screen::Pause => pause(front, ui, session, camera),
                         Screen::Loading => {
                             heading(ui, "EXPEDITION / SURFACE LINK", "Preparing descent", front.region.name());
                             ui.spinner();
@@ -78,20 +78,31 @@ pub fn show(
                             if action(ui, "Cancel deployment", false) { front.escape(); }
                         }
                         Screen::ConfirmNew => {
-                            heading(ui, "NEW EXPEDITION", "Replace this session?", "Your current settlement will be lost. Saving sessions is not available yet.");
-                            if action(ui, "Deploy new expedition", true) { front.start(); }
+                            heading(ui, "NEW EXPEDITION", "Replace this session?", "Unsaved changes to your current expedition will be lost.");
+                            if action(ui, "Save and deploy", true) && front.save_expedition(session) { front.start(); }
+                            if action(ui, "Deploy without saving", false) { front.start(); }
                             if action(ui, "Back to briefing", false) { front.screen = Screen::Briefing; }
                         }
                         Screen::ConfirmQuit => {
-                            heading(ui, "DISCONNECT", "Quit Genesis?", "Your current session will be lost. Saving sessions is not available yet.");
-                            if action(ui, "Quit game", true) { front.quit = true; }
+                            heading(ui, "DISCONNECT", "Quit Genesis?", "Save your expedition to continue after reopening Genesis.");
+                            if action(ui, "Save and quit", true) && front.save_expedition(session) { front.quit = true; }
+                            if action(ui, "Quit without saving", false) { front.quit = true; }
                             if action(ui, "Stay here", false) { front.escape(); }
+                        }
+                        Screen::ConfirmLoad => {
+                            heading(ui, "SAVED EXPEDITION", "Load the saved world?", "Unsaved changes to the open expedition will be lost. The saved world opens paused.");
+                            if action(ui, "Load saved expedition", true) { front.load_expedition(session, camera); }
+                            if action(ui, "Keep current expedition", false) { front.escape(); }
                         }
                         Screen::Playing | Screen::Arrival => {}
                     }
                     if !front.message.is_empty() {
                         ui.add_space(12.);
                         ui.label(RichText::new(&front.message).color(ERROR));
+                    }
+                    if !front.notice.is_empty() {
+                        ui.add_space(12.);
+                        ui.label(RichText::new(&front.notice).color(ACCENT));
                     }
                     ui.add_space(24.);
                     ui.separator();
@@ -100,7 +111,12 @@ pub fn show(
         });
     vec![rect]
 }
-fn home(front: &mut Frontend, ui: &mut egui::Ui) {
+fn home(
+    front: &mut Frontend,
+    ui: &mut egui::Ui,
+    session: &mut crate::session::Session,
+    camera: &mut genesis_renderer::camera::Camera,
+) {
     ui.add_space(24.);
     eyebrow(ui, "EXPEDITION COMMAND");
     ui.add_space(10.);
@@ -113,6 +129,9 @@ fn home(front: &mut Frontend, ui: &mut egui::Ui) {
     ui.add_space(24.);
     if front.has_session && action(ui, "Continue expedition", true) {
         front.screen = Screen::Playing;
+    }
+    if action(ui, "Load saved expedition", false) {
+        front.request_load(session, camera);
     }
     if action(ui, "Begin expedition", !front.has_session) {
         front.begin_expedition(Mode::Settlement);
@@ -139,10 +158,18 @@ fn home(front: &mut Frontend, ui: &mut egui::Ui) {
         front.begin_expedition(Mode::WorldBuilder);
     }
     if front.has_session {
-        muted(ui, "Continue is available while the app remains open.");
+        muted(
+            ui,
+            "Continue resumes the open world. Load restores your last save.",
+        );
     }
 }
-fn pause(front: &mut Frontend, ui: &mut egui::Ui) {
+fn pause(
+    front: &mut Frontend,
+    ui: &mut egui::Ui,
+    session: &mut crate::session::Session,
+    camera: &mut genesis_renderer::camera::Camera,
+) {
     heading(
         ui,
         "GENESIS",
@@ -151,6 +178,12 @@ fn pause(front: &mut Frontend, ui: &mut egui::Ui) {
     );
     if action(ui, "Resume world", true) {
         front.screen = Screen::Playing;
+    }
+    if action(ui, "Save expedition", false) {
+        front.save_expedition(session);
+    }
+    if action(ui, "Load saved expedition", false) {
+        front.request_load(session, camera);
     }
     if action(ui, "Settings", false) {
         front.enter_settings();
@@ -167,7 +200,7 @@ fn pause(front: &mut Frontend, ui: &mut egui::Ui) {
     }
     muted(
         ui,
-        "Returning to the main menu keeps this session available. Closing the app loses the world; saving is not available yet.",
+        "One save slot · each save replaces the last and keeps its previous version as a backup. Returning to the main menu keeps this world open.",
     );
 }
 fn settings(front: &mut Frontend, ui: &mut egui::Ui) {

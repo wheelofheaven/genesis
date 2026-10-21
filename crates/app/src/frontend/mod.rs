@@ -3,6 +3,7 @@ mod expedition;
 #[cfg(test)]
 mod interaction_tests;
 mod orbit;
+mod saves;
 mod screens;
 mod settings;
 use crate::{session::Session, terrain};
@@ -28,31 +29,9 @@ pub enum Screen {
     Loading,
     ConfirmNew,
     ConfirmQuit,
+    ConfirmLoad,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Mode {
-    #[default]
-    Settlement,
-    WorldBuilder,
-}
-impl Mode {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Settlement => "Settlement",
-            Self::WorldBuilder => "World Builder",
-        }
-    }
-    pub fn description(self) -> &'static str {
-        match self {
-            Self::Settlement => {
-                "Begin with a small village. Place dwellings, shape the land and investigate the water and minerals that sustain a settlement."
-            }
-            Self::WorldBuilder => {
-                "Begin with uninhabited terrain. Explore the land and seafloor, shape a region, and choose where its first settlement will grow."
-            }
-        }
-    }
-}
+pub use genesis_sim_core::catalog::ExpeditionMode as Mode;
 
 pub struct Frontend {
     pub screen: Screen,
@@ -65,9 +44,12 @@ pub struct Frontend {
     pub settings: Settings,
     pub draft: Settings,
     pub message: String,
+    notice: String,
     pub quit: bool,
     return_to: Screen,
     quit_return: Screen,
+    load_return: Screen,
+    save_path: Result<std::path::PathBuf, String>,
     pub(crate) loading: Option<Receiver<SimState>>,
 }
 impl Default for Frontend {
@@ -84,9 +66,12 @@ impl Default for Frontend {
             draft: settings.clone(),
             settings,
             message: String::new(),
+            notice: String::new(),
             quit: false,
             return_to: Screen::Home,
             quit_return: Screen::Home,
+            load_return: Screen::Home,
+            save_path: crate::persistence::path().map_err(|e| e.to_string()),
             loading: None,
         }
     }
@@ -99,6 +84,7 @@ impl Frontend {
         self.mode = mode;
         self.screen = Screen::Destination;
         self.message.clear();
+        self.notice.clear();
     }
     pub fn surface_backdrop(&self) -> bool {
         match self.screen {
@@ -107,8 +93,10 @@ impl Frontend {
             Screen::ConfirmQuit => match self.quit_return {
                 Screen::Pause | Screen::Playing | Screen::Arrival => true,
                 Screen::Settings | Screen::Controls => self.return_to == Screen::Pause,
+                Screen::ConfirmLoad => self.load_return == Screen::Pause,
                 _ => false,
             },
+            Screen::ConfirmLoad => self.load_return == Screen::Pause,
             _ => false,
         }
     }
@@ -116,12 +104,15 @@ impl Frontend {
         self.return_to = self.screen;
         self.draft = self.settings.clone();
         self.message.clear();
+        self.notice.clear();
         self.screen = Screen::Settings;
     }
     pub fn request_quit(&mut self) {
         if self.screen == Screen::ConfirmQuit {
             return;
         }
+        self.message.clear();
+        self.notice.clear();
         if self.has_session {
             self.quit_return = self.screen;
             self.screen = Screen::ConfirmQuit;
@@ -135,6 +126,7 @@ impl Frontend {
             Screen::Pause => Screen::Playing,
             Screen::Settings | Screen::Controls => self.return_to,
             Screen::ConfirmQuit => self.quit_return,
+            Screen::ConfirmLoad => self.load_return,
             Screen::Destination => Screen::Home,
             Screen::Setup => Screen::Destination,
             Screen::Briefing => Screen::Setup,
@@ -147,8 +139,10 @@ impl Frontend {
             Screen::Home => Screen::Home,
         };
         self.message.clear();
+        self.notice.clear();
     }
     pub fn start(&mut self) {
+        self.notice.clear();
         let Ok(seed) = self.seed.parse::<u64>() else {
             self.message = "Enter a whole-number seed from 0 to 18446744073709551615.".into();
             return;

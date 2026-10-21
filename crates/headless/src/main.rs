@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{error::Error, path::PathBuf};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement|water|supplies|cultivation] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture, settlement, water, supplies and cultivation are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
+const USAGE: &str = "genesis-headless [--scenario coast|highlands|island|fixture|settlement|water|supplies|cultivation|irrigation] [--seed N] [--ticks N] [--commands FILE]\nDefaults: coast, seed 7319, 100 ticks. Fixture, settlement, water, supplies, cultivation and irrigation are authored (seed 42); --seed is not accepted for them.\nCommand file: {\"version\":1,\"commands\":[{\"tick\":1,\"action\":{\"Terraform\":{\"x\":15,\"y\":12,\"radius\":2,\"strength\":0.4}}}]}\nTicks are 1-based; equal-tick commands execute in file order. Output is a JSON metrics record, not a save.";
 
 struct Options {
     scenario: String,
@@ -60,14 +60,15 @@ impl Options {
                 | "water"
                 | "supplies"
                 | "cultivation"
+                | "irrigation"
         ) {
             return Err(
-                "--scenario must be coast, highlands, island, fixture, settlement, water, supplies, or cultivation".into(),
+                "--scenario must be coast, highlands, island, fixture, settlement, water, supplies, cultivation, or irrigation".into(),
             );
         }
         if matches!(
             options.scenario.as_str(),
-            "fixture" | "settlement" | "water" | "supplies" | "cultivation"
+            "fixture" | "settlement" | "water" | "supplies" | "cultivation" | "irrigation"
         ) && seen.contains("--seed")
         {
             return Err(
@@ -126,8 +127,13 @@ fn run(options: Options) -> Result<()> {
         None => playback::Playback::empty(),
     };
     playback.ensure_after(start_tick)?;
-    let (mut sim, world_id, mut pending) = match loaded {
-        Some(saved) => (saved.simulation, saved.world_id, saved.pending),
+    let (mut sim, world_id, mut pending, expedition_mode) = match loaded {
+        Some(saved) => (
+            saved.simulation,
+            saved.world_id,
+            saved.pending,
+            saved.expedition_mode,
+        ),
         None => {
             let state = match options.scenario.as_str() {
                 "fixture" => scenarios::coastal_outpost(),
@@ -135,6 +141,7 @@ fn run(options: Options) -> Result<()> {
                 "water" => scenarios::water_settlement(),
                 "supplies" => scenarios::supplied_settlement(),
                 "cultivation" => scenarios::cultivated_settlement(),
+                "irrigation" => scenarios::dry_cultivated_settlement(),
                 "highlands" => {
                     worldgen::generate_region(options.seed, worldgen::Region::LevantHighlands)
                 }
@@ -145,6 +152,7 @@ fn run(options: Options) -> Result<()> {
                 Simulation::new(state),
                 genesis_storage::new_world_id(),
                 Vec::new(),
+                None,
             )
         }
     };
@@ -159,6 +167,8 @@ fn run(options: Options) -> Result<()> {
             if matches!(
                 event,
                 SimEvent::CropPlantRejected { .. }
+                    | SimEvent::CropIrrigationRejected { .. }
+                    | SimEvent::CropTendingRejected { .. }
                     | SimEvent::FoodTaskCancelRejected { .. }
                     | SimEvent::WaterTaskCancelRejected { .. }
                     | SimEvent::TerraformRejected { .. }
@@ -171,7 +181,8 @@ fn run(options: Options) -> Result<()> {
         }
     }
     if let Some(path) = &options.save {
-        let snapshot = genesis_sim_core::save::Snapshot::capture(&sim, &world_id, &pending)?;
+        let mut snapshot = genesis_sim_core::save::Snapshot::capture(&sim, &world_id, &pending)?;
+        snapshot.expedition_mode = expedition_mode;
         genesis_storage::store(path, &snapshot)?;
     }
     let metrics = Metrics {

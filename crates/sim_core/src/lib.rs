@@ -86,6 +86,41 @@ impl SimState {
         // 1. Apply player actions.
         for action in actions {
             match action {
+                Action::SetCropTending { source, enabled } => {
+                    let time = self.time + f64::from(dt);
+                    events.push(
+                        if food::cultivation::irrigation::set_tending(self, *source, *enabled) {
+                            SimEvent::CropTendingChanged {
+                                source: *source,
+                                enabled: *enabled,
+                                time,
+                            }
+                        } else {
+                            SimEvent::CropTendingRejected {
+                                source: *source,
+                                time,
+                            }
+                        },
+                    );
+                }
+                Action::IrrigateCrop { source, well } => {
+                    use food::cultivation::irrigation;
+                    let time = self.time + f64::from(dt);
+                    events.push(match irrigation::apply(self, *source, *well) {
+                        Ok(()) => SimEvent::CropIrrigated {
+                            source: *source,
+                            well: *well,
+                            amount: irrigation::DOSE as f64 / irrigation::UNITS as f64,
+                            time,
+                        },
+                        Err(reason) => SimEvent::CropIrrigationRejected {
+                            source: *source,
+                            well: *well,
+                            reason,
+                            time,
+                        },
+                    });
+                }
                 Action::PlantCrop { position } => {
                     let time = self.time + f64::from(dt);
                     events.push(match food::cultivation::plant(self, *position) {
@@ -152,6 +187,19 @@ impl SimState {
                     },
                     Err(reason) => events.push(SimEvent::WellRejected { reason }),
                 },
+                Action::SetWellPumpMode { id, mode } => {
+                    if let Some(well) = self.subsurface.wells.iter_mut().find(|w| w.id == *id) {
+                        well.pump_mode = *mode;
+                        events.push(SimEvent::WellPumpModeChanged {
+                            id: *id,
+                            mode: *mode,
+                        });
+                    } else {
+                        events.push(SimEvent::WellRejected {
+                            reason: subsurface::WellError::UnknownWell,
+                        });
+                    }
+                }
                 Action::SetWellActive { id, active } => {
                     if let Some(well) = self.subsurface.wells.iter_mut().find(|w| w.id == *id) {
                         well.active = *active;

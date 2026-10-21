@@ -71,8 +71,7 @@ impl Input {
         match code {
             KeyCode::F5 => crate::persistence::quicksave(session),
             KeyCode::F9 => {
-                if crate::persistence::quickload(session) {
-                    crate::terrain::home_camera(&session.sim, camera);
+                if crate::persistence::quickload(session, camera) {
                     self.clear();
                 }
             }

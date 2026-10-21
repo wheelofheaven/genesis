@@ -104,8 +104,9 @@ impl Session {
     }
 
     pub fn save_to(&self, path: &std::path::Path) -> genesis_storage::Result<()> {
-        let snapshot =
+        let mut snapshot =
             genesis_sim_core::save::Snapshot::capture(&self.sim, &self.world_id, &self.pending)?;
+        snapshot.expedition_mode = Some(self.mode);
         genesis_storage::store(path, &snapshot)
     }
 
@@ -114,7 +115,7 @@ impl Session {
         let mut next = Self::from_runtime(restored.simulation);
         next.world_id = restored.world_id;
         next.pending = restored.pending;
-        next.mode = self.mode;
+        next.mode = restored.expedition_mode.unwrap_or(self.mode);
         next.clock.paused = true;
         next.message = "World loaded · paused".into();
         self.replace(next);
@@ -178,6 +179,27 @@ impl Session {
         self.pending.clear();
         for event in events {
             match &event {
+                SimEvent::CropTendingChanged { enabled, .. } => {
+                    self.message = if *enabled {
+                        "Resident tending enabled"
+                    } else {
+                        "Tending stopped; carried doses still deliver"
+                    }
+                    .into();
+                    self.message_is_error = false;
+                }
+                SimEvent::CropTendingRejected { .. } => {
+                    self.message = "Select a barley plot for tending".into();
+                    self.message_is_error = true;
+                }
+                SimEvent::CropIrrigated { amount, well, .. } => {
+                    self.message = format!("Applied {amount:.0} water units from well {well}");
+                    self.message_is_error = false;
+                }
+                SimEvent::CropIrrigationRejected { reason, .. } => {
+                    self.message = reason.to_string();
+                    self.message_is_error = true;
+                }
                 SimEvent::CropPlanted { source, .. } => {
                     self.select_object(
                         Some(crate::interaction::Object::FoodSource(*source)),
@@ -230,10 +252,14 @@ impl Session {
                     self.message = reason.to_string();
                     self.message_is_error = true;
                 }
+                SimEvent::WellPumpModeChanged { id, mode } => {
+                    self.message = format!("Borehole {id} · {}", mode.label());
+                    self.message_is_error = false;
+                }
                 SimEvent::WellOperationChanged { id, active } => {
                     self.message = format!(
                         "Borehole {id} {}",
-                        if *active { "pumping" } else { "stopped" }
+                        if *active { "enabled" } else { "stopped" }
                     );
                     self.message_is_error = false;
                 }
@@ -672,6 +698,38 @@ mod terrain_changes;
 #[cfg(test)]
 mod resident_tests {
     use super::*;
+    #[test]
+    fn irrigation_and_loss_are_independent_of_frame_partition() {
+        use genesis_sim_core::{food::SourceId, food::cultivation::irrigation, scenarios};
+        let mut initial = scenarios::dry_cultivated_settlement();
+        for _ in 0..200 {
+            initial.step(0.1, &[]);
+        }
+        let mut a = Session::from_sim(initial.clone());
+        let mut b = Session::from_sim(initial);
+        for session in [&mut a, &mut b] {
+            session.queue(Action::IrrigateCrop {
+                source: SourceId(1),
+                well: 1,
+            });
+            session.queue(Action::IrrigateCrop {
+                source: SourceId(1),
+                well: 1,
+            });
+        }
+        for _ in 0..8000 {
+            a.advance(Duration::from_millis(10));
+        }
+        for _ in 0..800 {
+            b.advance(Duration::from_millis(100));
+        }
+        assert_eq!(
+            serde_json::to_vec(&*a.sim).unwrap(),
+            serde_json::to_vec(&*b.sim).unwrap()
+        );
+        assert_eq!(irrigation::total_applied(&a.sim), 4.);
+        assert_eq!(a.sim.food.sources()[0].produced(), 24);
+    }
     #[test]
     fn render_pacing_and_inspection_do_not_change_residents() {
         let initial = genesis_sim_core::scenarios::supplied_settlement();

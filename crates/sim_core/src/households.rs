@@ -101,7 +101,8 @@ impl Households {
                 .all()
                 .iter()
                 .map(|p| p.carried_water)
-                .sum::<f64>();
+                .sum::<f64>()
+            + crate::food::cultivation::irrigation::total_applied(sim);
         (collected - accounted).abs() <= 1e-8 * (1. + collected)
             && self.initialized
             && self.elapsed_ms < USE_INTERVAL_MS

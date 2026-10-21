@@ -2,7 +2,7 @@
 
 Accepted 12 October 2026, after the fixed-tick runtime checkpoint.
 
-Historical V1 contract: new saves now use [V6 crop, food and water saves](cultivation.md),
+Historical V1 contract: new saves now use [V10 saves with well pump policies](buffer-pumping.md),
 building on [V2 durable identities](durable-identity.md).
 V1 files remain supported through staged migration; the original format below
 records the assumptions that migration validates.
@@ -80,9 +80,12 @@ It does not claim cross-process writer coordination, browser storage, Windows re
 In a playing app session, F5 saves and F9 loads `~/Library/Application Support/Genesis/world.json` on macOS.
 Other native hosts use `$XDG_DATA_HOME/Genesis/world.json` or `~/.local/share/Genesis/world.json`, but are unverified.
 Keyboard help lists the controls; function-key mode on macOS may require Fn.
-Successful quickload resets camera/selection, retains the current client mode, pauses, and rebuilds presentation from domain state.
+Successful quickload resets camera/selection, restores the saved expedition mode, pauses, and rebuilds presentation from domain state.
+V1–V7 saves have no role metadata and retain the current mode (Settlement on a fresh launch).
 Camera, menus, survey toggles, current construction previews, event notifications and wall-clock pacing debt are not world state and are not saved.
-The current main-menu Continue action still resumes the in-memory session; saved-world menu integration is separate UI work.
+The main-menu Continue action resumes the in-memory session.
+Title/pause menus now offer Load saved expedition; pause offers Save expedition, with save-and-quit and save-and-deploy paths.
+See [menu behavior and compatibility](menu-saves.md).
 
 For native verification, `genesis-app --save-test /tmp/genesis-save.png` uses a sibling `/tmp/genesis-save.world.json` rather than the user's slot.
 It saves pending drilling, advances, loads, compares the restored boundary, advances again and compares exact continuation before rendering the loaded world.

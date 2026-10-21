@@ -723,3 +723,40 @@ fn crop_growth_harvest_and_pending_planting_continue_exactly_and_corruption_fail
         assert!(decode(&serde_json::to_vec(&bad).unwrap()).is_err());
     }
 }
+
+#[test]
+fn v7_irrigation_survives_role_migration_and_v8_roles_round_trip() {
+    use genesis_sim_core::catalog::ExpeditionMode;
+    let bytes = include_bytes!("../fixtures/v7-irrigation.json");
+    let old: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let restored = decode(bytes).unwrap();
+    let expected: genesis_sim_core::SimState =
+        serde_json::from_value(old["state"].clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&*restored.simulation).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    assert_eq!(restored.expedition_mode, None);
+    assert_eq!(restored.simulation.completed_ticks(), 500);
+    for mode in [
+        None,
+        Some(ExpeditionMode::Settlement),
+        Some(ExpeditionMode::WorldBuilder),
+    ] {
+        let mut snapshot =
+            Snapshot::capture(&restored.simulation, &restored.world_id, &restored.pending).unwrap();
+        snapshot.expedition_mode = mode;
+        let loaded = decode(&encode(&snapshot).unwrap()).unwrap();
+        assert_eq!(loaded.expedition_mode, mode);
+        assert_eq!(
+            serde_json::to_vec(&*loaded.simulation).unwrap(),
+            serde_json::to_vec(&*restored.simulation).unwrap()
+        );
+    }
+    let mut bad = old;
+    bad["expedition_mode"] = "WorldBuilder".into();
+    assert!(decode(&serde_json::to_vec(&bad).unwrap()).is_err());
+    bad["schema"] = genesis_sim_core::save::SCHEMA.into();
+    bad["expedition_mode"] = "unknown-role".into();
+    assert!(decode(&serde_json::to_vec(&bad).unwrap()).is_err());
+}

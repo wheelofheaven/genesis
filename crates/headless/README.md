@@ -9,8 +9,8 @@ mise exec -- cargo run -p genesis-headless -- --scenario fixture --ticks 100 --c
 mise exec -- cargo tree -p genesis-headless --edges normal
 ```
 
-`--scenario` accepts `coast` (default), `highlands`, `island`, `fixture`, `settlement`, `water`, `supplies`, or `cultivation`.
-Generated scenarios default to seed 7319; the authored coastal, settlement, water, supplies and cultivation fixtures use seed 42 and reject `--seed`.
+`--scenario` accepts `coast` (default), `highlands`, `island`, `fixture`, `settlement`, `water`, `supplies`, `cultivation`, or `irrigation`.
+Generated scenarios default to seed 7319; the authored coastal, settlement, water, supplies, cultivation and irrigation fixtures use seed 42 and reject `--seed`.
 `--ticks` defaults to 100; zero inspects initial state without advancing.
 Each gameplay tick runs the same 0.1-second rules step as the interactive application.
 The integer `completed_ticks` is the logical boundary; `simulation_time` retains the old floating accumulator and its rounding for behavior compatibility.
@@ -36,7 +36,7 @@ Existing domain validation limitations also apply here; this slice doesn't redes
 
 Stdout is one JSON metrics record; diagnostics/errors go to stderr.
 It reports seed, generator version, completed ticks, command/event counts, object counts, water storage/recovery, and existing prototype scores.
-`rejected_commands` counts explicit terrain/building/path/well crop-planting and water/food-task cancellation rejection events; legacy life-seeding/outpost actions do not all return rejection events.
+`rejected_commands` counts explicit terrain/building/path/well, crop-planting, irrigation and water/food-task cancellation rejection events; legacy life-seeding/outpost actions do not all return rejection events.
 Terrain event counts include changed, unchanged and rejected requests.
 Metrics are summaries, not a canonical state fingerprint or a world save.
 The `people` array reports resident identities and routine state. Generated settlements and
@@ -47,7 +47,18 @@ The `supplies` fixture adds finite wild food. `--scenario supplies --ticks 3600`
 reports both resource loops; `food` includes sources, household portions and use.
 The `cultivation` fixture supplies one barley plot and a well. Run
 `--scenario cultivation --ticks 6000` for repeated growth, harvest and household use.
-`food.sources[].kind.Barley` records growth and cumulative production.
+`food.sources[].kind.Barley` records growth, cumulative production and irrigation storage.
+The dry `irrigation` fixture uses rainfall 0.01. Add
+`--commands crates/sim_core/fixtures/irrigation.commands.json --ticks 2200` to apply
+two doses from the well at tick 201 and produce a harvest; without commands it stays dry.
+Alternatively, use `--commands crates/sim_core/fixtures/tending.commands.json` to
+let residents collect and deliver the water. The `irrigation_task` and `carried_water`
+fields expose each trip. The fixture has finite aquifer storage and well overflow;
+tending does not guarantee a continuing water supply.
+`--commands crates/sim_core/fixtures/conserving.commands.json --ticks 6000` enables
+both tending and buffer-controlled pumping, keeping surplus water in the aquifer.
+Compare it with `tending.commands.json` at the same tick count to see the effect of
+continuous overflow. Pump policy is stored in `state.subsurface.wells[].pump_mode`.
 There is no wall-clock/FPS performance claim.
 
 The checked-in [coastal command fixture](../sim_core/fixtures/coastal.commands.json) terraforms at tick 1, submits two overlapping dwellings at tick 2 (one accepted), drills at tick 3 and stops pumping at tick 50.
@@ -71,4 +82,7 @@ Saved pending commands execute at the next tick, before any newly supplied comma
 `--save` writes the final boundary and preserves an existing valid destination in a `.bak` sibling.
 Use `--load /path/world.json.bak` to recover a previous save; save it to a new filename if the primary is corrupt.
 Directories must already exist for CLI output.
-The [v6 format with v1–v5 migration](../../docs/architecture/cultivation.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.
+The [v10 format with v1–v9 migration](../../docs/architecture/buffer-pumping.md) stores materialized domain state, world identity, content/rule metadata and timeline; metrics stdout remains a summary rather than the save payload.
+
+Application saves include their expedition role. The runner preserves this metadata
+when resaving a loaded world; authored and generated headless scenarios leave it unspecified.

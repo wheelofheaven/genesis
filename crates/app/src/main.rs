@@ -18,6 +18,7 @@ mod menu_smoke;
 mod path_tool;
 mod people_smoke;
 mod persistence;
+mod pump_smoke;
 #[cfg(test)]
 mod render_tests;
 mod residents;
@@ -177,6 +178,12 @@ impl App {
             {
                 return Err("survey intervention did not draw down groundwater".into());
             }
+            pump_smoke::check(
+                &mut self.session,
+                self.capture
+                    .as_deref()
+                    .ok_or("survey test needs capture path")?,
+            )?;
             let size = view.window.inner_size();
             let p = terrain::surface_point(&self.session.sim, site);
             let ndc = self
@@ -781,6 +788,10 @@ fn main() -> Result<()> {
     }
     if app.capture.is_some() {
         app.front.settings = frontend::Settings::default();
+    }
+    if let Some(path) = &app.capture {
+        app.front
+            .set_save_path(path.with_extension("menu.world.json"));
     }
     app.front.region = region;
     app.front.seed = seed.to_string();

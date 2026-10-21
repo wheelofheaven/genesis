@@ -21,7 +21,9 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
                     source.kind,
                     genesis_sim_core::food::cultivation::Kind::Barley(_)
                 ) {
-                    super::cultivation::source(ui, &session.sim, source);
+                    if let Some(action) = super::cultivation::source(ui, &session.sim, source) {
+                        session.queue(action);
+                    }
                 } else {
                     muted(
                         ui,
@@ -57,6 +59,21 @@ pub fn selection(ui: &mut egui::Ui, session: &mut Session) {
                             "reserved"
                         }
                     ));
+                }
+                if let Some(task) = &p.irrigation_task {
+                    ui.label(format!(
+                        "Well {} → plot {} · 2 u {}",
+                        task.well,
+                        task.source.0,
+                        if p.carried_water > 0. {
+                            "carried"
+                        } else {
+                            "reserved"
+                        }
+                    ));
+                }
+                if let Some(issue) = p.irrigation_issue {
+                    ui.colored_label(ERROR, format!("Last tending issue: {}", issue.label()));
                 }
                 if let Some(issue) = p.water_issue {
                     ui.colored_label(ERROR, format!("Last issue: {}", issue.label()));

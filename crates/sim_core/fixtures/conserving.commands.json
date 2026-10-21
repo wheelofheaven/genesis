@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "commands": [
+    { "tick": 1, "action": { "SetWellPumpMode": { "id": 1, "mode": "FillBuffer" } } },
+    { "tick": 1, "action": { "SetCropTending": { "source": 1, "enabled": true } } }
+  ]
+}

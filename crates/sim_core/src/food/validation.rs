@@ -21,6 +21,7 @@ impl Food {
                         cultivation::Kind::Wild => s.remaining <= s.initial,
                         cultivation::Kind::Barley(c) => {
                             s.initial == 0
+                                && c.soil_water.as_ref().is_some_and(|w| w.valid())
                                 && s.remaining <= cultivation::YIELD
                                 && c.produced <= 1_000_000_000_000
                                 && c.produced >= u64::from(s.remaining)

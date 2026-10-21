@@ -3,6 +3,19 @@ use serde::{Deserialize, Serialize};
 /// Player actions fed into the simulation each tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Action {
+    SetWellPumpMode {
+        id: u64,
+        mode: crate::subsurface::PumpMode,
+    },
+    SetCropTending {
+        source: crate::food::SourceId,
+        enabled: bool,
+    },
+    /// Apply a fixed dose of unreserved well water to a nearby crop.
+    IrrigateCrop {
+        source: crate::food::SourceId,
+        well: u64,
+    },
     PlantCrop {
         position: crate::spatial::Position,
     },

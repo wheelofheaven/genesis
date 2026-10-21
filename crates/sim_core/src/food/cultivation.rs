@@ -1,5 +1,6 @@
-//! One repeating gameplay crop cycle, using climate moisture as a condition, not water stock.
+//! Repeating crops use ambient climate moisture and explicit plot irrigation storage.
 //! Barley automatically resows after clearing the standing harvest in this initial model.
+pub mod irrigation;
 mod placement;
 use super::{Source, SourceId};
 use crate::{SimState, events::SimEvent, spatial, spatial::Position, units::metres};
@@ -20,12 +21,28 @@ pub enum Kind {
     Wild,
     Barley(Crop),
 }
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Crop {
+    /// Opt-in resident water hauling. Existing worlds default to manual tending.
+    #[serde(default)]
+    pub tending: bool,
     /// Accumulated logical milliseconds weighted by an integer 0..1000 growth rate.
     pub growth_units: u64,
     /// Cumulative portions created, including stock still standing in the plot.
     pub produced: u64,
+    /// None is a legacy sentinel; only V6 migration may initialize missing storage.
+    #[serde(default)]
+    pub soil_water: Option<irrigation::SoilWater>,
+}
+impl Default for Crop {
+    fn default() -> Self {
+        Self {
+            tending: false,
+            growth_units: 0,
+            produced: 0,
+            soil_water: Some(Default::default()),
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -49,17 +66,31 @@ pub fn moisture(sim: &SimState, p: Position) -> f32 {
     spatial::sample(&sim.grid, p, |c| c.moisture).clamp(0., 1.)
 }
 fn rate(sim: &SimState, p: Position) -> u64 {
-    (((moisture(sim, p) - 0.2) / 0.4).clamp(0., 1.) * 1000.).round() as u64
+    moisture_rate(moisture(sim, p))
+}
+fn moisture_rate(moisture: f32) -> u64 {
+    (((moisture - 0.2) / 0.4).clamp(0., 1.) * 1000.).round() as u64
 }
 pub fn status(sim: &SimState, source: &Source) -> Status {
     if placement::ground(sim, source.position).is_err() {
         Status::Blocked
     } else if source.remaining > 0 {
         Status::Harvestable
-    } else if rate(sim, source.position) == 0 {
+    } else if moisture_rate(effective_moisture(sim, source)) == 0 {
         Status::Dry
     } else {
         Status::Growing
+    }
+}
+/// Irrigation supplies full-rate growth while stored water remains; ambient moisture
+/// remains a climate condition and neither creates nor refills this separate stock.
+pub fn effective_moisture(sim: &SimState, source: &Source) -> f32 {
+    let ambient = moisture(sim, source.position);
+    if matches!(&source.kind, Kind::Barley(c) if c.soil_water.as_ref().is_some_and(|w| w.stored > 0))
+    {
+        ambient.max(0.6)
+    } else {
+        ambient
     }
 }
 /// Same harvestability query for task admission and pickup after terrain changes.
@@ -89,22 +120,24 @@ pub(crate) fn advance(sim: &mut SimState, dt: f32, events: &mut Vec<SimEvent>) {
     let ms = (f64::from(dt) * 1000.).round() as u64;
     for i in 0..sim.food.sources.len() {
         let source = &sim.food.sources[i];
-        if !matches!(source.kind, Kind::Barley(_)) || source.remaining > 0 {
+        if !matches!(source.kind, Kind::Barley(_)) {
             continue;
         }
-        let rate = if status(sim, source) == Status::Growing {
-            rate(sim, source.position)
-        } else {
-            0
-        };
+        let can_grow = source.remaining == 0 && placement::ground(sim, source.position).is_ok();
+        let ambient_rate = rate(sim, source.position);
         let source = &mut sim.food.sources[i];
         let Kind::Barley(crop) = &mut source.kind else {
             continue;
         };
-        crop.growth_units = crop
-            .growth_units
-            .saturating_add(ms.saturating_mul(rate))
-            .min(GROWTH_UNITS);
+        // Water drains even while a mature harvest stands or ground becomes unsafe.
+        let wet_ms = crop.soil_water.as_mut().map_or(0, |w| w.advance(ms));
+        if !can_grow {
+            continue;
+        }
+        let growth = wet_ms
+            .saturating_mul(1000)
+            .saturating_add((ms - wet_ms).saturating_mul(ambient_rate));
+        crop.growth_units = crop.growth_units.saturating_add(growth).min(GROWTH_UNITS);
         if crop.growth_units == GROWTH_UNITS {
             crop.growth_units = 0;
             crop.produced += u64::from(YIELD);

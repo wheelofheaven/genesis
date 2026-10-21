@@ -34,7 +34,7 @@ impl WaterIssue {
         }
     }
 }
-fn working(sim: &SimState, id: u64) -> bool {
+pub(super) fn working(sim: &SimState, id: u64) -> bool {
     sim.subsurface
         .wells
         .iter()
@@ -52,7 +52,15 @@ impl People {
             .filter_map(|p| p.water_task.as_ref())
             .filter(|t| t.well == well)
             .map(|t| t.amount)
-            .sum()
+            .sum::<f64>()
+            + self
+                .entries
+                .iter()
+                .filter(|p| p.activity == Activity::FetchingIrrigationWater)
+                .filter_map(|p| p.irrigation_task.as_ref())
+                .filter(|t| t.well == well)
+                .count() as f64
+                * households::CONTAINER
     }
     pub fn home_collector(&self, home: u64) -> Option<PersonId> {
         self.entries
@@ -175,7 +183,7 @@ impl People {
                         _ => false,
                     }
             } else {
-                p.carried_water == 0.
+                (p.carried_water == 0. || p.irrigation_task.is_some())
                     && !matches!(
                         p.activity,
                         Activity::FetchingWater | Activity::CarryingWater

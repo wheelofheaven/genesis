@@ -2,6 +2,42 @@ use super::{SaveError, Snapshot};
 use crate::identity::Allocator;
 
 pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
+    if save.schema < 10
+        && (save
+            .state
+            .subsurface
+            .wells
+            .iter()
+            .any(|w| w.pump_mode != crate::subsurface::PumpMode::Continuous)
+            || save
+                .pending
+                .iter()
+                .any(|a| matches!(a, crate::actions::Action::SetWellPumpMode { .. })))
+    {
+        return Err(SaveError("unexpected pump policy in legacy save".into()));
+    }
+    if save.schema < 9
+        && (!save.state.people.legacy_irrigation()
+            || save
+                .state
+                .food
+                .sources()
+                .iter()
+                .any(|s| matches!(&s.kind, crate::food::cultivation::Kind::Barley(c) if c.tending))
+            || save
+                .pending
+                .iter()
+                .any(|a| matches!(a, crate::actions::Action::SetCropTending { .. })))
+    {
+        return Err(SaveError(
+            "unexpected resident irrigation in legacy save".into(),
+        ));
+    }
+    if save.schema < 8 && save.expedition_mode.is_some() {
+        return Err(SaveError(
+            "unexpected expedition role in legacy save".into(),
+        ));
+    }
     if matches!(save.schema, 1 | 2) {
         if save.rules != "genesis:rules/1"
             || (save.state.people != crate::people::People::default()
@@ -72,6 +108,53 @@ pub(super) fn upgrade(save: &mut Snapshot) -> Result<(), SaveError> {
         }
         for s in &mut save.state.food.sources {
             s.kind = crate::food::cultivation::Kind::Wild;
+        }
+        save.schema = 6;
+        save.rules = "genesis:rules/5".into();
+    }
+    if save.schema == 6 {
+        use crate::food::cultivation::Kind;
+        if save.rules != "genesis:rules/5"
+            || save
+                .state
+                .food
+                .sources()
+                .iter()
+                .any(|s| matches!(&s.kind, Kind::Barley(c) if c.soil_water.is_some()))
+            || save
+                .pending
+                .iter()
+                .any(|a| matches!(a, crate::actions::Action::IrrigateCrop { .. }))
+        {
+            return Err(SaveError(
+                "invalid V6 rules or unexpected irrigation".into(),
+            ));
+        }
+        for source in &mut save.state.food.sources {
+            if let Kind::Barley(crop) = &mut source.kind {
+                crop.soil_water = Some(Default::default());
+            }
+        }
+        save.schema = 7;
+        save.rules = "genesis:rules/6".into();
+    }
+    if save.schema == 7 {
+        if save.rules != "genesis:rules/6" {
+            return Err(SaveError("invalid V7 rules".into()));
+        }
+        // Old files did not record a role. Do not infer it from population.
+        save.schema = 8;
+    }
+    if save.schema == 8 {
+        if save.rules != "genesis:rules/6" {
+            return Err(SaveError("invalid V8 rules".into()));
+        }
+        save.schema = 9;
+        save.rules = "genesis:rules/7".into();
+    }
+    if save.schema == 9 {
+        if save.rules != "genesis:rules/7" {
+            return Err(SaveError("invalid V9 rules".into()));
         }
         save.schema = super::SCHEMA;
         save.rules = super::RULES.into();

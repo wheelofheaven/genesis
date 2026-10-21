@@ -83,4 +83,5 @@ Its capture and save sibling use the supplied temporary path, separate from the 
 The workload remains six residents, with no population/FPS performance claim.
 Supply timing and routes still cause missed portions; crop production does not guarantee continuous household sufficiency.
 No ECS, general job scheduler, new worker, dependency upgrade or renderer replacement is introduced.
-Next useful work is an explicit irrigation intervention, after defining which water stock owns the applied water and how soil storage and losses are accounted.
+The [21 October irrigation slice](irrigation.md) adds an explicit well-to-plot intervention, separate water storage and loss accounting, and schema 7.
+The rules above describe the original ambient-moisture baseline; irrigation supplies full growth while its finite plot water lasts.

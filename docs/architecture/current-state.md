@@ -567,3 +567,104 @@ tests; final CI passes 222, with 14 optional checks ignored. Build, Clippy and
 native crop/food/interaction/world/save checks pass on Apple M4/Metal. Exact
 CPU-only growth/save continuation matches the uninterrupted six-home workload.
 See [cultivation contracts](cultivation.md) and [checkpoint evidence](refactor-log.md).
+
+## Irrigation audit — 21 October 2026
+
+Starting from clean `5ef1af4`, continue the cultivation checkpoint with an explicit
+well-to-plot intervention. Climate moisture remains a condition; plot irrigation
+owns a distinct finite water store. Existing household reservations are protected,
+and cumulative well collection accounts for household water and crop applications.
+The inspector queues fixed two-unit applications from a working well within 30 m;
+storage holds four units and loses 0.05 units per logical second. Flooded ground
+cannot grow, and mature or blocked plots still lose their stored irrigation water.
+No resident watering job, pipes, automatic allocation or physical soil solver.
+
+Schema 7 / rules 6 migrate V1–V6 saves without changing crop growth, food stocks,
+residents or existing water commitments. V6 crops receive empty irrigation stores.
+A pre-change V6 fixture protects that migration. Baseline CI passed 222 tests;
+updated CI passes 230 with 14 optional checks ignored, including conservation,
+reservation safety, dry/watered outcomes, deterministic source selection, frame
+partitions, malformed saves, exact continuation and queued UI behavior.
+Formatting, Clippy with warnings denied and workspace build pass.
+The 2200-tick dry fixture produces 24 portions with four applied water units,
+versus zero without intervention; all six homes consume some of that harvest.
+Saving at tick 500 and continuing matches uninterrupted state.
+The native crop/water smoke passes on Apple M4/Metal, including exact saved active
+and pending irrigation continuation; its final inspector capture was visually reviewed.
+See [irrigation ownership and limits](irrigation.md) and [checkpoint evidence](refactor-log.md).
+
+## Menu-save audit — 21 October 2026
+
+Continued the verified irrigation working tree. Saves already existed through
+F5/F9, but menus claimed saving was unavailable and offered only in-memory Continue.
+Added title/pause loading, pause saving, load replacement confirmation, Save and
+quit, and Save and deploy. Errors preserve the live expedition and never complete
+the destructive follow-up. The existing atomic writer and staged loader are shared
+with keyboard shortcuts; no storage worker or autosave is introduced.
+
+Schema 8 records optional expedition mode, with V1–V7 migration. Application saves
+restore their actual role; the CPU runner preserves it across resaves. Legacy files
+retain the current role rather than guessing from population. Rules remain version
+6. The pre-change V7 irrigation fixture verifies unchanged domain state.
+Successful loads pause and focus existing buildings; unbuilt worlds use the region
+overview. Current camera, menu and preview state remain transient.
+
+The 235-test workspace suite passes with 14 optional checks ignored; formatting,
+Clippy and build pass. The final camera adjustment passes all 11 frontend tests,
+including real widget input and compact menu layouts. Native menu saving/loading
+passes on Apple M4/Metal using an isolated temporary slot.
+See [menu saves and compatibility](menu-saves.md).
+
+
+## Resident-tending audit — 21 October 2026
+
+Continued the verified irrigation/menu-save working tree with optional resident
+water hauling. A plot's tending checkbox queues explicit intent. At home departure,
+residents first try their own food/water jobs, then eligible dry growing plots.
+One worker per plot reserves a two-unit well dose and plot capacity; manual
+applications and household collectors honor those claims. Collection transfers
+water to visible resident cargo, delivery transfers it to plot storage. Disabling
+tending releases uncollected doses; carried water remains committed and survives
+blocked routes until delivery becomes possible.
+
+Schema 9 / rules 7 migrates V1–V8 with tending off and no new resident commitments.
+The pre-change V8 fixture preserves active irrigation and existing household jobs.
+All 244 tests pass, 14 optional checks ignored; formatting, Clippy and workspace
+build pass. Tests cover conservation, repeat harvests with a larger finite aquifer,
+household admission priority, stable/unique claims, manual competition, stopping,
+blocked cargo recovery, humid plots, invalid saves, exact save continuation and
+real egui checkbox input. A UI test caught the manual application button leaving
+the visible panel; help now uses a tooltip and both controls remain accessible.
+
+The dry six-home fixture produces 24 portions from four resident-carried water
+units by tick 2200. A tick-500 save plus 1700 ticks exactly matches uninterrupted
+state. Native crop checks pass on Apple M4/Metal; the enabled inspector and manual
+control were visually reviewed. This adds a specific hauling job, not a general
+scheduler, infinite water supply or guarantee of settlement sufficiency.
+See [resident tending contracts](resident-tending.md).
+
+
+## Buffer-pumping audit — 21 October 2026
+
+Continued the verified tending working tree with an optional **Fill buffer only**
+well policy. Automatic waiting leaves the well enabled and resident claims intact;
+collection opens space for pumping to resume. Manual stop and submersion still
+block extraction. Continuous remains the default for new and migrated wells.
+The survey and Water overview explain policy, full-buffer waiting and released
+water. Source-column losses are booked conservatively against receiving capacity.
+
+Schema 10 / rules 8 migrates V1–V9 without changing existing stocks, tending, cargo
+or routes. A pre-change V9 tending fixture protects compatibility. Seven simulation
+tests cover capacity, refill, conservation, depleted/fractional/edge columns,
+large steps, shared-source ordering, household delivery and crop outcomes. Two
+storage tests and a real paused-widget test cover migration, pending policy changes
+and independent manual stop. All 254 tests pass, 14 optional checks ignored;
+formatting, Clippy and workspace build pass. Native survey checks pass on Apple
+M4/Metal, including exact pending-mode save continuation and a readable inspector.
+
+At tick 6000 the dry fixture produces 96 portions with buffer control versus 24
+with continuous pumping. Conserving mode releases zero water; continuous releases
+about 84.9 units. Saving at tick 500 and continuing matches uninterrupted state.
+A final review corrected near-depletion rounding and added a regression before
+repeating checks. No sustained-water-supply or performance guarantee is implied.
+See [buffer-controlled pumping](buffer-pumping.md).

@@ -139,3 +139,13 @@ pub fn cultivated_settlement() -> SimState {
     );
     sim
 }
+
+/// Dry counterpart for explicit irrigation playback; no automatic water applications.
+pub fn dry_cultivated_settlement() -> SimState {
+    let mut sim = cultivated_settlement();
+    for cell in sim.grid.cells_mut() {
+        cell.rainfall = 0.01;
+    }
+    sim.step(0., &[]);
+    sim
+}

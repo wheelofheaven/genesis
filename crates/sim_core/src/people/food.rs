@@ -82,6 +82,10 @@ impl People {
         true
     }
     pub(crate) fn prepare_supplies(&mut self, index: usize, sim: &SimState, ms: u64) {
+        if self.entries[index].irrigation_task.is_some() {
+            self.prepare_irrigation(index, sim, ms);
+            return;
+        }
         let p = &self.entries[index];
         if p.water_task.is_some() {
             self.prepare_water(index, sim, ms);
@@ -116,6 +120,7 @@ impl People {
         if !food_first {
             self.prepare_food(index, sim, ms);
         }
+        self.prepare_irrigation(index, sim, ms);
     }
     fn prepare_food(&mut self, index: usize, sim: &SimState, ms: u64) {
         let p = &self.entries[index];

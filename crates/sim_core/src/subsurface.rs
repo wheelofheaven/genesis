@@ -1,12 +1,14 @@
 //! Synthetic subsurface scenario model. Depths and volumes use game units, not SI.
 //! Independent storage columns model an unconfined aquifer; no lateral flow,
 //! pressure, salinity, or coupled surface-water solver is claimed.
+mod pumping;
 pub mod supply;
 use crate::{
     grid::Grid,
     settlement::Building,
     spatial::{self, Position},
 };
+pub use pumping::PumpMode;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +95,8 @@ pub struct Well {
     pub id: u64,
     pub position: Position,
     pub active: bool,
+    #[serde(default)]
+    pub pump_mode: PumpMode,
     pub recovered: f64,
     pub last_yield: f32,
     #[serde(default)]
@@ -346,6 +350,7 @@ impl Subsurface {
             id,
             position: p,
             active: true,
+            pump_mode: PumpMode::default(),
             recovered: 0.,
             last_yield: 0.,
             supply: Some(supply::Supply::default()),
@@ -386,11 +391,19 @@ impl Subsurface {
                 0.
             };
             let amount = (rate as f64 * dt as f64).min(f32::MAX as f64) as f32;
-            let extracted = self.withdraw(p, amount);
-            self.wells[i].last_yield = extracted / dt;
-            self.wells[i].recovered += extracted as f64;
+            let extracted = match self.wells[i].pump_mode {
+                PumpMode::Continuous => f64::from(self.withdraw(p, amount)),
+                PumpMode::FillBuffer => {
+                    self.withdraw_to_buffer(p, amount, self.wells[i].buffer_room())
+                }
+            };
+            self.wells[i].last_yield = match self.wells[i].pump_mode {
+                PumpMode::Continuous => extracted as f32 / dt,
+                PumpMode::FillBuffer => (extracted / f64::from(dt)) as f32,
+            };
+            self.wells[i].recovered += extracted;
             if let Some(supply) = &mut self.wells[i].supply {
-                supply.receive(f64::from(extracted));
+                supply.receive(extracted);
             }
         }
     }

@@ -23,7 +23,7 @@ fn point(p: Position) -> bool {
 }
 
 pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
-    require(save.schema == SCHEMA, "unsupported schema (expected 6)")?;
+    require(save.schema == SCHEMA, "unsupported save schema")?;
     require(save.rules == RULES, "incompatible simulation rules")?;
     require(
         save.content == CONTENT,
@@ -241,7 +241,10 @@ pub(super) fn validate(save: &Snapshot) -> Result<(), SaveError> {
             }
             Action::PlaceBuilding { position, rotation } => point(*position) && scalar(*rotation),
             Action::DrillWell { position } | Action::PlantCrop { position } => point(*position),
-            Action::SetWellActive { .. }
+            Action::SetWellPumpMode { .. }
+            | Action::SetCropTending { .. }
+            | Action::SetWellActive { .. }
+            | Action::IrrigateCrop { .. }
             | Action::CancelWaterTask { .. }
             | Action::CancelFoodTask { .. } => true,
             Action::BuildPath { waypoints, width } => {
